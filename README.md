@@ -181,6 +181,97 @@ The scanner tests monkeypatch `zxingcpp.read_barcodes` to inject deterministic
 results, so they do not depend on a real barcode image. The CLI regression tests
 run the actual `barcode-scan` command against the sample images in `samples/`.
 
+## Benchmark
+
+A ground-truth benchmark dataset and runner live in `tests/benchmark/`. They
+freeze the deterministic scanner as a stable baseline so that any change which
+improves one image while silently breaking another is caught.
+
+### Dataset
+
+`tests/benchmark/dataset.json` holds a rich per-box ground truth for each
+sample image. The top-level count field is `expected_barcode_symbol_count`,
+because the benchmark measures **barcode-symbol detection**, not physical
+boxes. (For `marny_brown_42.jpeg` the value is 2 — two barcode symbols on one
+physical box; for the multi-box images it equals the number of primary barcode
+symbols.)
+
+Each box is one of:
+
+- `decoded` — the barcode value is known and the scanner is expected to find it.
+- `unreadable` — the barcode is visible in the image but cannot be reliably
+  decoded from the available pixels. The box records `bounding_box`,
+  `location`, `visible_metadata`, and `reason` for future analysis.
+
+### Run the benchmark
+
+```bash
+make bench
+# or
+python -m tests.benchmark.runner
+```
+
+The runner scans each image 10 times in a single process, matches scanner
+detections to expected boxes, and prints a report table. It exits 0 if the
+baseline passes and 1 on regression.
+
+Matching uses center-in-box with a minimum absolute padding of 25px (so
+line-like ZXing boxes get real tolerance) and global distance-based assignment:
+all valid `(expected, detection)` candidate pairs are sorted by center distance
+and assigned nearest-first, making matching deterministic and order-independent.
+
+### Metrics
+
+| Metric | Definition |
+|---|---|
+| **Symbols** | `expected_barcode_symbol_count` for the image |
+| **Decoded** | Number of expected `decoded` boxes |
+| **Found** | Total scanner detections returned (`len(detections)`), distinct from matched count |
+| **Exact** | Expected-decoded boxes matched with the correct value (`exact/expected_decoded`) |
+| **UniqueCases** | Unique expected-decoded values found in scanner output (`found/expected_unique_values`). The aggregate is the **sum of unique expected values per image**, not a global set union. |
+| **FP** | False positives — scanner detections not matched to any expected box, plus mismatches |
+| **Bonus** | Expected-`unreadable` boxes where the scanner found a value. Printed but not counted as a false positive and not a success criterion. |
+| **Mismatch** | Matched pairs where the expected value differs from the scanner value. Each mismatch counts as both a miss and a false positive. |
+| **Median / P95** | Wall-clock latency per scan across warm runs (runs 2..N). P95 uses nearest-rank. |
+| **First** | First-run latency — scanner construction + first scan in the current process. Not a true process cold start (imports and native-library loading happen before the runner executes). |
+
+### Pass criteria
+
+The runner exits 0 only when:
+
+- `exact_matches == expected_decoded`
+- `false_positives == 0`
+- `mismatches == 0`
+- `unique_values_found == expected_unique_values`
+
+Unreadable boxes do **not** block success. Bonus detections are reported but
+cause neither failure nor a false positive.
+
+### Frozen baseline
+
+| Metric | Value |
+|---|---|
+| Expected barcode symbols | 20 |
+| Expected decoded symbols | 19 |
+| Exact decoded occurrences | 19/19 |
+| UniqueCases | 14/14 |
+| False positives | 0 |
+| Mismatches | 0 |
+| Bonuses | 0 |
+
+`multi_16_fuzzy.jpeg` is excluded until its per-label ground truth is manually
+annotated. The dataset format supports adding it later.
+
+### Regression test
+
+```bash
+pytest tests/benchmark/test_baseline.py
+```
+
+Asserts the frozen baseline (19/19 exact, 14/14 unique cases, 0 false
+positives, 0 mismatches). Latency is not asserted — it is reported for human
+monitoring only.
+
 ## Docker
 
 ```bash
@@ -201,6 +292,7 @@ samples/
   marny_brown_42.jpeg           Sample photo with 2 barcodes
   multi_clear_6_boxes.jpeg      Sample photo with 6 barcodes
 tests/
+  benchmark/                    Ground-truth dataset + benchmark runner
   test_api.py                   API endpoint tests
   test_barcode_scanner.py       Scanner logic tests (monkeypatched zxing)
   test_cli.py                   CLI unit tests + regression tests on samples

@@ -1,4 +1,4 @@
-.PHONY: install run scan test lint docker-build docker-run
+.PHONY: install run scan test bench lint docker-build docker-run
 
 install:
 	python -m pip install -e ".[dev]"
@@ -11,6 +11,9 @@ scan:
 
 test:
 	pytest
+
+bench:
+	python -m tests.benchmark.runner
 
 lint:
 	ruff check .
