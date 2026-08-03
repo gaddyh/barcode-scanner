@@ -1,0 +1,17 @@
+Metadata-Version: 2.4
+Name: barcode-scanner-service
+Version: 0.1.0
+Summary: Deterministic barcode scanning API for product photos
+Requires-Python: >=3.11
+Requires-Dist: fastapi<1.0,>=0.115
+Requires-Dist: uvicorn[standard]<1.0,>=0.34
+Requires-Dist: python-multipart<1.0,>=0.0.20
+Requires-Dist: pillow<13.0,>=11.0
+Requires-Dist: pydantic-settings<3.0,>=2.7
+Requires-Dist: zxing-cpp<4.0,>=3.0
+Requires-Dist: numpy<2.0,>=1.26
+Provides-Extra: dev
+Requires-Dist: httpx<1.0,>=0.28; extra == "dev"
+Requires-Dist: pytest<10.0,>=8.3; extra == "dev"
+Requires-Dist: pytest-cov<8.0,>=6.0; extra == "dev"
+Requires-Dist: ruff<1.0,>=0.9; extra == "dev"

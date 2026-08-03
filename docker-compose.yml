@@ -1,0 +1,8 @@
+services:
+  barcode-scanner:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENV: development
+      MAX_UPLOAD_BYTES: 15728640

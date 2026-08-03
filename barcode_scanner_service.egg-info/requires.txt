@@ -1,0 +1,13 @@
+fastapi<1.0,>=0.115
+uvicorn[standard]<1.0,>=0.34
+python-multipart<1.0,>=0.0.20
+pillow<13.0,>=11.0
+pydantic-settings<3.0,>=2.7
+zxing-cpp<4.0,>=3.0
+numpy<2.0,>=1.26
+
+[dev]
+httpx<1.0,>=0.28
+pytest<10.0,>=8.3
+pytest-cov<8.0,>=6.0
+ruff<1.0,>=0.9

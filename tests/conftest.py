@@ -1,0 +1,24 @@
+from collections.abc import Iterator
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.api.routes import get_scanner
+from app.main import app
+
+
+@pytest.fixture
+def override_scanner() -> Iterator[dict[str, object]]:
+    holder: dict[str, object] = {}
+
+    def dependency() -> object:
+        return holder["scanner"]
+
+    app.dependency_overrides[get_scanner] = dependency
+    yield holder
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def client() -> TestClient:
+    return TestClient(app)
