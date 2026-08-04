@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import contextvars
 import json
+import os
 import sys
 import time
 from collections.abc import Sequence
@@ -9,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 
+from dotenv import load_dotenv
 from PIL import UnidentifiedImageError
 
 from app.services.barcode_scanner import BarcodeScanner
@@ -21,6 +24,24 @@ from app.services.gemini_box_audit import (
     audit_shoebox_counts,
     audit_shoebox_image,
 )
+
+# Load .env early so LANGSMITH_* vars are set before langsmith is imported.
+load_dotenv()
+
+# langsmith is optional — tracing is enabled when LANGSMITH_TRACING=true.
+_TRACING = os.getenv("LANGSMITH_TRACING", "").lower() in ("true", "1", "yes")
+if _TRACING:
+    from langsmith import traceable
+else:
+    # no-op decorator fallback when tracing is disabled.
+    def traceable(*args, **kwargs):  # type: ignore[misc]
+        if len(args) == 1 and callable(args[0]) and not kwargs:
+            return args[0]
+
+        def _wrap(fn):
+            return fn
+
+        return _wrap
 
 
 # ---------------------------------------------------------------------------
@@ -45,6 +66,7 @@ def _print_timing(label: str, seconds: float) -> None:
 # ---------------------------------------------------------------------------
 
 
+@traceable(run_type="tool", name="barcode_scan")
 def scan_path(path: Path, scanner: BarcodeScanner) -> dict[str, object]:
     try:
         image_bytes = path.read_bytes()
@@ -173,6 +195,36 @@ def _run_audit(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
+@traceable(run_type="tool", name="gemini_audit")
+def _traced_audit(
+    path: Path,
+    *,
+    model: str | None,
+    max_retries: int,
+    retry_delay_seconds: float,
+) -> dict[str, object]:
+    """Traced wrapper for the Gemini counts audit."""
+    try:
+        counts = audit_shoebox_counts(
+            path,
+            model=model,
+            max_retries=max_retries,
+            retry_delay_seconds=retry_delay_seconds,
+        )
+    except FileNotFoundError as exc:
+        return {
+            "status": "error",
+            "error": {"code": "unreadable_file", "message": str(exc)},
+        }
+    except (ValueError, ShoeboxAuditError) as exc:
+        return {
+            "status": "error",
+            "error": {"code": "audit_failed", "message": str(exc)},
+        }
+    return {"status": "ok", "counts": counts.model_dump(mode="json")}
+
+
+@traceable(run_type="chain", name="pipeline")
 def pipeline_path(
     path: Path,
     scanner: BarcodeScanner,
@@ -187,28 +239,21 @@ def pipeline_path(
         return scan_path(path, scanner)
 
     def _do_audit() -> dict[str, object]:
-        try:
-            counts = audit_shoebox_counts(
-                path,
-                model=model,
-                max_retries=max_retries,
-                retry_delay_seconds=retry_delay_seconds,
-            )
-        except FileNotFoundError as exc:
-            return {
-                "status": "error",
-                "error": {"code": "unreadable_file", "message": str(exc)},
-            }
-        except (ValueError, ShoeboxAuditError) as exc:
-            return {
-                "status": "error",
-                "error": {"code": "audit_failed", "message": str(exc)},
-            }
-        return {"status": "ok", "counts": counts.model_dump(mode="json")}
+        return _traced_audit(
+            path,
+            model=model,
+            max_retries=max_retries,
+            retry_delay_seconds=retry_delay_seconds,
+        )
+
+    # Copy the current context so langsmith trace context propagates to threads.
+    # Each thread needs its own copy — a single Context cannot be entered twice.
+    scan_ctx = contextvars.copy_context()
+    audit_ctx = contextvars.copy_context()
 
     with ThreadPoolExecutor(max_workers=2) as pool:
-        scan_future = pool.submit(_do_scan)
-        audit_future = pool.submit(_do_audit)
+        scan_future = pool.submit(scan_ctx.run, _do_scan)
+        audit_future = pool.submit(audit_ctx.run, _do_audit)
         scan_result = scan_future.result()
         audit_result = audit_future.result()
 
