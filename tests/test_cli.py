@@ -51,7 +51,7 @@ def _patch_scanner(monkeypatch, barcodes: list[DetectedBarcode]):
 
 
 # ---------------------------------------------------------------------------
-# Unit tests (fake scanner)
+# Unit tests (fake scanner) — scan subcommand
 # ---------------------------------------------------------------------------
 
 
@@ -61,7 +61,7 @@ def test_cli_scans_image_and_prints_json(tmp_path, monkeypatch, capsys) -> None:
     image_path = tmp_path / "product.png"
     image_path.write_bytes(make_png())
 
-    exit_code = cli.main([str(image_path), "--pretty"])
+    exit_code = cli.main(["scan", str(image_path), "--pretty"])
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
@@ -77,7 +77,7 @@ def test_cli_reports_unreadable_file(tmp_path, monkeypatch, capsys) -> None:
     cli = _patch_scanner(monkeypatch, [])
 
     missing = tmp_path / "does-not-exist.png"
-    exit_code = cli.main([str(missing)])
+    exit_code = cli.main(["scan", str(missing)])
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
@@ -93,7 +93,7 @@ def test_cli_reports_invalid_image(tmp_path, monkeypatch, capsys) -> None:
     bad = tmp_path / "not-an-image.png"
     bad.write_bytes(b"not an image")
 
-    exit_code = cli.main([str(bad)])
+    exit_code = cli.main(["scan", str(bad)])
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
@@ -111,7 +111,7 @@ def test_cli_handles_multiple_images(tmp_path, monkeypatch, capsys) -> None:
     first.write_bytes(make_png())
     second.write_bytes(make_png())
 
-    exit_code = cli.main([str(first), str(second)])
+    exit_code = cli.main(["scan", str(first), str(second)])
 
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
@@ -119,6 +119,75 @@ def test_cli_handles_multiple_images(tmp_path, monkeypatch, capsys) -> None:
     assert exit_code == 0
     assert len(payload) == 2
     assert {entry["path"] for entry in payload} == {str(first), str(second)}
+
+
+def test_cli_scan_time_prints_timing_to_stderr(tmp_path, monkeypatch, capsys) -> None:
+    cli = _patch_scanner(monkeypatch, [_fake_barcode()])
+
+    image_path = tmp_path / "product.png"
+    image_path.write_bytes(make_png())
+
+    exit_code = cli.main(["scan", str(image_path), "--time"])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert payload[0]["status"] == "found"
+    assert "s" in captured.err  # timing line on stderr
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — audit subcommand (fake audit)
+# ---------------------------------------------------------------------------
+
+
+def _patch_audit(monkeypatch, result=None, error=None):
+    from app import cli
+
+    def fake_audit_path(path, *, model, max_retries, retry_delay_seconds, full):
+        if error is not None:
+            raise error
+        return result or {
+            "path": str(path),
+            "status": "ok",
+            "audit": {"visible_product_barcode_label_count": 1},
+        }
+
+    monkeypatch.setattr(cli, "audit_path", fake_audit_path)
+    return cli
+
+
+def test_cli_audit_prints_json(tmp_path, monkeypatch, capsys) -> None:
+    cli = _patch_audit(monkeypatch)
+
+    image_path = tmp_path / "box.png"
+    image_path.write_bytes(make_png())
+
+    exit_code = cli.main(["audit", str(image_path), "--pretty"])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert payload[0]["status"] == "ok"
+    assert payload[0]["audit"]["visible_product_barcode_label_count"] == 1
+
+
+def test_cli_audit_time_prints_timing_to_stderr(tmp_path, monkeypatch, capsys) -> None:
+    cli = _patch_audit(monkeypatch)
+
+    image_path = tmp_path / "box.png"
+    image_path.write_bytes(make_png())
+
+    exit_code = cli.main(["audit", str(image_path), "--time"])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert payload[0]["status"] == "ok"
+    assert "s" in captured.err
 
 
 # ---------------------------------------------------------------------------
@@ -142,8 +211,8 @@ def _run_cli(*args: str) -> tuple[int, list[dict]]:
     reason="samples/ directory not available",
 )
 def test_cli_regression_multi_clear_6_boxes() -> None:
-    """barcode-scan samples/multi_clear_6_boxes.jpeg finds all 6 barcodes."""
-    exit_code, payload = _run_cli("samples/multi_clear_6_boxes.jpeg")
+    """barcode-scan scan samples/multi_clear_6_boxes.jpeg finds all 6 barcodes."""
+    exit_code, payload = _run_cli("scan", "samples/multi_clear_6_boxes.jpeg")
 
     assert exit_code == 0
     assert len(payload) == 1
@@ -164,7 +233,7 @@ def test_cli_regression_multi_clear_6_boxes() -> None:
     ]
 
     for barcode in entry["barcodes"]:
-        assert barcode["format"] == "Code 128"
+        assert barcode["format"] == "Code128"
         assert barcode["content_type"] == "ContentType.Text"
         assert len(barcode["position"]) == 4
         assert "bounding_box" in barcode
@@ -176,8 +245,8 @@ def test_cli_regression_multi_clear_6_boxes() -> None:
     reason="samples/ directory not available",
 )
 def test_cli_regression_marny_brown_42() -> None:
-    """barcode-scan samples/marny_brown_42.jpeg finds both barcodes."""
-    exit_code, payload = _run_cli("samples/marny_brown_42.jpeg")
+    """barcode-scan scan samples/marny_brown_42.jpeg finds both barcodes."""
+    exit_code, payload = _run_cli("scan", "samples/marny_brown_42.jpeg")
 
     assert exit_code == 0
     assert len(payload) == 1
@@ -191,7 +260,7 @@ def test_cli_regression_marny_brown_42() -> None:
     assert values == ["7297501098442", "900439-42"]
 
     for barcode in entry["barcodes"]:
-        assert barcode["format"] == "Code 128"
+        assert barcode["format"] == "Code128"
         assert barcode["content_type"] == "ContentType.Text"
         assert len(barcode["position"]) == 4
         assert "bounding_box" in barcode
