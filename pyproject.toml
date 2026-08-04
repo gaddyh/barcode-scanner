@@ -38,6 +38,9 @@ include = ["app*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "live_gemini: hits the real Gemini API (slow, charged, network)",
+]
 
 [tool.ruff]
 line-length = 100

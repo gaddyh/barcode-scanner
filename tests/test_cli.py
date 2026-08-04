@@ -145,7 +145,7 @@ def test_cli_scan_time_prints_timing_to_stderr(tmp_path, monkeypatch, capsys) ->
 def _patch_audit(monkeypatch, result=None, error=None):
     from app import cli
 
-    def fake_audit_path(path, *, model, max_retries, retry_delay_seconds, full):
+    def fake_audit_path(path, *, model, max_retries, retry_delay_seconds, full, labels):
         if error is not None:
             raise error
         return result or {
@@ -264,3 +264,285 @@ def test_cli_regression_marny_brown_42() -> None:
         assert barcode["content_type"] == "ContentType.Text"
         assert len(barcode["position"]) == 4
         assert "bounding_box" in barcode
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — pipeline subcommand (spatial reconciliation)
+# ---------------------------------------------------------------------------
+
+
+def _spatial_result(image_width: int = 1000, image_height: int = 1000) -> dict:
+    """A minimal spatial audit result in the shape returned by
+    audit_shoebox_labels().model_dump(mode='json')."""
+    return {
+        "image_width": image_width,
+        "image_height": image_height,
+        "labels": [
+            {
+                "label_index": 1,
+                "label_bbox": {"x1": 100, "y1": 100, "x2": 300, "y2": 200},
+                "barcode_bbox": {"x1": 150, "y1": 120, "x2": 280, "y2": 190},
+                "status": "clear",
+                "confidence": "high",
+            },
+            {
+                "label_index": 2,
+                "label_bbox": {"x1": 100, "y1": 800, "x2": 300, "y2": 900},
+                "barcode_bbox": {"x1": 150, "y1": 820, "x2": 280, "y2": 890},
+                "status": "clear",
+                "confidence": "high",
+            },
+        ],
+    }
+
+
+def _patch_pipeline(monkeypatch, barcodes, spatial_result_dict, audit_error=False):
+    """Patch the pipeline so scan returns ``barcodes`` and the Gemini audit
+    returns ``spatial_result_dict`` (or an error)."""
+    cli = _patch_scanner(monkeypatch, barcodes)
+
+    if audit_error:
+        def fake_traced_audit(path, *, model, max_retries, retry_delay_seconds):
+            return {
+                "status": "error",
+                "error": {"type": "ShoeboxAuditError", "message": "boom"},
+            }
+    else:
+        def fake_traced_audit(path, *, model, max_retries, retry_delay_seconds):
+            return {"status": "ok", "spatial": spatial_result_dict}
+
+    monkeypatch.setattr(cli, "_traced_audit", fake_traced_audit)
+    return cli
+
+
+def test_cli_pipeline_success_produces_reconciliation(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """Pipeline with scanner success + Gemini success → reconciliation exists
+    and scanner_detections preserve bounding boxes."""
+    barcodes = [
+        DetectedBarcode(
+            value="V1",
+            format="Code128",
+            content_type="Text",
+            orientation=0,
+            position=(Point(x=160, y=130), Point(x=270, y=130),
+                      Point(x=270, y=140), Point(x=160, y=140)),
+            bounding_box=BoundingBox(x1=160, y1=130, x2=270, y2=140),
+        ),
+        DetectedBarcode(
+            value="V2",
+            format="Code128",
+            content_type="Text",
+            orientation=0,
+            position=(Point(x=160, y=830), Point(x=270, y=830),
+                      Point(x=270, y=840), Point(x=160, y=840)),
+            bounding_box=BoundingBox(x1=160, y1=830, x2=270, y2=840),
+        ),
+    ]
+    cli = _patch_pipeline(monkeypatch, barcodes, _spatial_result())
+
+    image_path = tmp_path / "box.png"
+    image_path.write_bytes(make_png())
+
+    exit_code = cli.main(["pipeline", str(image_path), "--pretty"])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert len(payload) == 1
+    entry = payload[0]
+
+    assert entry["scan_status"] == "found"
+    assert entry["audit_status"] == "ok"
+    assert entry["ok"] is True
+
+    # Full scanner detections preserved with bounding boxes.
+    assert "scanner_detections" in entry
+    assert len(entry["scanner_detections"]) == 2
+    assert "bounding_box" in entry["scanner_detections"][0]
+
+    # Gemini labels preserved.
+    assert "gemini_labels" in entry
+    assert len(entry["gemini_labels"]) == 2
+
+    # Reconciliation produced.
+    assert "reconciliation" in entry
+    recon = entry["reconciliation"]
+    assert recon["matched_label_count"] == 2
+    assert recon["visible_label_count"] == 2
+    assert recon["all_labels_matched"] is True
+    assert len(recon["matches"]) == 2
+    assert recon["unmatched_labels"] == []
+    assert recon["unassigned_scanner_detections"] == []
+
+    # Derived counts.
+    assert entry["visible_labels"] == 2
+    assert entry["clear_labels"] == 2
+
+    # Backward-compatible decoded_vs_visible carries matched_labels.
+    dv = entry["decoded_vs_visible"]
+    assert dv["matched_labels"] == 2
+    assert dv["all_labels_matched"] is True
+
+
+def test_cli_pipeline_gemini_error_keeps_scanner_no_reconciliation(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """Pipeline on Gemini audit failure: scanner result still returned,
+    audit_status == 'error', no reconciliation, no counts fallback."""
+    barcodes = [
+        DetectedBarcode(
+            value="V1",
+            format="Code128",
+            content_type="Text",
+            orientation=0,
+            position=(Point(x=10, y=5), Point(x=90, y=5),
+                      Point(x=90, y=40), Point(x=10, y=40)),
+            bounding_box=BoundingBox(x1=10, y1=5, x2=90, y2=40),
+        ),
+    ]
+    cli = _patch_pipeline(
+        monkeypatch, barcodes, _spatial_result(), audit_error=True
+    )
+
+    image_path = tmp_path / "box.png"
+    image_path.write_bytes(make_png())
+
+    exit_code = cli.main(["pipeline", str(image_path)])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    # Exit code 1 because audit failed (ok = scan_ok and audit_ok).
+    assert exit_code == 1
+    assert len(payload) == 1
+    entry = payload[0]
+
+    assert entry["scan_status"] == "found"
+    assert entry["audit_status"] == "error"
+    assert entry["ok"] is False
+
+    # Scanner detections still present.
+    assert "scanner_detections" in entry
+    assert len(entry["scanner_detections"]) == 1
+
+    # No reconciliation, no gemini_labels, no counts fallback.
+    assert "reconciliation" not in entry
+    assert "gemini_labels" not in entry
+    assert "visible_labels" not in entry
+    assert "audit_error" in entry
+    assert entry["audit_error"]["type"] == "ShoeboxAuditError"
+
+
+def test_cli_pipeline_unmatched_label_shown_in_reconciliation(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """One scanner detection, two Gemini labels → one unmatched label,
+    all_labels_matched=False."""
+    barcodes = [
+        DetectedBarcode(
+            value="V1",
+            format="Code128",
+            content_type="Text",
+            orientation=0,
+            position=(Point(x=160, y=130), Point(x=270, y=130),
+                      Point(x=270, y=140), Point(x=160, y=140)),
+            bounding_box=BoundingBox(x1=160, y1=130, x2=270, y2=140),
+        ),
+    ]
+    cli = _patch_pipeline(monkeypatch, barcodes, _spatial_result())
+
+    image_path = tmp_path / "box.png"
+    image_path.write_bytes(make_png())
+
+    exit_code = cli.main(["pipeline", str(image_path)])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    # Exit code is 0 because both scan and audit succeeded (ok = scan_ok and
+    # audit_ok). A partial match (all_labels_matched=False) is informational,
+    # not an error.
+    assert exit_code == 0
+    entry = payload[0]
+    assert entry["ok"] is True
+    recon = entry["reconciliation"]
+    assert recon["matched_label_count"] == 1
+    assert recon["visible_label_count"] == 2
+    assert recon["all_labels_matched"] is False
+    assert len(recon["unmatched_labels"]) == 1
+    assert recon["unmatched_labels"][0]["label_index"] == 2
+
+
+def test_cli_pipeline_table_shows_matched_over_visible(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """The stderr table should show matched/visible (e.g. 2/2) when
+    reconciliation is available."""
+    barcodes = [
+        DetectedBarcode(
+            value="V1",
+            format="Code128",
+            content_type="Text",
+            orientation=0,
+            position=(Point(x=160, y=130), Point(x=270, y=130),
+                      Point(x=270, y=140), Point(x=160, y=140)),
+            bounding_box=BoundingBox(x1=160, y1=130, x2=270, y2=140),
+        ),
+        DetectedBarcode(
+            value="V2",
+            format="Code128",
+            content_type="Text",
+            orientation=0,
+            position=(Point(x=160, y=830), Point(x=270, y=830),
+                      Point(x=270, y=840), Point(x=160, y=840)),
+            bounding_box=BoundingBox(x1=160, y1=830, x2=270, y2=840),
+        ),
+    ]
+    cli = _patch_pipeline(monkeypatch, barcodes, _spatial_result())
+
+    image_path = tmp_path / "box.png"
+    image_path.write_bytes(make_png())
+
+    cli.main(["pipeline", str(image_path)])
+
+    captured = capsys.readouterr()
+    # Table header should say Matched/Visible, and the row should show 2/2 OK.
+    assert "Matched/Visible" in captured.err
+    assert "2/2" in captured.err
+    assert "OK" in captured.err
+
+
+def test_cli_audit_labels_flag_calls_audit_shoebox_labels(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """audit --labels should call audit_shoebox_labels and return its output."""
+    from app import cli
+
+    captured_result = {}
+
+    def fake_audit_path(path, *, model, max_retries, retry_delay_seconds, full, labels):
+        captured_result["labels"] = labels
+        captured_result["full"] = full
+        return {
+            "path": str(path),
+            "status": "ok",
+            "audit": {"image_width": 1000, "labels": []},
+        }
+
+    monkeypatch.setattr(cli, "audit_path", fake_audit_path)
+
+    image_path = tmp_path / "box.png"
+    image_path.write_bytes(make_png())
+
+    exit_code = cli.main(["audit", "--labels", str(image_path)])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert captured_result["labels"] is True
+    assert captured_result["full"] is False
+    assert payload[0]["status"] == "ok"

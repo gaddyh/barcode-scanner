@@ -35,17 +35,26 @@ import argparse
 import mimetypes
 import os
 import time
+from dataclasses import dataclass
 from enum import Enum
+from io import BytesIO
 from pathlib import Path
 from typing import Annotated
 
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+from PIL import Image, ImageOps
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.services.spatial_geometry import (
+    PixelBoundingBox,
+    clamp_bbox,
+    normalized_to_pixels,
+)
 
-DEFAULT_MODEL = "gemini-3.5-flash"
+
+DEFAULT_MODEL = "gemini-3.5-flash-lite"
 DEFAULT_COUNTS_MODEL = "gemini-3.5-flash-lite"
 DEFAULT_MAX_RETRIES = 2
 DEFAULT_RETRY_DELAY_SECONDS = 1.0
@@ -150,6 +159,119 @@ class NormalizedBoundingBox(BaseModel):
         if self.right <= self.left:
             raise ValueError("right must be greater than left")
         return self
+
+
+# ---------------------------------------------------------------------------
+# Spatial label audit — Gemini-facing (normalized 0..1000) and pipeline-facing
+# (pixel) models. The normalized models stay internal to this module; downstream
+# code only receives ``SpatialLabelAuditPixels``.
+# ---------------------------------------------------------------------------
+
+
+class SpatialLabelStatus(str, Enum):
+    CLEAR = "clear"
+    PARTIALLY_OBSCURED = "partially_obscured"
+    BLURRED = "blurred"
+    CROPPED = "cropped"
+    UNCERTAIN = "uncertain"
+
+
+class SpatialLabelObservation(BaseModel):
+    """
+    One visible shoebox product label, Gemini-facing (normalized 0..1000).
+
+    ``label_bbox`` covers the complete printed product label.
+    ``barcode_bbox`` tightly covers the barcode bars when they are visible,
+    or ``None`` when the label is visible but the barcode region cannot be
+    localized.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    label_index: int = Field(ge=1)
+    label_bbox: NormalizedBoundingBox
+    barcode_bbox: NormalizedBoundingBox | None = None
+    status: SpatialLabelStatus
+    confidence: AuditConfidence
+
+
+class SpatialLabelAudit(BaseModel):
+    """
+    Gemini-facing spatial audit result.
+
+    No separate count fields — ``visible_count = len(labels)`` and
+    ``clear_count = sum(label.status == CLEAR)`` are derived by the caller.
+    The ``labels`` array is authoritative.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    labels: list[SpatialLabelObservation]
+
+
+class SpatialLabelObservationPixels(BaseModel):
+    """
+    One visible shoebox product label, pipeline-facing (pixel coordinates).
+
+    This is what downstream code (reconciliation, cropping, visualization)
+    consumes. The Gemini-native 0..1000 coordinates have been converted and
+    clamped to the image frame.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    label_index: int = Field(ge=1)
+    label_bbox: PixelBoundingBox
+    barcode_bbox: PixelBoundingBox | None = None
+    status: SpatialLabelStatus
+    confidence: AuditConfidence
+
+
+class SpatialLabelAuditPixels(BaseModel):
+    """
+    Pipeline-facing spatial audit result with pixel coordinates.
+
+    ``image_width`` / ``image_height`` are the dimensions of the normalized
+    image that both Gemini and the scanner analyzed, so downstream code can
+    compute normalized distances consistently.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    image_width: int = Field(gt=0)
+    image_height: int = Field(gt=0)
+    labels: list[SpatialLabelObservationPixels]
+
+    @property
+    def visible_count(self) -> int:
+        return len(self.labels)
+
+    @property
+    def clear_count(self) -> int:
+        return sum(
+            label.status == SpatialLabelStatus.CLEAR for label in self.labels
+        )
+
+
+SPATIAL_LABEL_PROMPT = """
+Locate every visible shoebox product label that contains, or appears intended
+to contain, the product barcode used to identify the sellable item.
+
+Return one observation per physical product label.
+
+For every observation:
+- label_bbox must cover the complete printed product label.
+- barcode_bbox must tightly cover the barcode bars when they are visible.
+- If the label is visible but the barcode region cannot be localized,
+  return barcode_bbox as null.
+- Do not return shipping labels, warehouse labels, carton labels, handwritten
+  stickers, or unrelated barcodes.
+- Do not read, guess, or return barcode values.
+- Use normalized coordinates from 0 to 1000 in this order:
+  top, left, bottom, right.
+- Assign label indexes top-to-bottom, then left-to-right.
+- Do not return count fields separately; the labels array is authoritative.
+""".strip()
 
 
 class VisibleLabelText(BaseModel):
@@ -376,20 +498,114 @@ def _detect_mime_type(image_path: Path) -> str:
     )
 
 
-def _load_image(image_path: str | os.PathLike[str]) -> tuple[Path, bytes, str]:
+@dataclass(frozen=True)
+class NormalizedImage:
+    """
+    In-memory image normalized for Gemini analysis.
+
+    The raw file is never modified. Normalization happens entirely in memory:
+
+    - EXIF orientation is applied to the pixel matrix (``ImageOps.exif_transpose``)
+      so a phone photo stored sideways is rotated to its display orientation.
+    - The image is converted to RGB.
+    - If either dimension exceeds ``max_dimension``, it is resized (aspect
+      ratio preserved via ``thumbnail``). Images already smaller than
+      ``max_dimension`` are left untouched. Gemini only needs enough resolution
+      to locate labels, not decode thin barcode lines.
+    - It is re-encoded as JPEG bytes with ``image/jpeg`` declared as the MIME
+      type.
+
+    ``width``/``height`` are the dimensions Gemini actually sees (possibly
+    resized). ``original_width``/``original_height`` are the full-resolution
+    dimensions. Gemini's normalized 0..1000 coordinates are converted directly
+    to the original frame, so the resize does not affect the coordinate system
+    downstream code receives.
+    """
+
+    data: bytes
+    mime_type: str
+    width: int
+    height: int
+    original_width: int
+    original_height: int
+
+
+# Default max dimension for the Gemini copy. The scanner keeps full resolution;
+# Gemini only needs enough to locate product labels, not decode barcode bars.
+DEFAULT_GEMINI_MAX_DIMENSION = 1600
+
+
+def load_normalized_image(
+    image_path: str | os.PathLike[str],
+    *,
+    max_dimension: int = DEFAULT_GEMINI_MAX_DIMENSION,
+) -> NormalizedImage:
+    """
+    Load ``image_path`` and return an EXIF-normalized, resized RGB JPEG.
+
+    The image is resized so neither dimension exceeds ``max_dimension`` (aspect
+    ratio preserved). ``original_width``/``original_height`` record the
+    full-resolution dimensions so callers can scale Gemini bounding boxes back
+    to the scanner's coordinate space.
+
+    Raises:
+        FileNotFoundError: the path does not exist.
+        ValueError: the path is not a regular file or is empty, or
+            ``max_dimension`` is not positive.
+        PIL.UnidentifiedImageError: Pillow cannot decode the image.
+    """
+    if max_dimension <= 0:
+        raise ValueError("max_dimension must be positive")
+
     path = Path(image_path).expanduser().resolve()
 
     if not path.exists():
         raise FileNotFoundError(f"Image does not exist: {path}")
     if not path.is_file():
         raise ValueError(f"Image path is not a regular file: {path}")
-
-    image_bytes = path.read_bytes()
-    if not image_bytes:
+    if path.stat().st_size == 0:
         raise ValueError(f"Image file is empty: {path}")
 
-    mime_type = _detect_mime_type(path)
-    return path, image_bytes, mime_type
+    with Image.open(path) as source:
+        normalized = ImageOps.exif_transpose(source)
+        if normalized.mode != "RGB":
+            normalized = normalized.convert("RGB")
+
+        original_width, original_height = normalized.size
+
+        # Resize for Gemini — thumbnail preserves aspect ratio and never
+        # enlarges. The scanner keeps full resolution independently.
+        if original_width > max_dimension or original_height > max_dimension:
+            normalized.thumbnail(
+                (max_dimension, max_dimension),
+                Image.Resampling.LANCZOS,
+            )
+
+        width, height = normalized.size
+        buffer = BytesIO()
+        normalized.save(buffer, format="JPEG", quality=85, optimize=True)
+
+    return NormalizedImage(
+        data=buffer.getvalue(),
+        mime_type="image/jpeg",
+        width=width,
+        height=height,
+        original_width=original_width,
+        original_height=original_height,
+    )
+
+
+def _load_image(image_path: str | os.PathLike[str]) -> tuple[Path, bytes, str]:
+    """
+    Backward-compatible loader: returns (path, normalized_jpeg_bytes, mime_type).
+
+    All Gemini audit functions consume EXIF-normalized RGB JPEG bytes. The
+    image is resized for Gemini efficiency; coordinate conversion back to
+    full-resolution scanner space is handled in ``audit_shoebox_labels``.
+    """
+    path = Path(image_path).expanduser().resolve()
+    normalized = load_normalized_image(path)
+    return path, normalized.data, normalized.mime_type
 
 
 def audit_shoebox_image(
@@ -570,6 +786,183 @@ def audit_shoebox_counts(
 
     raise ShoeboxAuditError(
         f"Gemini counts audit failed for '{path.name}' after "
+        f"{max_retries + 1} attempt(s): {last_error}"
+    ) from last_error
+
+
+def _convert_spatial_audit_to_pixels(
+    audit: SpatialLabelAudit,
+    *,
+    original_width: int,
+    original_height: int,
+) -> SpatialLabelAuditPixels:
+    """
+    Convert a Gemini-facing ``SpatialLabelAudit`` (normalized 0..1000) directly
+    to original full-resolution pixel coordinates.
+
+    Gemini's normalized coordinates are resolution-independent — they represent
+    relative positions in the image, not pixels in any particular raster. So
+    regardless of what resize was applied to the Gemini copy, we convert
+    directly to the original frame:
+
+        x = round(normalized * original_dimension / 1000)
+
+    This avoids the unnecessary intermediate step through resized-image pixels
+    and reduces rounding error.
+    """
+    pixel_labels: list[SpatialLabelObservationPixels] = []
+    for obs in audit.labels:
+        label_px = clamp_bbox(
+            normalized_to_pixels(
+                top=obs.label_bbox.top,
+                left=obs.label_bbox.left,
+                bottom=obs.label_bbox.bottom,
+                right=obs.label_bbox.right,
+                image_width=original_width,
+                image_height=original_height,
+            ),
+            image_width=original_width,
+            image_height=original_height,
+        )
+        barcode_px: PixelBoundingBox | None = None
+        if obs.barcode_bbox is not None:
+            barcode_px = clamp_bbox(
+                normalized_to_pixels(
+                    top=obs.barcode_bbox.top,
+                    left=obs.barcode_bbox.left,
+                    bottom=obs.barcode_bbox.bottom,
+                    right=obs.barcode_bbox.right,
+                    image_width=original_width,
+                    image_height=original_height,
+                ),
+                image_width=original_width,
+                image_height=original_height,
+            )
+        pixel_labels.append(
+            SpatialLabelObservationPixels(
+                label_index=obs.label_index,
+                label_bbox=label_px,
+                barcode_bbox=barcode_px,
+                status=obs.status,
+                confidence=obs.confidence,
+            )
+        )
+    return SpatialLabelAuditPixels(
+        image_width=original_width,
+        image_height=original_height,
+        labels=pixel_labels,
+    )
+
+
+def audit_shoebox_labels(
+    image_path: str | os.PathLike[str],
+    *,
+    api_key: str | None = None,
+    model: str | None = None,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+    retry_delay_seconds: float = DEFAULT_RETRY_DELAY_SECONDS,
+) -> SpatialLabelAuditPixels:
+    """
+    Spatial label audit: locate every visible product label and its barcode
+    region, return pixel-space bounding boxes.
+
+    This is the middle Gemini mode — faster than ``audit_shoebox_image`` (no
+    OCR text, no per-box observations, no quality analysis) but more useful
+    than ``audit_shoebox_counts`` because it returns spatial regions that can
+    be matched to scanner detections.
+
+    Gemini's normalized 0..1000 coordinates are resolution-independent, so they
+    are converted directly to the original full-resolution pixel frame and
+    clamped. Downstream code never sees the normalized form — all pixel boxes
+    are in the scanner's coordinate space.
+
+    The Gemini copy is resized to ``DEFAULT_GEMINI_MAX_DIMENSION`` (1600px) only
+    if the original exceeds that, to reduce encoding time, request size, and
+    Gemini image-processing work on large phone photos. The scanner keeps full
+    resolution independently. The resize does not affect the coordinate system
+    because Gemini's normalized coordinates are converted directly to original
+    dimensions.
+
+    Returns:
+        A ``SpatialLabelAuditPixels`` with pixel-space label/barcode boxes in
+        the original full-resolution coordinate frame.
+
+    Raises:
+        FileNotFoundError: the image path does not exist.
+        ValueError: the input or configuration is invalid.
+        ShoeboxAuditError: Gemini did not return a valid structured result.
+    """
+    if max_retries < 0:
+        raise ValueError("max_retries must be >= 0")
+    if retry_delay_seconds < 0:
+        raise ValueError("retry_delay_seconds must be >= 0")
+
+    if api_key is None:
+        load_dotenv()
+
+    resolved_api_key = api_key or os.getenv("GEMINI_API_KEY")
+    if not resolved_api_key:
+        raise ValueError(
+            "Missing Gemini API key. Pass api_key=... or set GEMINI_API_KEY."
+        )
+
+    resolved_model = model or os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
+    path = Path(image_path).expanduser().resolve()
+    normalized = load_normalized_image(path)
+    image_bytes = normalized.data
+    mime_type = normalized.mime_type
+
+    client = genai.Client(api_key=resolved_api_key)
+    last_error: Exception | None = None
+
+    config_kwargs: dict[str, object] = dict(
+        response_mime_type="application/json",
+        response_schema=_gemini_compatible_schema(SpatialLabelAudit),
+        temperature=0,
+    )
+    if "lite" not in resolved_model:
+        config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+
+    for attempt in range(max_retries + 1):
+        try:
+            response = client.models.generate_content(
+                model=resolved_model,
+                contents=[
+                    types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+                    SPATIAL_LABEL_PROMPT,
+                ],
+                config=types.GenerateContentConfig(**config_kwargs),
+            )
+
+            if response.parsed is not None:
+                if isinstance(response.parsed, SpatialLabelAudit):
+                    audit = response.parsed
+                else:
+                    audit = SpatialLabelAudit.model_validate(response.parsed)
+            elif response.text:
+                audit = SpatialLabelAudit.model_validate_json(response.text)
+            else:
+                raise ShoeboxAuditError(
+                    f"Gemini returned neither parsed output nor text for '{path.name}'."
+                )
+
+            return _convert_spatial_audit_to_pixels(
+                audit,
+                original_width=normalized.original_width,
+                original_height=normalized.original_height,
+            )
+
+        except Exception as exc:
+            last_error = exc
+            if attempt >= max_retries:
+                break
+
+            delay = retry_delay_seconds * (2**attempt)
+            if delay > 0:
+                time.sleep(delay)
+
+    raise ShoeboxAuditError(
+        f"Gemini spatial label audit failed for '{path.name}' after "
         f"{max_retries + 1} attempt(s): {last_error}"
     ) from last_error
 

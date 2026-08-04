@@ -23,7 +23,9 @@ from app.services.gemini_box_audit import (
     ShoeboxAuditError,
     audit_shoebox_counts,
     audit_shoebox_image,
+    audit_shoebox_labels,
 )
+from app.services.spatial_reconciliation import match_scanner_to_labels
 
 # Load .env early so LANGSMITH_* vars are set before langsmith is imported.
 load_dotenv()
@@ -125,10 +127,18 @@ def audit_path(
     max_retries: int,
     retry_delay_seconds: float,
     full: bool,
+    labels: bool,
 ) -> dict[str, object]:
     try:
         if full:
             result = audit_shoebox_image(
+                path,
+                model=model,
+                max_retries=max_retries,
+                retry_delay_seconds=retry_delay_seconds,
+            )
+        elif labels:
+            result = audit_shoebox_labels(
                 path,
                 model=model,
                 max_retries=max_retries,
@@ -172,6 +182,7 @@ def _run_audit(args: argparse.Namespace) -> int:
                 max_retries=args.max_retries,
                 retry_delay_seconds=DEFAULT_RETRY_DELAY_SECONDS,
                 full=args.full,
+                labels=args.labels,
             )
             elapsed = time.perf_counter() - t0
             _print_timing(path.name, elapsed)
@@ -182,6 +193,7 @@ def _run_audit(args: argparse.Namespace) -> int:
                 max_retries=args.max_retries,
                 retry_delay_seconds=DEFAULT_RETRY_DELAY_SECONDS,
                 full=args.full,
+                labels=args.labels,
             )
         results.append(result)
 
@@ -203,9 +215,9 @@ def _traced_audit(
     max_retries: int,
     retry_delay_seconds: float,
 ) -> dict[str, object]:
-    """Traced wrapper for the Gemini counts audit."""
+    """Traced wrapper for the Gemini spatial label audit."""
     try:
-        counts = audit_shoebox_counts(
+        spatial = audit_shoebox_labels(
             path,
             model=model,
             max_retries=max_retries,
@@ -214,14 +226,14 @@ def _traced_audit(
     except FileNotFoundError as exc:
         return {
             "status": "error",
-            "error": {"code": "unreadable_file", "message": str(exc)},
+            "error": {"type": "FileNotFoundError", "message": str(exc)},
         }
     except (ValueError, ShoeboxAuditError) as exc:
         return {
             "status": "error",
-            "error": {"code": "audit_failed", "message": str(exc)},
+            "error": {"type": type(exc).__name__, "message": str(exc)},
         }
-    return {"status": "ok", "counts": counts.model_dump(mode="json")}
+    return {"status": "ok", "spatial": spatial.model_dump(mode="json")}
 
 
 @traceable(run_type="chain", name="pipeline")
@@ -267,21 +279,38 @@ def pipeline_path(
         "audit_status": audit_result.get("status"),
     }
 
+    barcodes: list[dict] = []
     if scan_ok:
-        barcodes = scan_result.get("barcodes", [])
+        barcodes = scan_result.get("barcodes", [])  # type: ignore[assignment]
         values = [b["value"] for b in barcodes]  # type: ignore[index]
         summary["decoded_count"] = scan_result.get("count", 0)
         summary["unique_values"] = sorted(set(values))
         summary["unique_value_count"] = len(set(values))
+        # Preserve full scanner detections (with bounding boxes) for spatial
+        # reconciliation, debugging, visualization, and targeted crop retries.
+        summary["scanner_detections"] = barcodes
 
     if audit_ok:
-        counts = audit_result.get("counts", {})
-        summary["visible_labels"] = counts.get("visible_product_barcode_label_count")
-        summary["clear_labels"] = counts.get("clear_product_barcode_label_count")
-        summary["boxes_without_label"] = counts.get("boxes_without_visible_product_barcode")
-        summary["partially_obscured"] = counts.get("partially_obscured_product_barcode_count")
+        spatial = audit_result.get("spatial", {})
+        labels = spatial.get("labels", [])
+        summary["visible_labels"] = len(labels)
+        summary["clear_labels"] = sum(
+            1 for label in labels if label.get("status") == "clear"
+        )
+        summary["gemini_labels"] = labels
 
     if scan_ok and audit_ok:
+        spatial = audit_result.get("spatial", {})
+        labels = spatial.get("labels", [])
+        reconciliation = match_scanner_to_labels(
+            barcodes,
+            labels,
+            image_width=spatial["image_width"],
+            image_height=spatial["image_height"],
+        )
+        summary["reconciliation"] = reconciliation.model_dump(mode="json")
+
+        # Backward-compatible decoded-vs-visible summary for table rendering.
         decoded = summary.get("decoded_count", 0)
         visible = summary.get("visible_labels", 0)
         summary["decoded_vs_visible"] = {
@@ -289,6 +318,8 @@ def pipeline_path(
             "visible": visible,
             "match": decoded == visible,
             "difference": decoded - visible,
+            "matched_labels": reconciliation.matched_label_count,
+            "all_labels_matched": reconciliation.all_labels_matched,
         }
 
     if not scan_ok:
@@ -305,18 +336,18 @@ def _print_pipeline_table(
 ) -> None:
     """Print a rich summary table to stderr.
 
-    Each row: (image, decoded/visible, match, time).
+    Each row: (image, matched/visible, match, time).
     """
     header = (
-        f"{'Image':<32} {'Decoded/Visible':>16} {'Match':>6} {'Time':>7}"
+        f"{'Image':<32} {'Matched/Visible':>16} {'Match':>6} {'Time':>7}"
     )
     print(header, file=sys.stderr)
     print("-" * len(header), file=sys.stderr)
 
-    for image, dv, match, elapsed in rows:
+    for image, mv, match, elapsed in rows:
         time_str = f"{elapsed:.2f}s" if elapsed is not None else "-"
         print(
-            f"{image:<32} {dv:>16} {match:>6} {time_str:>7}",
+            f"{image:<32} {mv:>16} {match:>6} {time_str:>7}",
             file=sys.stderr,
         )
 
@@ -344,19 +375,23 @@ def _run_pipeline(args: argparse.Namespace) -> int:
         if args.time:
             _print_timing(path.name, elapsed)
 
-        # Build table row
+        # Build table row — prefer reconciliation matched/visible when available.
         dv = result.get("decoded_vs_visible", {})
-        decoded = dv.get("decoded", "-")
-        visible = dv.get("visible", "-")
-        match = dv.get("match")
-        if match is True:
-            match_str = "OK"
-        elif match is False:
-            match_str = "DIFF"
+        if "matched_labels" in dv:
+            matched = dv.get("matched_labels", "-")
+            visible = dv.get("visible", "-")
+            all_matched = dv.get("all_labels_matched")
+            if all_matched is True:
+                match_str = "OK"
+            elif all_matched is False:
+                match_str = "DIFF"
+            else:
+                match_str = "ERR"
+            mv_str = f"{matched}/{visible}" if matched != "-" else "-/-"
         else:
             match_str = "ERR"
-        dv_str = f"{decoded}/{visible}" if decoded != "-" else "-/-"
-        table_rows.append((path.name, dv_str, match_str, elapsed))
+            mv_str = "-/-"
+        table_rows.append((path.name, mv_str, match_str, elapsed))
 
     _print_pipeline_table(table_rows)
 
@@ -441,6 +476,15 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Run the full detailed audit (bounding boxes, OCR text, per-box "
             "observations). Much slower; default is the fast counts-only audit."
+        ),
+    )
+    audit_parser.add_argument(
+        "--labels",
+        action="store_true",
+        help=(
+            "Run the spatial label audit: locate every product label and its "
+            "barcode region in pixel coordinates. Middle ground between the "
+            "fast counts audit and the full detailed audit."
         ),
     )
     audit_parser.set_defaults(func=_run_audit)

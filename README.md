@@ -171,12 +171,19 @@ any image failed.
 
 ### audit — Gemini visual audit
 
-Runs a Gemini visual audit on shoebox images. By default it returns a fast
-counts-only result (~1.5s) using `gemini-3.5-flash-lite`. Use `--full` for the
-detailed audit (bounding boxes, OCR text, per-box observations; ~25s).
+Runs a Gemini visual audit on shoebox images. Three modes are available:
+
+- **Counts (default, fast ~1.5s):** `gemini-3.5-flash-lite` returns four count
+  fields only. Good for quick diagnostics.
+- **Labels (`--labels`, spatial):** `gemini-3.5-flash` locates every product
+  label and its barcode region in pixel coordinates. The middle mode — faster
+  than `--full`, more useful than counts because it returns spatial regions.
+- **Full (`--full`, detailed ~25s):** bounding boxes, OCR text, per-box
+  observations, and quality analysis.
 
 ```bash
 barcode-scan audit ./product.jpg --time --pretty
+barcode-scan audit ./product.jpg --labels --pretty
 barcode-scan audit ./product.jpg --full --pretty
 barcode-scan audit ./product.jpg --model gemini-3.5-flash
 ```
@@ -199,11 +206,52 @@ four count fields:
 ]
 ```
 
-### pipeline — scan + audit in parallel
+The `--labels` audit returns pixel-space label and barcode bounding boxes:
 
-Runs the deterministic scanner and the Gemini audit concurrently, then returns
-a combined summary with reconciliation metrics. Wall-clock time is the slower
-of the two (~1.5–2s), not their sum.
+```json
+[
+  {
+    "path": "./product.jpg",
+    "status": "ok",
+    "audit": {
+      "image_width": 4032,
+      "image_height": 3024,
+      "labels": [
+        {
+          "label_index": 1,
+          "label_bbox": {"x1": 412, "y1": 301, "x2": 1044, "y2": 698},
+          "barcode_bbox": {"x1": 785, "y1": 391, "x2": 1010, "y2": 652},
+          "status": "clear",
+          "confidence": "high"
+        }
+      ]
+    }
+  }
+]
+```
+
+All Gemini modes consume EXIF-normalized RGB JPEG bytes so their pixel
+coordinate system matches the deterministic scanner.
+
+### pipeline — scan + spatial audit in parallel
+
+Runs the deterministic scanner and the Gemini spatial label audit concurrently,
+then matches scanner detections to Gemini product labels geometrically.
+Wall-clock time is the slower of the two.
+
+```
+                         ┌─ ZXing scanner
+input image ─ normalize ─┤     → decoded values + pixel bounding boxes
+                         │
+                         └─ Gemini spatial audit
+                               → product-label boxes + barcode boxes
+
+scanner detection centers  +  Gemini barcode/label regions
+        ↓
+spatial reconciliation
+        ↓
+matched labels · unmatched labels · unassigned scanner detections
+```
 
 ```bash
 barcode-scan pipeline ./product.jpg --time --pretty
@@ -213,42 +261,121 @@ barcode-scan pipeline ./a.jpg ./b.jpg ./c.jpg --time
 Output includes a summary table on stderr and full JSON on stdout:
 
 ```text
-Image                             Decoded/Visible  Match    Time
-----------------------------------------------------------------
-marny_brown_42.jpeg                           2/1   DIFF   1.85s
-multi_clear_6_boxes.jpeg                      6/6     OK   2.04s
-multi_12_clean.jpeg                         11/12   DIFF   1.50s
-----------------------------------------------------------------
+Image                             Matched/Visible  Match    Time
+------------------------------------------------------------------
+marny_brown_42.jpeg                           1/2   DIFF   3.85s
+multi_clear_6_boxes.jpeg                      6/6     OK   4.04s
+multi_12_clean.jpeg                         11/12   DIFF   3.50s
+------------------------------------------------------------------
 ```
 
-The `decoded_vs_visible` field reconciles scanner output with Gemini's visual
-count — `match: true` means the scanner decoded exactly as many barcodes as
-Gemini saw labels; a negative `difference` means the scanner missed some.
+The pipeline preserves full scanner detections (with bounding boxes), Gemini
+labels, and a `reconciliation` object with matches, unmatched labels, and
+unassigned scanner detections:
 
 ```json
 [
   {
-    "path": "samples/multi_clear_6_boxes.jpeg",
+    "path": "samples/multi_12_clean.jpeg",
     "scan_status": "found",
     "audit_status": "ok",
-    "decoded_count": 6,
-    "unique_values": ["7297500243416", "7297500243423", "7297500243430", "7297500243447"],
-    "unique_value_count": 4,
-    "visible_labels": 6,
-    "clear_labels": 6,
-    "boxes_without_label": 0,
-    "partially_obscured": 0,
-    "decoded_vs_visible": {"decoded": 6, "visible": 6, "match": true, "difference": 0},
+    "decoded_count": 11,
+    "unique_values": ["..."],
+    "unique_value_count": 8,
+    "scanner_detections": [
+      {
+        "value": "7297501154117",
+        "format": "Code128",
+        "bounding_box": {"x1": 100, "y1": 200, "x2": 300, "y2": 260}
+      }
+    ],
+    "visible_labels": 12,
+    "clear_labels": 12,
+    "gemini_labels": [
+      {
+        "label_index": 1,
+        "label_bbox": {"x1": 412, "y1": 301, "x2": 1044, "y2": 698},
+        "barcode_bbox": {"x1": 785, "y1": 391, "x2": 1010, "y2": 652},
+        "status": "clear",
+        "confidence": "high"
+      }
+    ],
+    "reconciliation": {
+      "matches": [
+        {
+          "label_index": 1,
+          "scanner_detection_index": 4,
+          "barcode_value": "7297501154117",
+          "match_basis": "barcode_bbox",
+          "center_distance": 0.08
+        }
+      ],
+      "unmatched_labels": [
+        {
+          "label_index": 7,
+          "label_bbox": {"x1": 2140, "y1": 1210, "x2": 2750, "y2": 1660},
+          "barcode_bbox": {"x1": 2420, "y1": 1320, "x2": 2690, "y2": 1530},
+          "status": "clear"
+        }
+      ],
+      "unassigned_scanner_detections": [],
+      "matched_label_count": 11,
+      "visible_label_count": 12,
+      "all_labels_matched": false
+    },
+    "decoded_vs_visible": {
+      "decoded": 11,
+      "visible": 12,
+      "match": false,
+      "difference": -1,
+      "matched_labels": 11,
+      "all_labels_matched": false
+    },
     "ok": true
   }
 ]
 ```
+
+`all_labels_matched` means only "every Gemini product label has at least one
+scanner match." It does **not** mean every barcode was decoded, every value is
+correct, or the order is ready for Priority. `unassigned_scanner_detections`
+are detections not assigned to any Gemini label — not necessarily false
+positives, since one physical label can legitimately carry multiple barcodes.
+
+When the Gemini audit fails, the scanner result is still returned with
+`audit_status: "error"` and no `reconciliation` block — there is no silent
+counts fallback, because counts alone cannot identify which label was missed.
+
+### Image resizing for Gemini
+
+The scanner needs full resolution to decode thin barcode lines, but Gemini only
+needs enough resolution to locate product labels. If the original image exceeds
+1600px on either side, the Gemini copy is resized (aspect ratio preserved,
+LANCZOS resampling, JPEG quality 85) before upload. Images already smaller than
+1600px are left untouched. Gemini's normalized 0..1000 coordinates are
+resolution-independent, so they convert directly to the original
+full-resolution pixel frame — no intermediate resized-pixel step:
+
+```
+original image (e.g. 4032×3024)
+    ├─ scanner              — full resolution, decodes barcodes
+    └─ Gemini copy          — resized to 1600×1200 (if needed), locates labels
+            ↓
+        normalized 0..1000 boxes
+            ↓
+        round(normalized × original_dimension / 1000) → original-image pixels
+```
+
+This reduces encoding time, request size, network upload time, and Gemini
+image-processing work on large phone photos without affecting scanner recall
+or the downstream coordinate system.
 
 You can also run any subcommand without installing the entry point:
 
 ```bash
 python -m app.cli scan ./product.jpg
 python -m app.cli audit ./product.jpg --time
+python -m app.cli audit ./product.jpg --labels --time
 python -m app.cli pipeline ./product.jpg --time --pretty
 ```
 
@@ -262,7 +389,7 @@ a nested span tree:
 ```text
 pipeline (chain)
 ├── barcode_scan (tool)     — deterministic scanner
-└── gemini_audit (tool)     — Gemini counts audit
+└── gemini_audit (tool)     — Gemini spatial label audit
 ```
 
 Traces are visible at [smith.langchain.com](https://smith.langchain.com) under
@@ -386,7 +513,9 @@ app/
   models/barcode.py             API response contract (ScanResponse)
   services/
     barcode_scanner.py          BarcodeScanner — tiling, preprocessing, dedup
-    gemini_box_audit.py         Gemini visual audit (fast counts + full audit)
+    gemini_box_audit.py         Gemini visual audit (counts + spatial labels + full)
+    spatial_geometry.py         Pixel bounding boxes, normalized→pixel conversion
+    spatial_reconciliation.py   Match scanner detections to Gemini product labels
   main.py                       FastAPI application
 samples/
   marny_brown_42.jpeg           Sample photo with 2 barcodes
@@ -398,6 +527,9 @@ tests/
   test_api.py                   API endpoint tests
   test_barcode_scanner.py       Scanner logic tests (monkeypatched zxing)
   test_cli.py                   CLI unit tests + regression tests on samples
+  test_gemini_box_audit.py      Gemini schema, EXIF normalization, pixel conversion
+  test_spatial_geometry.py      Pure coordinate mathematics
+  test_spatial_reconciliation.py  Scanner↔label matching rules
 ```
 
 ## Current boundary
@@ -411,8 +543,10 @@ This version does not:
 - expose per-detection confidence scores
 
 The Gemini visual audit is advisory only — it does not decode barcodes or
-replace the deterministic scanner. The pipeline reconciles the two but does not
-yet auto-retry failed decodes with targeted crops guided by Gemini bounding boxes.
+replace the deterministic scanner. The pipeline reconciles the two spatially
+(matched labels, unmatched labels, unassigned scanner detections) but does not
+yet auto-retry failed decodes with targeted crops guided by Gemini bounding
+boxes.
 
 The next step is to test it against real warehouse photos and record exact-match
 success and failure reasons.
