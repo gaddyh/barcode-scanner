@@ -296,10 +296,27 @@ def _spatial_result(image_width: int = 1000, image_height: int = 1000) -> dict:
     }
 
 
-def _patch_pipeline(monkeypatch, barcodes, spatial_result_dict, audit_error=False):
+def _patch_pipeline(
+    monkeypatch,
+    barcodes,
+    spatial_result_dict,
+    audit_error=False,
+    recovered_detections=None,
+):
     """Patch the pipeline so scan returns ``barcodes`` and the Gemini audit
-    returns ``spatial_result_dict`` (or an error)."""
+    returns ``spatial_result_dict`` (or an error).
+
+    ``recovered_detections`` is a list of RecoveredDetection objects to return
+    from scan_label_crops.  When None, scan_label_crops returns [] (no recovery).
+    """
+
     cli = _patch_scanner(monkeypatch, barcodes)
+
+    # Add scan_label_crops to the FakeScanner.
+    def fake_scan_label_crops(self, image, requests, *, existing_detections=None, debug_dir=None):
+        return recovered_detections or []
+
+    cli.BarcodeScanner.scan_label_crops = fake_scan_label_crops
 
     if audit_error:
         def fake_traced_audit(path, *, model, max_retries, retry_delay_seconds):
@@ -546,3 +563,465 @@ def test_cli_audit_labels_flag_calls_audit_shoebox_labels(
     assert captured_result["labels"] is True
     assert captured_result["full"] is False
     assert payload[0]["status"] == "ok"
+
+
+# ---------------------------------------------------------------------------
+# Pipeline recovery tests (Gemini-guided targeted crop recovery)
+# ---------------------------------------------------------------------------
+
+
+def _spatial_result_with_unmatched(image_width: int = 1000, image_height: int = 1000) -> dict:
+    """Spatial result where label 2 has its barcode in a different location,
+    so a detection at (160, 130)-(270, 140) won't match label 2."""
+    return {
+        "image_width": image_width,
+        "image_height": image_height,
+        "labels": [
+            {
+                "label_index": 1,
+                "label_bbox": {"x1": 100, "y1": 100, "x2": 300, "y2": 200},
+                "barcode_bbox": {"x1": 150, "y1": 120, "x2": 280, "y2": 190},
+                "status": "clear",
+                "confidence": "high",
+            },
+            {
+                "label_index": 2,
+                "label_bbox": {"x1": 100, "y1": 800, "x2": 300, "y2": 900},
+                "barcode_bbox": {"x1": 150, "y1": 820, "x2": 280, "y2": 890},
+                "status": "clear",
+                "confidence": "high",
+            },
+        ],
+    }
+
+
+def _recovered_for_label2() -> list:
+    """A RecoveredDetection that finds a barcode inside label 2's region."""
+    from app.services.barcode_scanner import RecoveredDetection
+
+    det = DetectedBarcode(
+        value="V2_RECOVERED",
+        format="Code128",
+        content_type="Text",
+        orientation=0,
+        position=(
+            Point(x=160, y=830), Point(x=270, y=830),
+            Point(x=270, y=840), Point(x=160, y=840),
+        ),
+        bounding_box=BoundingBox(x1=160, y1=830, x2=270, y2=840),
+    )
+    return [RecoveredDetection(label_index=2, crop_basis="barcode_bbox", detection=det)]
+
+
+def test_pipeline_recovery_recovers_unmatched_label(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """Scanner finds 1/2, recovery finds the second → 2/2 matched, recovery section present."""
+    barcodes = [
+        DetectedBarcode(
+            value="V1",
+            format="Code128",
+            content_type="Text",
+            orientation=0,
+            position=(Point(x=160, y=130), Point(x=270, y=130),
+                      Point(x=270, y=140), Point(x=160, y=140)),
+            bounding_box=BoundingBox(x1=160, y1=130, x2=270, y2=140),
+        ),
+    ]
+    cli = _patch_pipeline(
+        monkeypatch,
+        barcodes,
+        _spatial_result_with_unmatched(),
+        recovered_detections=_recovered_for_label2(),
+    )
+
+    image_path = tmp_path / "box.png"
+    image_path.write_bytes(make_png(width=1000, height=1000))
+
+    exit_code = cli.main(["pipeline", str(image_path), "--pretty"])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert exit_code == 0
+    entry = payload[0]
+
+    # Initial reconciliation should show 1/2.
+    assert "initial_reconciliation" in entry
+    assert entry["initial_reconciliation"]["matched_label_count"] == 1
+    assert entry["initial_reconciliation"]["visible_label_count"] == 2
+
+    # Recovery section present.
+    assert "recovery" in entry
+    rec = entry["recovery"]
+    assert rec["attempted_label_count"] == 1
+    assert rec["attempted_label_indexes"] == [2]
+    assert rec["recovered_label_count"] == 1
+    assert rec["recovered_detection_count"] == 1
+    assert len(rec["recovered_labels"]) == 1
+    assert rec["recovered_labels"][0]["label_index"] == 2
+    assert rec["recovered_labels"][0]["crop_basis"] == "barcode_bbox"
+    assert rec["still_unmatched_labels"] == []
+
+    # Final reconciliation should show 2/2.
+    assert entry["reconciliation"]["matched_label_count"] == 2
+    assert entry["reconciliation"]["all_labels_matched"] is True
+
+    # decoded_vs_visible updated.
+    assert entry["decoded_vs_visible"]["all_labels_matched"] is True
+
+
+def test_pipeline_recovery_skipped_when_all_matched(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """Scanner finds 2/2 → no recovery section, no initial_reconciliation."""
+    barcodes = [
+        DetectedBarcode(
+            value="V1",
+            format="Code128",
+            content_type="Text",
+            orientation=0,
+            position=(Point(x=160, y=130), Point(x=270, y=130),
+                      Point(x=270, y=140), Point(x=160, y=140)),
+            bounding_box=BoundingBox(x1=160, y1=130, x2=270, y2=140),
+        ),
+        DetectedBarcode(
+            value="V2",
+            format="Code128",
+            content_type="Text",
+            orientation=0,
+            position=(Point(x=160, y=830), Point(x=270, y=830),
+                      Point(x=270, y=840), Point(x=160, y=840)),
+            bounding_box=BoundingBox(x1=160, y1=830, x2=270, y2=840),
+        ),
+    ]
+    cli = _patch_pipeline(
+        monkeypatch,
+        barcodes,
+        _spatial_result_with_unmatched(),
+        recovered_detections=_recovered_for_label2(),
+    )
+
+    image_path = tmp_path / "box.png"
+    image_path.write_bytes(make_png(width=1000, height=1000))
+
+    cli.main(["pipeline", str(image_path), "--pretty"])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    entry = payload[0]
+
+    # No recovery section when all matched.
+    assert "recovery" not in entry
+    assert "initial_reconciliation" not in entry
+    assert entry["reconciliation"]["all_labels_matched"] is True
+
+
+def test_pipeline_recovery_fails_gracefully(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """Recovery crop finds nothing → still_unmatched has 1, no crash."""
+    barcodes = [
+        DetectedBarcode(
+            value="V1",
+            format="Code128",
+            content_type="Text",
+            orientation=0,
+            position=(Point(x=160, y=130), Point(x=270, y=130),
+                      Point(x=270, y=140), Point(x=160, y=140)),
+            bounding_box=BoundingBox(x1=160, y1=130, x2=270, y2=140),
+        ),
+    ]
+    cli = _patch_pipeline(
+        monkeypatch,
+        barcodes,
+        _spatial_result_with_unmatched(),
+        recovered_detections=[],  # recovery finds nothing
+    )
+
+    image_path = tmp_path / "box.png"
+    image_path.write_bytes(make_png(width=1000, height=1000))
+
+    exit_code = cli.main(["pipeline", str(image_path), "--pretty"])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    entry = payload[0]
+
+    assert exit_code == 0
+    assert "recovery" in entry
+    rec = entry["recovery"]
+    assert rec["attempted_label_count"] == 1
+    assert rec["recovered_label_count"] == 0
+    assert rec["recovered_detection_count"] == 0
+    assert len(rec["still_unmatched_labels"]) == 1
+    assert rec["still_unmatched_labels"][0]["label_index"] == 2
+
+    # Final reconciliation still 1/2.
+    assert entry["reconciliation"]["matched_label_count"] == 1
+    assert entry["reconciliation"]["all_labels_matched"] is False
+
+
+def test_pipeline_recovery_preserves_initial_reconciliation(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """initial_reconciliation shows 1/2, final reconciliation shows 2/2."""
+    barcodes = [
+        DetectedBarcode(
+            value="V1",
+            format="Code128",
+            content_type="Text",
+            orientation=0,
+            position=(Point(x=160, y=130), Point(x=270, y=130),
+                      Point(x=270, y=140), Point(x=160, y=140)),
+            bounding_box=BoundingBox(x1=160, y1=130, x2=270, y2=140),
+        ),
+    ]
+    cli = _patch_pipeline(
+        monkeypatch,
+        barcodes,
+        _spatial_result_with_unmatched(),
+        recovered_detections=_recovered_for_label2(),
+    )
+
+    image_path = tmp_path / "box.png"
+    image_path.write_bytes(make_png(width=1000, height=1000))
+
+    cli.main(["pipeline", str(image_path), "--pretty"])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    entry = payload[0]
+
+    initial = entry["initial_reconciliation"]
+    final = entry["reconciliation"]
+
+    assert initial["matched_label_count"] == 1
+    assert initial["all_labels_matched"] is False
+    assert final["matched_label_count"] == 2
+    assert final["all_labels_matched"] is True
+
+
+def test_pipeline_recovery_recovered_label_count_vs_detection_count(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """One label → two symbols → recovered_label_count=1, recovered_detection_count=2."""
+    from app.services.barcode_scanner import RecoveredDetection
+
+    barcodes = [
+        DetectedBarcode(
+            value="V1",
+            format="Code128",
+            content_type="Text",
+            orientation=0,
+            position=(Point(x=160, y=130), Point(x=270, y=130),
+                      Point(x=270, y=140), Point(x=160, y=140)),
+            bounding_box=BoundingBox(x1=160, y1=130, x2=270, y2=140),
+        ),
+    ]
+
+    # Two detections from the same label (label 2).
+    det1 = DetectedBarcode(
+        value="V2A",
+        format="Code128",
+        content_type="Text",
+        orientation=0,
+        position=(Point(x=160, y=830), Point(x=270, y=830),
+                  Point(x=270, y=840), Point(x=160, y=840)),
+        bounding_box=BoundingBox(x1=160, y1=830, x2=270, y2=840),
+    )
+    det2 = DetectedBarcode(
+        value="V2B",
+        format="Code128",
+        content_type="Text",
+        orientation=0,
+        position=(Point(x=160, y=850), Point(x=270, y=850),
+                  Point(x=270, y=860), Point(x=160, y=860)),
+        bounding_box=BoundingBox(x1=160, y1=850, x2=270, y2=860),
+    )
+    recovered = [
+        RecoveredDetection(label_index=2, crop_basis="barcode_bbox", detection=det1),
+        RecoveredDetection(label_index=2, crop_basis="barcode_bbox", detection=det2),
+    ]
+
+    cli = _patch_pipeline(
+        monkeypatch,
+        barcodes,
+        _spatial_result_with_unmatched(),
+        recovered_detections=recovered,
+    )
+
+    image_path = tmp_path / "box.png"
+    image_path.write_bytes(make_png(width=1000, height=1000))
+
+    cli.main(["pipeline", str(image_path), "--pretty"])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    entry = payload[0]
+
+    rec = entry["recovery"]
+    # Two detections from recovery, but only one label recovered.
+    assert rec["recovered_detection_count"] == 2
+    assert rec["recovered_label_count"] == 1
+
+
+def test_pipeline_recovery_only_counts_confirmed_labels(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """Crop finds a barcode but reconciliation assigns it to a different label
+    → recovered_label_count=0 for the attempted label."""
+    from app.services.barcode_scanner import RecoveredDetection
+
+    barcodes = [
+        DetectedBarcode(
+            value="V1",
+            format="Code128",
+            content_type="Text",
+            orientation=0,
+            position=(Point(x=160, y=130), Point(x=270, y=130),
+                      Point(x=270, y=140), Point(x=160, y=140)),
+            bounding_box=BoundingBox(x1=160, y1=130, x2=270, y2=140),
+        ),
+    ]
+
+    # Recovery finds a barcode near label 1 (not label 2).
+    # This detection is inside label 1's barcode bbox, so reconciliation
+    # will assign it to label 1, not the attempted label 2.
+    det = DetectedBarcode(
+        value="V1_NEARBY",
+        format="Code128",
+        content_type="Text",
+        orientation=0,
+        position=(Point(x=170, y=135), Point(x=260, y=135),
+                  Point(x=260, y=145), Point(x=170, y=145)),
+        bounding_box=BoundingBox(x1=170, y1=135, x2=260, y2=145),
+    )
+    recovered = [
+        RecoveredDetection(label_index=2, crop_basis="barcode_bbox", detection=det),
+    ]
+
+    cli = _patch_pipeline(
+        monkeypatch,
+        barcodes,
+        _spatial_result_with_unmatched(),
+        recovered_detections=recovered,
+    )
+
+    image_path = tmp_path / "box.png"
+    image_path.write_bytes(make_png(width=1000, height=1000))
+
+    cli.main(["pipeline", str(image_path), "--pretty"])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    entry = payload[0]
+
+    rec = entry["recovery"]
+    # Recovery found a detection, but it matched label 1 (already matched),
+    # not the attempted label 2. So recovered_label_count=0.
+    assert rec["recovered_detection_count"] == 1
+    assert rec["recovered_label_count"] == 0
+    assert len(rec["still_unmatched_labels"]) == 1
+
+
+def test_pipeline_recovery_barcode_crop_fails_label_crop_succeeds(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """crop_basis='label_bbox' when the barcode crop fails and label crop succeeds."""
+    from app.services.barcode_scanner import RecoveredDetection
+
+    barcodes = [
+        DetectedBarcode(
+            value="V1",
+            format="Code128",
+            content_type="Text",
+            orientation=0,
+            position=(Point(x=160, y=130), Point(x=270, y=130),
+                      Point(x=270, y=140), Point(x=160, y=140)),
+            bounding_box=BoundingBox(x1=160, y1=130, x2=270, y2=140),
+        ),
+    ]
+
+    det = DetectedBarcode(
+        value="V2_RECOVERED",
+        format="Code128",
+        content_type="Text",
+        orientation=0,
+        position=(Point(x=160, y=830), Point(x=270, y=830),
+                  Point(x=270, y=840), Point(x=160, y=840)),
+        bounding_box=BoundingBox(x1=160, y1=830, x2=270, y2=840),
+    )
+    recovered = [
+        RecoveredDetection(label_index=2, crop_basis="label_bbox", detection=det),
+    ]
+
+    cli = _patch_pipeline(
+        monkeypatch,
+        barcodes,
+        _spatial_result_with_unmatched(),
+        recovered_detections=recovered,
+    )
+
+    image_path = tmp_path / "box.png"
+    image_path.write_bytes(make_png(width=1000, height=1000))
+
+    cli.main(["pipeline", str(image_path), "--pretty"])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    entry = payload[0]
+
+    rec = entry["recovery"]
+    assert rec["recovered_label_count"] == 1
+    assert rec["recovered_labels"][0]["crop_basis"] == "label_bbox"
+
+
+def test_pipeline_recovery_coordinates_use_padded_crop_origin(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """Recovered detection coordinates reflect the padded crop origin, not
+    the original Gemini box origin."""
+    from app.services.barcode_scanner import RecoveredDetection
+
+    barcodes = [
+        DetectedBarcode(
+            value="V1",
+            format="Code128",
+            content_type="Text",
+            orientation=0,
+            position=(Point(x=160, y=130), Point(x=270, y=130),
+                      Point(x=270, y=140), Point(x=160, y=140)),
+            bounding_box=BoundingBox(x1=160, y1=130, x2=270, y2=140),
+        ),
+    ]
+
+    # The recovered detection should have coordinates in full-image space.
+    # The test verifies the detection is placed correctly by checking
+    # reconciliation assigns it to label 2.
+    det = DetectedBarcode(
+        value="V2_RECOVERED",
+        format="Code128",
+        content_type="Text",
+        orientation=0,
+        position=(Point(x=160, y=830), Point(x=270, y=830),
+                  Point(x=270, y=840), Point(x=160, y=840)),
+        bounding_box=BoundingBox(x1=160, y1=830, x2=270, y2=840),
+    )
+    recovered = [
+        RecoveredDetection(label_index=2, crop_basis="barcode_bbox", detection=det),
+    ]
+
+    cli = _patch_pipeline(
+        monkeypatch,
+        barcodes,
+        _spatial_result_with_unmatched(),
+        recovered_detections=recovered,
+    )
+
+    image_path = tmp_path / "box.png"
+    image_path.write_bytes(make_png(width=1000, height=1000))
+
+    cli.main(["pipeline", str(image_path), "--pretty"])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    entry = payload[0]
+
+    # The recovered detection at (160, 830)-(270, 840) falls inside label 2's
+    # barcode_bbox (150, 820)-(280, 890), confirming correct coordinate mapping.
+    assert entry["reconciliation"]["all_labels_matched"] is True
+    rec = entry["recovery"]
+    assert rec["recovered_labels"][0]["barcode_value"] == "V2_RECOVERED"

@@ -127,3 +127,22 @@ rectangles) are deferred to a follow-up PR after annotations are frozen.
 - Reconciliation uses padded center-in-box containment with global
   nearest-first assignment. Target selection is strict: when `barcode_bbox`
   is present, only it is used (no fallback to the larger `label_bbox`).
+- **Gemini-guided recovery**: When reconciliation leaves unmatched Gemini
+  labels, the pipeline crops each unmatched label's `barcode_bbox` (25% pad)
+  from the full-resolution image and runs the aggressive label-crop
+  preprocessing (`_decode_crop_variants`) on it. If the tight barcode crop
+  fails, it falls back to the wider `label_bbox` (10% pad). If that also fails,
+  it tries the exact (unpadded) barcode region at high scales (6x, 8x, 10x,
+  12x) via `_decode_crop_high_scale` — this recovers very small barcodes that
+  only decode at high magnification and where any surrounding padding kills
+  detection. Recovered detections are merged with existing scanner detections
+  and reconciliation re-runs. A label is only counted as recovered when the
+  final reconciliation assigns a recovered detection to that attempted label.
+  The output preserves both `initial_reconciliation` and final
+  `reconciliation` plus a `recovery` section with provenance (`crop_basis`,
+  `label_index`). Recovery only fires on mismatch — when all labels match, the
+  output is unchanged (backward compatible). The shared decoding logic lives
+  in `BarcodeScanner._decode_crop_variants()`, used by both the OpenCV
+  label-candidate fallback and the Gemini-guided recovery path. The
+  `--recovery-debug DIR` CLI flag saves each crop and preprocessing variant as
+  PNG for visual debugging.

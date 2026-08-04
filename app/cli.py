@@ -12,9 +12,14 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
-from PIL import UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 
-from app.services.barcode_scanner import BarcodeScanner
+from app.services.barcode_scanner import (
+    BarcodeScanner,
+    BoundingBox,
+    DetectedBarcode,
+    LabelCropRequest,
+)
 from app.services.gemini_box_audit import (
     DEFAULT_COUNTS_MODEL,
     DEFAULT_MAX_RETRIES,
@@ -25,7 +30,12 @@ from app.services.gemini_box_audit import (
     audit_shoebox_image,
     audit_shoebox_labels,
 )
-from app.services.spatial_reconciliation import match_scanner_to_labels
+from app.services.spatial_reconciliation import (
+    RecoveredLabel,
+    RecoveryResult,
+    UnmatchedLabel,
+    match_scanner_to_labels,
+)
 
 # Load .env early so LANGSMITH_* vars are set before langsmith is imported.
 load_dotenv()
@@ -57,6 +67,26 @@ def _to_jsonable(value: object) -> object:
     if isinstance(value, tuple):
         return [_to_jsonable(item) for item in value]
     return value
+
+
+def _dict_to_detected_barcode(d: dict) -> DetectedBarcode:
+    """Reconstruct a DetectedBarcode from its dict form (asdict output)."""
+    from app.services.barcode_scanner import Point as ScanPoint
+
+    box = d["bounding_box"]
+    position = tuple(
+        ScanPoint(x=p["x"], y=p["y"]) for p in d.get("position", [])
+    )
+    return DetectedBarcode(
+        value=d["value"],
+        format=d["format"],
+        content_type=d["content_type"],
+        orientation=d["orientation"],
+        position=position,
+        bounding_box=BoundingBox(
+            x1=box["x1"], y1=box["y1"], x2=box["x2"], y2=box["y2"]
+        ),
+    )
 
 
 def _print_timing(label: str, seconds: float) -> None:
@@ -236,6 +266,157 @@ def _traced_audit(
     return {"status": "ok", "spatial": spatial.model_dump(mode="json")}
 
 
+# ---------------------------------------------------------------------------
+# Gemini-guided recovery helpers
+# ---------------------------------------------------------------------------
+
+
+def _pad_bbox(
+    box: dict,
+    *,
+    image_width: int,
+    image_height: int,
+    padding_ratio: float,
+) -> BoundingBox:
+    """Pad a bbox dict by a ratio and clamp to image bounds."""
+    width = box["x2"] - box["x1"]
+    height = box["y2"] - box["y1"]
+    pad_x = round(width * padding_ratio)
+    pad_y = round(height * padding_ratio)
+    return BoundingBox(
+        x1=max(0, box["x1"] - pad_x),
+        y1=max(0, box["y1"] - pad_y),
+        x2=min(image_width, box["x2"] + pad_x),
+        y2=min(image_height, box["y2"] + pad_y),
+    )
+
+
+def build_recovery_requests(
+    unmatched_labels: list[UnmatchedLabel],
+    *,
+    image_width: int,
+    image_height: int,
+) -> list[LabelCropRequest]:
+    """Build crop requests from unmatched Gemini labels.
+
+    For each unmatched label, the barcode_bbox is padded by 25% (tight, first
+    attempt) and the label_bbox by 10% (wider, fallback).  When barcode_bbox is
+    None, only the label crop is used.
+    """
+    requests: list[LabelCropRequest] = []
+    for unmatched in unmatched_labels:
+        barcode_dict = unmatched.barcode_bbox
+        label_dict = unmatched.label_bbox
+
+        if barcode_dict is not None:
+            barcode_crop = _pad_bbox(
+                barcode_dict,
+                image_width=image_width,
+                image_height=image_height,
+                padding_ratio=0.25,
+            )
+            # Exact (unpadded) barcode bbox for high-scale attempts.
+            exact_barcode_crop = BoundingBox(
+                x1=max(0, barcode_dict["x1"]),
+                y1=max(0, barcode_dict["y1"]),
+                x2=min(image_width, barcode_dict["x2"]),
+                y2=min(image_height, barcode_dict["y2"]),
+            )
+        else:
+            # No barcode bbox — use the label bbox as the primary crop.
+            barcode_crop = _pad_bbox(
+                label_dict,
+                image_width=image_width,
+                image_height=image_height,
+                padding_ratio=0.25,
+            )
+            exact_barcode_crop = BoundingBox(
+                x1=max(0, label_dict["x1"]),
+                y1=max(0, label_dict["y1"]),
+                x2=min(image_width, label_dict["x2"]),
+                y2=min(image_height, label_dict["y2"]),
+            )
+
+        label_crop = _pad_bbox(
+            label_dict,
+            image_width=image_width,
+            image_height=image_height,
+            padding_ratio=0.10,
+        )
+
+        requests.append(
+            LabelCropRequest(
+                label_index=unmatched.label_index,
+                barcode_crop=barcode_crop,
+                exact_barcode_crop=exact_barcode_crop,
+                label_crop=label_crop,
+            )
+        )
+    return requests
+
+
+def _build_recovery_result(
+    *,
+    attempted_indexes: list[int],
+    recovered_detections: list,  # list[RecoveredDetection]
+    merged_detections: list[dict],  # list of detection dicts (asdict output)
+    final_reconciliation,  # SpatialReconciliation
+    image_width: int,
+    image_height: int,
+) -> RecoveryResult:
+    """Build RecoveryResult from the final reconciliation.
+
+    A label is only counted as recovered when the final reconciliation assigns
+    a recovered detection to that attempted label.
+    """
+    attempted_set = set(attempted_indexes)
+
+    # Map recovered detection identity → (label_index, crop_basis).
+    # We match by value + bbox since the merged list may have reordered.
+    recovered_by_key: dict[tuple[str, int, int, int, int], tuple[int, str]] = {}
+    for rec in recovered_detections:
+        box = rec.detection.bounding_box
+        key = (rec.detection.value, box.x1, box.y1, box.x2, box.y2)
+        recovered_by_key[key] = (rec.label_index, rec.crop_basis)
+
+    # Find which final matches correspond to recovered detections on attempted labels.
+    recovered_labels: list[RecoveredLabel] = []
+    for match in final_reconciliation.matches:
+        if match.label_index not in attempted_set:
+            continue
+        det = merged_detections[match.scanner_detection_index]
+        det_box = det["bounding_box"]
+        key = (det["value"], det_box["x1"], det_box["y1"], det_box["x2"], det_box["y2"])
+        if key not in recovered_by_key:
+            continue
+        orig_label_index, crop_basis = recovered_by_key[key]
+        recovered_labels.append(
+            RecoveredLabel(
+                label_index=match.label_index,
+                barcode_value=match.barcode_value,
+                scanner_detection_index=match.scanner_detection_index,
+                crop_basis=crop_basis,
+                crop_box=det_box,
+            )
+        )
+
+    recovered_label_indexes = {rl.label_index for rl in recovered_labels}
+    still_unmatched = [
+        ul
+        for ul in final_reconciliation.unmatched_labels
+        if ul.label_index in attempted_set
+    ]
+
+    return RecoveryResult(
+        attempted_label_count=len(attempted_indexes),
+        attempted_label_indexes=attempted_indexes,
+        recovered_labels=recovered_labels,
+        recovered_label_count=len(recovered_label_indexes),
+        recovered_detection_count=len(recovered_detections),
+        still_unmatched_labels=still_unmatched,
+    )
+
+
 @traceable(run_type="chain", name="pipeline")
 def pipeline_path(
     path: Path,
@@ -244,8 +425,13 @@ def pipeline_path(
     model: str | None,
     max_retries: int,
     retry_delay_seconds: float,
+    recovery_debug_dir: Path | None = None,
 ) -> dict[str, object]:
-    """Run deterministic scan and Gemini audit in parallel, return combined summary."""
+    """Run deterministic scan and Gemini audit in parallel, return combined summary.
+
+    When ``recovery_debug_dir`` is set and recovery is triggered, crop images
+    and preprocessing variants are saved as PNGs for debugging.
+    """
 
     def _do_scan() -> dict[str, object]:
         return scan_path(path, scanner)
@@ -302,13 +488,112 @@ def pipeline_path(
     if scan_ok and audit_ok:
         spatial = audit_result.get("spatial", {})
         labels = spatial.get("labels", [])
-        reconciliation = match_scanner_to_labels(
+        image_width = spatial["image_width"]
+        image_height = spatial["image_height"]
+
+        # Initial reconciliation.
+        initial_reconciliation = match_scanner_to_labels(
             barcodes,
             labels,
-            image_width=spatial["image_width"],
-            image_height=spatial["image_height"],
+            image_width=image_width,
+            image_height=image_height,
         )
-        summary["reconciliation"] = reconciliation.model_dump(mode="json")
+
+        # Gemini-guided recovery for unmatched labels.
+        if initial_reconciliation.unmatched_labels:
+            summary["initial_reconciliation"] = initial_reconciliation.model_dump(
+                mode="json"
+            )
+
+            # Load the full-resolution image for cropping.
+            try:
+                pil_image = ImageOps.exif_transpose(Image.open(path)).convert("RGB")
+            except (OSError, ValueError) as exc:
+                summary["recovery_error"] = {"code": "image_load_failed", "message": str(exc)}
+                pil_image = None
+
+            if pil_image is not None:
+                requests = build_recovery_requests(
+                    initial_reconciliation.unmatched_labels,
+                    image_width=image_width,
+                    image_height=image_height,
+                )
+                attempted_indexes = [r.label_index for r in requests]
+
+                recovered = scanner.scan_label_crops(
+                    pil_image,
+                    requests,
+                    existing_detections=[
+                        # Reconstruct DetectedBarcode-like objects for the
+                        # existing-detection check.  We only need bounding boxes
+                        # and values, so we use the scanner's own type.
+                        _dict_to_detected_barcode(b) for b in barcodes
+                    ],
+                    debug_dir=recovery_debug_dir,
+                )
+
+                if recovered:
+                    recovered_detections = [r.detection for r in recovered]
+                    merged = scanner.merge_detections(
+                        [_dict_to_detected_barcode(b) for b in barcodes],
+                        recovered_detections,
+                    )
+                    merged_dicts = [asdict(d) for d in merged]
+
+                    final_reconciliation = match_scanner_to_labels(
+                        merged_dicts,
+                        labels,
+                        image_width=image_width,
+                        image_height=image_height,
+                    )
+
+                    recovery_result = _build_recovery_result(
+                        attempted_indexes=attempted_indexes,
+                        recovered_detections=recovered,
+                        merged_detections=merged_dicts,
+                        final_reconciliation=final_reconciliation,
+                        image_width=image_width,
+                        image_height=image_height,
+                    )
+
+                    summary["recovery"] = recovery_result.model_dump(mode="json")
+                    summary["reconciliation"] = final_reconciliation.model_dump(
+                        mode="json"
+                    )
+                    summary["scanner_detections"] = merged_dicts
+                    barcodes = merged_dicts
+                    summary["decoded_count"] = len(merged_dicts)
+                    values = [d["value"] for d in merged_dicts]
+                    summary["unique_values"] = sorted(set(values))
+                    summary["unique_value_count"] = len(set(values))
+
+                    reconciliation = final_reconciliation
+                else:
+                    # Recovery attempted but found nothing.
+                    recovery_result = _build_recovery_result(
+                        attempted_indexes=attempted_indexes,
+                        recovered_detections=[],
+                        merged_detections=barcodes,
+                        final_reconciliation=initial_reconciliation,
+                        image_width=image_width,
+                        image_height=image_height,
+                    )
+                    summary["recovery"] = recovery_result.model_dump(mode="json")
+                    summary["reconciliation"] = initial_reconciliation.model_dump(
+                        mode="json"
+                    )
+                    reconciliation = initial_reconciliation
+            else:
+                summary["reconciliation"] = initial_reconciliation.model_dump(
+                    mode="json"
+                )
+                reconciliation = initial_reconciliation
+        else:
+            # No unmatched labels — no recovery needed (backward compatible).
+            summary["reconciliation"] = initial_reconciliation.model_dump(
+                mode="json"
+            )
+            reconciliation = initial_reconciliation
 
         # Backward-compatible decoded-vs-visible summary for table rendering.
         decoded = summary.get("decoded_count", 0)
@@ -368,6 +653,7 @@ def _run_pipeline(args: argparse.Namespace) -> int:
             model=args.model,
             max_retries=args.max_retries,
             retry_delay_seconds=DEFAULT_RETRY_DELAY_SECONDS,
+            recovery_debug_dir=args.recovery_debug,
         )
         elapsed = time.perf_counter() - t0
         results.append(result)
@@ -523,6 +809,16 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=DEFAULT_MAX_RETRIES,
         help=f"Retries after the first request. Default: {DEFAULT_MAX_RETRIES}.",
+    )
+    pipeline_parser.add_argument(
+        "--recovery-debug",
+        type=Path,
+        default=None,
+        help=(
+            "Save recovery crops and preprocessing variants as PNGs to this "
+            "directory for debugging. Only fires when recovery is triggered "
+            "(unmatched labels exist)."
+        ),
     )
     pipeline_parser.set_defaults(func=_run_pipeline)
 

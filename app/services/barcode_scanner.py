@@ -3,7 +3,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 from io import BytesIO
+from pathlib import Path
 from statistics import median
+from typing import Literal
 
 import cv2
 import numpy as np
@@ -50,6 +52,35 @@ class LabelCandidate:
     offset_y: int
     bounding_box: BoundingBox
     score: float
+
+
+CropBasis = Literal["barcode_bbox", "label_bbox"]
+
+
+@dataclass(frozen=True)
+class LabelCropRequest:
+    """A request to scan a specific label region for recovery.
+
+    ``barcode_crop`` is the padded barcode bbox (tight, first attempt).
+    ``exact_barcode_crop`` is the unpadded barcode bbox (used for high-scale
+    attempts on very small barcodes).
+    ``label_crop`` is the padded label bbox (wider, fallback), or None when
+    Gemini did not provide a label bbox.
+    """
+
+    label_index: int
+    barcode_crop: BoundingBox
+    exact_barcode_crop: BoundingBox
+    label_crop: BoundingBox | None
+
+
+@dataclass(frozen=True)
+class RecoveredDetection:
+    """A detection recovered from a Gemini-guided crop, with provenance."""
+
+    label_index: int
+    crop_basis: CropBasis
+    detection: DetectedBarcode
 
 
 class BarcodeScanner:
@@ -434,6 +465,36 @@ class BarcodeScanner:
         The crop is already small, so these variants remain far cheaper than
         applying the same work to the whole image.
         """
+        return self._decode_crop_variants(
+            candidate.crop,
+            offset_x=candidate.offset_x,
+            offset_y=candidate.offset_y,
+        )
+
+    def _decode_crop_variants(
+        self,
+        crop: Image.Image,
+        *,
+        offset_x: int,
+        offset_y: int,
+        debug_dir: Path | None = None,
+        debug_tag: str = "",
+    ) -> list[DetectedBarcode]:
+        """
+        Run the aggressive label-crop preprocessing pipeline on a single crop.
+
+        Shared by the OpenCV label-candidate fallback and the Gemini-guided
+        recovery path.  The crop is already small, so these variants remain
+        far cheaper than applying the same work to the whole image.
+
+        ``offset_x`` / ``offset_y`` must be the origin of the (padded, clamped)
+        crop in full-image coordinates so that decoded positions map back
+        correctly.
+
+        When ``debug_dir`` is set, each preprocessing variant is saved as a PNG
+        so you can visually inspect exactly what ZXing received.  ``debug_tag``
+        is included in the filename to identify the crop source.
+        """
         attempts = (
             # Normal image variants.
             (2.0, "original", False),
@@ -450,17 +511,81 @@ class BarcodeScanner:
             (3.0, "otsu", True),
         )
 
+        if debug_dir is not None:
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            tag = f"_{debug_tag}" if debug_tag else ""
+            crop.save(debug_dir / f"crop{tag}_raw.png")
+
         collected: list[DetectedBarcode] = []
 
-        for scale, preprocessing, try_invert in attempts:
+        for i, (scale, preprocessing, try_invert) in enumerate(attempts):
             found = self._decode_region(
-                image=candidate.crop,
-                offset_x=candidate.offset_x,
-                offset_y=candidate.offset_y,
+                image=crop,
+                offset_x=offset_x,
+                offset_y=offset_y,
                 scale=scale,
                 preprocessing=preprocessing,
                 try_downscale=False,
                 try_invert=try_invert,
+                debug_dir=debug_dir,
+                debug_filename=(
+                    f"crop{tag}_{i:02d}_{scale}_{preprocessing}_inv{int(try_invert)}.png"
+                    if debug_dir is not None
+                    else None
+                ),
+            )
+            collected.extend(found)
+
+            if self._contains_primary_barcode(found):
+                break
+
+        return self._deduplicate(collected)
+
+    def _decode_crop_high_scale(
+        self,
+        crop: Image.Image,
+        *,
+        offset_x: int,
+        offset_y: int,
+        debug_dir: Path | None = None,
+        debug_tag: str = "",
+    ) -> list[DetectedBarcode]:
+        """
+        High-scale decode for very small barcodes.
+
+        Some barcodes are so narrow (e.g. 30px wide) that the standard
+        2-3x scaling in ``_decode_crop_variants`` is insufficient.  This method
+        tries very high scales (6x, 8x, 10x, 12x) with LANCZOS resampling,
+        which preserves the anti-aliased edges ZXing needs for sub-pixel bar
+        detection.
+
+        Only ``original`` preprocessing is used — binary thresholding at these
+        scales tends to destroy the fine bar structure.
+        """
+        scales = (6.0, 8.0, 10.0, 12.0)
+
+        if debug_dir is not None:
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            tag = f"_{debug_tag}" if debug_tag else ""
+            crop.save(debug_dir / f"crop{tag}_highscale_raw.png")
+
+        collected: list[DetectedBarcode] = []
+
+        for i, scale in enumerate(scales):
+            found = self._decode_region(
+                image=crop,
+                offset_x=offset_x,
+                offset_y=offset_y,
+                scale=scale,
+                preprocessing="original",
+                try_downscale=False,
+                try_invert=False,
+                debug_dir=debug_dir,
+                debug_filename=(
+                    f"crop{tag}_hs{i:02d}_{scale}_original_inv0.png"
+                    if debug_dir is not None
+                    else None
+                ),
             )
             collected.extend(found)
 
@@ -553,6 +678,130 @@ class BarcodeScanner:
             x2=min(image_width, box.x2 + padding_x),
             y2=min(image_height, box.y2 + padding_y),
         )
+
+    # ------------------------------------------------------------------
+    # Gemini-guided label crop recovery
+    # ------------------------------------------------------------------
+
+    def scan_label_crops(
+        self,
+        image: Image.Image,
+        requests: list[LabelCropRequest],
+        *,
+        existing_detections: list[DetectedBarcode] | None = None,
+        debug_dir: Path | None = None,
+    ) -> list[RecoveredDetection]:
+        """
+        Scan specific label regions for barcodes the full-image pass missed.
+
+        For each request, first try the tight ``barcode_crop``.  If nothing is
+        found and a ``label_crop`` fallback exists, try the wider label region.
+        Recovered detections are deduplicated against each other (by underlying
+        detection, retaining one provenance record).
+
+        ``existing_detections`` is checked defensively — crops that already
+        contain a primary barcode are skipped.  Reconciliation should have
+        already established that no existing detection belongs to the unmatched
+        labels, but this protects against edge cases.
+
+        When ``debug_dir`` is set, each raw crop and every preprocessing variant
+        is saved as a PNG so you can visually inspect what ZXing received.
+        """
+        existing = existing_detections or []
+        recovered: list[RecoveredDetection] = []
+
+        for req in requests:
+            if self._candidate_already_has_primary(req.barcode_crop, existing):
+                continue
+
+            # Attempt 1: tight barcode crop (padded, standard scales).
+            barcode_crop_image = image.crop(
+                (req.barcode_crop.x1, req.barcode_crop.y1,
+                 req.barcode_crop.x2, req.barcode_crop.y2)
+            )
+            found = self._decode_crop_variants(
+                barcode_crop_image,
+                offset_x=req.barcode_crop.x1,
+                offset_y=req.barcode_crop.y1,
+                debug_dir=debug_dir,
+                debug_tag=f"label{req.label_index}_barcode",
+            )
+
+            crop_basis: CropBasis = "barcode_bbox"
+
+            # Attempt 2: wider label crop (only if barcode crop found nothing).
+            if not found and req.label_crop is not None:
+                if self._candidate_already_has_primary(req.label_crop, existing):
+                    continue
+                label_crop_image = image.crop(
+                    (req.label_crop.x1, req.label_crop.y1,
+                     req.label_crop.x2, req.label_crop.y2)
+                )
+                found = self._decode_crop_variants(
+                    label_crop_image,
+                    offset_x=req.label_crop.x1,
+                    offset_y=req.label_crop.y1,
+                    debug_dir=debug_dir,
+                    debug_tag=f"label{req.label_index}_label",
+                )
+                crop_basis = "label_bbox"
+
+            # Attempt 3: exact barcode region (no padding) at high scales.
+            # Some barcodes are so narrow that padding kills detection —
+            # ZXing can't find the barcode pattern in the surrounding white
+            # space.  The exact region at 6-12x scaling can recover these.
+            if not found:
+                exact_crop_image = image.crop(
+                    (req.exact_barcode_crop.x1, req.exact_barcode_crop.y1,
+                     req.exact_barcode_crop.x2, req.exact_barcode_crop.y2)
+                )
+                found = self._decode_crop_high_scale(
+                    exact_crop_image,
+                    offset_x=req.exact_barcode_crop.x1,
+                    offset_y=req.exact_barcode_crop.y1,
+                    debug_dir=debug_dir,
+                    debug_tag=f"label{req.label_index}_exact",
+                )
+                crop_basis = "barcode_bbox"
+
+            for det in found:
+                recovered.append(
+                    RecoveredDetection(
+                        label_index=req.label_index,
+                        crop_basis=crop_basis,
+                        detection=det,
+                    )
+                )
+
+        # Deduplicate recovered detections against each other by underlying
+        # detection, retaining the first provenance record for each unique
+        # detection.
+        return self._deduplicate_recovered(recovered)
+
+    def _deduplicate_recovered(
+        self,
+        recovered: list[RecoveredDetection],
+    ) -> list[RecoveredDetection]:
+        """Deduplicate recovered detections by underlying detection identity."""
+        seen: set[tuple[str, int, int, int, int]] = set()
+        unique: list[RecoveredDetection] = []
+        for rec in recovered:
+            box = rec.detection.bounding_box
+            key = (rec.detection.value, box.x1, box.y1, box.x2, box.y2)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(rec)
+        return unique
+
+    @classmethod
+    def merge_detections(
+        cls,
+        existing: list[DetectedBarcode],
+        recovered: list[DetectedBarcode],
+    ) -> list[DetectedBarcode]:
+        """Merge recovered detections into existing using spatial dedup."""
+        return cls._deduplicate([*existing, *recovered])
 
     # ------------------------------------------------------------------
     # Structured-grid targeted recovery
@@ -857,12 +1106,18 @@ class BarcodeScanner:
         preprocessing: str,
         try_downscale: bool,
         try_invert: bool = False,
+        debug_dir: Path | None = None,
+        debug_filename: str | None = None,
     ) -> list[DetectedBarcode]:
         prepared = self._prepare_image(
             image,
             scale=scale,
             preprocessing=preprocessing,
         )
+
+        if debug_dir is not None and debug_filename is not None:
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            prepared.save(debug_dir / debug_filename)
 
         scale_x = image.width / prepared.width
         scale_y = image.height / prepared.height

@@ -346,6 +346,80 @@ When the Gemini audit fails, the scanner result is still returned with
 `audit_status: "error"` and no `reconciliation` block — there is no silent
 counts fallback, because counts alone cannot identify which label was missed.
 
+### Gemini-guided recovery
+
+When reconciliation leaves unmatched Gemini labels (a label Gemini sees but
+the scanner didn't decode), the pipeline crops each unmatched label's
+`barcode_bbox` from the full-resolution image and runs the aggressive
+label-crop preprocessing pipeline on it. If the tight barcode crop fails, it
+falls back to the wider `label_bbox`. If that also fails, it tries the exact
+(unpadded) barcode region at high scales (6x–12x) — this recovers very small
+barcodes that only decode at high magnification. Recovered detections are
+merged with existing scanner detections and reconciliation re-runs.
+
+```
+scan everything once (parallel with Gemini audit)
+        ↓
+reconcile scanner detections ↔ Gemini labels
+        ↓
+if unmatched_labels:
+    crop barcode_bbox (25% pad) → aggressive decode (2x–3x, 8 variants)
+        ↓ (if nothing found)
+    crop label_bbox (10% pad) → aggressive decode
+        ↓ (if nothing found)
+    crop exact barcode_bbox (no pad) → high-scale decode (6x–12x)
+        ↓
+    merge recovered + existing → re-reconcile
+        ↓
+output: initial_reconciliation + recovery + final reconciliation
+```
+
+Use `--recovery-debug DIR` to save each crop and preprocessing variant as PNG
+for visual debugging:
+
+```bash
+barcode-scan pipeline ./multi_12_clean.jpeg --recovery-debug /tmp/recovery_debug
+```
+
+A label is only counted as recovered when the final reconciliation assigns a
+recovered detection to that attempted label — a crop that accidentally finds
+a nearby barcode belonging to a different label does not count. The output
+preserves both `initial_reconciliation` and final `reconciliation` plus a
+`recovery` section with provenance:
+
+```json
+{
+  "initial_reconciliation": {
+    "matched_label_count": 11,
+    "visible_label_count": 12,
+    "all_labels_matched": false
+  },
+  "recovery": {
+    "attempted_label_count": 1,
+    "attempted_label_indexes": [10],
+    "recovered_labels": [
+      {
+        "label_index": 10,
+        "barcode_value": "7297501153998",
+        "crop_basis": "barcode_bbox",
+        "crop_box": {"x1": 358, "y1": 1450, "x2": 410, "y2": 1632}
+      }
+    ],
+    "recovered_label_count": 1,
+    "recovered_detection_count": 1,
+    "still_unmatched_labels": []
+  },
+  "reconciliation": {
+    "matched_label_count": 12,
+    "visible_label_count": 12,
+    "all_labels_matched": true
+  }
+}
+```
+
+Recovery only fires on mismatch — when all labels match initially, the output
+is unchanged (no `initial_reconciliation` or `recovery` keys).
+
 ### Image resizing for Gemini
 
 The scanner needs full resolution to decode thin barcode lines, but Gemini only
@@ -582,10 +656,12 @@ app/
   core/config.py                Environment configuration
   models/barcode.py             API response contract (ScanResponse)
   services/
-    barcode_scanner.py          BarcodeScanner — tiling, preprocessing, dedup
+    barcode_scanner.py          BarcodeScanner — tiling, preprocessing, dedup,
+                                Gemini-guided crop recovery (scan_label_crops)
     gemini_box_audit.py         Gemini visual audit (counts + spatial labels + full)
     spatial_geometry.py         Pixel bounding boxes, normalized→pixel conversion
-    spatial_reconciliation.py   Match scanner detections to Gemini product labels
+    spatial_reconciliation.py   Match scanner detections to Gemini product labels;
+                                RecoveryResult / RecoveredLabel models
   main.py                       FastAPI application
 samples/
   marny_brown_42.jpeg           Sample photo with 2 barcodes
