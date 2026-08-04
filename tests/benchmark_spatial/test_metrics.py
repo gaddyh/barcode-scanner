@@ -357,20 +357,20 @@ def _image_metrics(
 
 def test_aggregate_excludes_none_unmatched_from_denominator() -> None:
     # clean_12: expected unmatched = 1, actual = 1 (correct)
-    # fuzzy_17: expected unmatched = None, actual = 17 (must NOT count)
+    # fuzzy_16: expected unmatched = None, actual = 16 (must NOT count)
     metrics = [
         _image_metrics(
             "clean_12", expected_visible=12, actual_visible=12,
             expected_unmatched=1, actual_unmatched=1,
         ),
         _image_metrics(
-            "fuzzy_17", expected_visible=17, actual_visible=17,
-            expected_unmatched=None, actual_unmatched=17,
+            "fuzzy_16", expected_visible=16, actual_visible=16,
+            expected_unmatched=None, actual_unmatched=16,
         ),
     ]
     agg = aggregate_image_metrics(metrics)
     assert agg.image_count == 2
-    assert agg.expected_visible_labels == 29
+    assert agg.expected_visible_labels == 28
     assert agg.expected_unmatched_labels == 1  # only clean_12 counted
     assert agg.correct_unmatched_labels == 1
     assert agg.wrong_unmatched_labels == 0
@@ -433,8 +433,7 @@ def test_aggregate_empty_image_list() -> None:
 
 def test_compute_image_metrics_image_level_only_when_labels_empty() -> None:
     gt_image = GroundTruthImage(
-        image="clean_12",
-        source="multi_12_clean.jpeg",
+        image="multi_12_clean.jpeg",
         expected_visible_label_count=12,
         expected_clear_label_count=12,
         expected_scanner_symbol_count=11,
@@ -467,8 +466,7 @@ def test_compute_image_metrics_image_level_only_when_labels_empty() -> None:
 
 def test_compute_image_metrics_with_per_label_gt() -> None:
     gt_image = GroundTruthImage(
-        image="test",
-        source="test.jpeg",
+        image="test.jpeg",
         expected_visible_label_count=2,
         labels=[
             _gt_label(

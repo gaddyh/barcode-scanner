@@ -3,8 +3,7 @@
   "coordinate_space": "original_exif_normalized_pixels",
   "images": [
     {
-      "image": "single_marny_1_label.jpeg",
-      "source": "marny_brown_42.jpeg",
+      "image": "marny_brown_42.jpeg",
       "expected_visible_label_count": 1,
       "expected_clear_label_count": 1,
       "expected_scanner_symbol_count": 2,
@@ -16,8 +15,7 @@
       "labels": []
     },
     {
-      "image": "clear_6_labels.jpeg",
-      "source": "multi_clear_6_boxes.jpeg",
+      "image": "multi_clear_6_boxes.jpeg",
       "expected_visible_label_count": 6,
       "expected_clear_label_count": 6,
       "expected_scanner_symbol_count": 6,
@@ -29,14 +27,12 @@
     },
     {
       "image": "stacked_6_labels.jpeg",
-      "source": "WhatsApp Image 2026-08-03 at 17.06.21 (3).jpeg",
       "expected_visible_label_count": 6,
       "expected_unmatched_label_ids": [],
       "labels": []
     },
     {
-      "image": "clean_12_labels.jpeg",
-      "source": "multi_12_clean.jpeg",
+      "image": "multi_12_clean.jpeg",
       "expected_visible_label_count": 12,
       "expected_clear_label_count": 12,
       "expected_scanner_symbol_count": 11,
@@ -48,36 +44,31 @@
     },
     {
       "image": "topdown_12_labels_a.jpeg",
-      "source": "WhatsApp Image 2026-08-03 at 17.06.22.jpeg",
       "expected_visible_label_count": 12,
       "expected_unmatched_label_ids": [],
       "labels": []
     },
     {
       "image": "topdown_12_labels_b.jpeg",
-      "source": "WhatsApp Image 2026-08-03 at 17.06.21 (6).jpeg",
       "expected_visible_label_count": 12,
       "expected_unmatched_label_ids": [],
       "labels": []
     },
     {
       "image": "vegan_12_labels_a.jpeg",
-      "source": "WhatsApp Image 2026-08-03 at 17.06.21 (1).jpeg",
       "expected_visible_label_count": 12,
       "expected_unmatched_label_ids": [],
       "labels": []
     },
     {
       "image": "vegan_12_labels_b.jpeg",
-      "source": "WhatsApp Image 2026-08-03 at 17.06.21.jpeg",
       "expected_visible_label_count": 12,
       "expected_unmatched_label_ids": [],
       "labels": []
     },
     {
-      "image": "fuzzy_17_labels.jpeg",
-      "source": "multi_16_fuzzy.jpeg",
-      "expected_visible_label_count": 17,
+      "image": "fuzzy_16_labels.jpeg",
+      "expected_visible_label_count": 16,
       "expected_clear_label_count": null,
       "expected_scanner_symbol_count": 0,
       "expected_unmatched_label_count": null,

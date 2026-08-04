@@ -29,6 +29,7 @@ import argparse
 import json
 import sys
 import time
+from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -65,8 +66,8 @@ def load_dataset(path: Path = DATASET_PATH) -> SpatialDataset:
     return SpatialDataset.model_validate(raw)
 
 
-def _samples_path(source: str) -> Path:
-    return SAMPLES_DIR / source
+def _samples_path(image: str) -> Path:
+    return SAMPLES_DIR / image
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +181,7 @@ def run_live_benchmark(
     latencies_by_image: dict[str, list[float]] = {}
 
     for gt in dataset.images:
-        image_path = _samples_path(gt.source)
+        image_path = _samples_path(gt.image)
         if not image_path.exists():
             print(
                 f"WARNING: source image not found, skipping {gt.image}: {image_path}",
@@ -198,10 +199,16 @@ def run_live_benchmark(
             spatial = audit_shoebox_labels(image_path, model=resolved_model)
             elapsed = time.perf_counter() - t0
 
+            # Convert to plain dicts — match_scanner_to_labels and
+            # compute_image_metrics expect dict inputs (detection["bounding_box"],
+            # label.get("barcode_bbox")), not Pydantic/dataclass objects.
+            detection_dicts = [asdict(d) for d in detections]
+            label_dicts = [lab.model_dump(mode="json") for lab in spatial.labels]
+
             metrics = _metrics_from_run(
                 gt,
-                detections,
-                spatial.labels,
+                detection_dicts,
+                label_dicts,
                 image_width=spatial.image_width,
                 image_height=spatial.image_height,
                 latency=elapsed,
@@ -258,7 +265,7 @@ def run_snapshot_benchmark() -> BenchResult:
             )
             continue
 
-        image_path = _samples_path(gt.source)
+        image_path = _samples_path(gt.image)
         if not image_path.exists():
             print(
                 f"WARNING: source image not found, skipping {gt.image}: {image_path}",
@@ -270,9 +277,10 @@ def run_snapshot_benchmark() -> BenchResult:
             snapshot_images[gt.image]
         )
         detections = scanner.scan_bytes(image_path.read_bytes())
+        detection_dicts = [asdict(d) for d in detections]
         metrics = _metrics_from_run(
             gt,
-            detections,
+            detection_dicts,
             labels,
             image_width=image_width,
             image_height=image_height,

@@ -484,7 +484,7 @@ cause neither failure nor a false positive.
 | Mismatches | 0 |
 | Bonuses | 0 |
 
-`multi_16_fuzzy.jpeg` is excluded until its per-label ground truth is manually
+`fuzzy_16_labels.jpeg` is excluded until its per-label ground truth is manually
 annotated. The dataset format supports adding it later.
 
 ### Regression test
@@ -496,6 +496,76 @@ pytest tests/benchmark/test_baseline.py
 Asserts the frozen baseline (19/19 exact, 14/14 unique cases, 0 false
 positives, 0 mismatches). Latency is not asserted — it is reported for human
 monitoring only.
+
+## Spatial benchmark (Gemini)
+
+A second benchmark (`tests/benchmark_spatial/`) evaluates the Gemini spatial
+pipeline (label detection + reconciliation) separately from the deterministic
+scanner benchmark. It uses 9 images from `samples/` and tracks image-level
+metrics (visible label count, unmatched label count, extra labels) plus
+per-label spatial metrics (center distance, IoU, center-inside-ground-truth)
+once ground-truth boxes are frozen.
+
+### Live runner
+
+```bash
+make bench-spatial
+# or
+python -m tests.benchmark_spatial.runner --runs 5
+```
+
+Requires `GEMINI_API_KEY`. Runs each image N times and reports median latency,
+label-count accuracy, unmatched-label accuracy, and extra labels. Exits 0 if
+all active image-level expectations pass.
+
+### Snapshot capture and regression
+
+```bash
+python -m tests.benchmark_spatial.runner --capture-snapshots   # run once
+pytest tests/benchmark_spatial/test_regression.py
+```
+
+`--capture-snapshots` saves the first run's Gemini response to
+`tests/benchmark_spatial/snapshots/gemini_responses.json`. Commit that file so
+the snapshot regression test can replay it offline (no API calls, no
+`GEMINI_API_KEY` needed). The test asserts dataset-derived totals and the
+frozen baseline (9/9 label-count correct, 0 extra labels).
+
+### Live test (charged, gated)
+
+```bash
+RUN_LIVE_GEMINI=1 pytest -m live_gemini
+```
+
+Marked `live_gemini` and gated by `RUN_LIVE_GEMINI=1` so plain `pytest` never
+makes charged API calls.
+
+### Annotation workflow (per-label ground truth)
+
+Per-label ground-truth boxes are not frozen yet (`labels: []` in
+`dataset.json`). To freeze them:
+
+```bash
+# 1. Generate a draft annotation from Gemini
+python -m tests.benchmark_spatial.annotate draft multi_12_clean.jpeg
+
+# 2. Edit the JSON by hand: move/add/delete boxes
+#    tests/benchmark_spatial/annotations/multi_12_clean.jpeg.json
+
+# 3. Re-render the preview PNG to verify your edits
+python -m tests.benchmark_spatial.annotate review multi_12_clean.jpeg
+
+# 4. Approve when satisfied
+python -m tests.benchmark_spatial.annotate review multi_12_clean.jpeg --approve
+
+# 5. Freeze approved labels into dataset.json
+python -m tests.benchmark_spatial.annotate freeze multi_12_clean.jpeg
+```
+
+`freeze` refuses unreviewed annotations and validates that both image
+dimensions and the `coordinate_space` string match the source image and
+dataset. Hard spatial assertions (spatial recall, barcode localization, exact
+rectangles) become active only after annotations are frozen.
 
 ## Docker
 
@@ -521,9 +591,25 @@ samples/
   marny_brown_42.jpeg           Sample photo with 2 barcodes
   multi_clear_6_boxes.jpeg      Sample photo with 6 barcodes
   multi_12_clean.jpeg           Sample photo with 12 barcodes
-  multi_16_fuzzy.jpeg           Difficult photo (16 boxes, fuzzy barcodes)
+  stacked_6_labels.jpeg         Stacked photo with 6 labels
+  topdown_12_labels_a.jpeg      Top-down photo with 12 labels
+  topdown_12_labels_b.jpeg      Top-down photo with 12 labels
+  vegan_12_labels_a.jpeg        Vegan product photo with 12 labels
+  vegan_12_labels_b.jpeg        Vegan product photo with 12 labels
+  fuzzy_16_labels.jpeg          Difficult photo (16 boxes, fuzzy barcodes)
 tests/
   benchmark/                    Ground-truth dataset + benchmark runner
+  benchmark_spatial/            Gemini spatial pipeline benchmark
+    dataset.json                9 image-level expectations + per-label ground truth
+    models.py                   Pydantic dataset + metrics models
+    metrics.py                  Pure metric functions + aggregation
+    runner.py                   Live benchmark + snapshot replay CLI
+    annotate.py                 Draft/review/freeze annotation workflow
+    snapshots/                  Captured Gemini responses for offline regression
+    annotations/                Per-image ground-truth boxes (manual review)
+    preview/                    Rendered PNG previews (gitignored)
+    test_metrics.py             Deterministic metric tests
+    test_regression.py          Snapshot baseline + gated live test
   test_api.py                   API endpoint tests
   test_barcode_scanner.py       Scanner logic tests (monkeypatched zxing)
   test_cli.py                   CLI unit tests + regression tests on samples

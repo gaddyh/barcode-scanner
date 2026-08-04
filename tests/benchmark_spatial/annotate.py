@@ -36,7 +36,7 @@ from typing import Any
 from PIL import Image, ImageDraw, ImageFont
 
 from app.services.gemini_box_audit import audit_shoebox_labels, load_normalized_image
-from tests.benchmark_spatial.models import COORDINATE_SPACE
+from tests.benchmark_spatial.models import COORDINATE_SPACE, GroundTruthImage, SpatialDataset
 from tests.benchmark_spatial.runner import DATASET_PATH, SAMPLES_DIR, load_dataset
 
 BENCH_DIR = Path(__file__).resolve().parent
@@ -117,10 +117,9 @@ def _draw_boxes(
 
 
 def _render_preview(image_name: str, annotation: dict[str, Any]) -> Path:
-    source = annotation["source"]
-    image_path = SAMPLES_DIR / source
+    image_path = SAMPLES_DIR / image_name
     if not image_path.exists():
-        raise FileNotFoundError(f"Source image not found: {image_path}")
+        raise FileNotFoundError(f"Image not found: {image_path}")
 
     with Image.open(image_path) as img:
         rgb = img.convert("RGB")
@@ -136,15 +135,33 @@ def _render_preview(image_name: str, annotation: dict[str, Any]) -> Path:
 # ---------------------------------------------------------------------------
 
 
+def _normalize_image_arg(image: str) -> str:
+    """Strip a leading samples/ prefix if the user included it."""
+    prefix = "samples/"
+    return image[len(prefix):] if image.startswith(prefix) else image
+
+
+def _find_gt_image(dataset: SpatialDataset, image: str) -> GroundTruthImage | None:
+    image = _normalize_image_arg(image)
+    return next((i for i in dataset.images if i.image == image), None)
+
+
+def _print_available_images(dataset: SpatialDataset) -> None:
+    print("Available images in dataset.json:", file=sys.stderr)
+    for img in dataset.images:
+        print(f"  {img.image}", file=sys.stderr)
+
+
 def cmd_draft(args: argparse.Namespace) -> int:
-    image = args.image
+    image = _normalize_image_arg(args.image)
     dataset = load_dataset()
-    gt_image = next((i for i in dataset.images if i.image == image), None)
+    gt_image = _find_gt_image(dataset, image)
     if gt_image is None:
         print(f"ERROR: image '{image}' not found in dataset.json", file=sys.stderr)
+        _print_available_images(dataset)
         return 1
 
-    source_path = SAMPLES_DIR / gt_image.source
+    source_path = SAMPLES_DIR / gt_image.image
     if not source_path.exists():
         print(f"ERROR: source image not found: {source_path}", file=sys.stderr)
         return 1
@@ -167,7 +184,6 @@ def cmd_draft(args: argparse.Namespace) -> int:
 
     annotation = {
         "image": image,
-        "source": gt_image.source,
         "coordinate_space": COORDINATE_SPACE,
         "image_width": normalized.original_width,
         "image_height": normalized.original_height,
@@ -193,7 +209,7 @@ def cmd_draft(args: argparse.Namespace) -> int:
 
 
 def cmd_review(args: argparse.Namespace) -> int:
-    image = args.image
+    image = _normalize_image_arg(args.image)
     annotation = _load_annotation(image)
 
     if args.approve:
@@ -218,7 +234,7 @@ def cmd_review(args: argparse.Namespace) -> int:
 
 
 def cmd_freeze(args: argparse.Namespace) -> int:
-    image = args.image
+    image = _normalize_image_arg(args.image)
     annotation = _load_annotation(image)
 
     # Safety check 1: must be reviewed.
@@ -228,17 +244,17 @@ def cmd_freeze(args: argparse.Namespace) -> int:
             f"Run `annotate review {image} --approve`."
         )
 
-    # Safety check 2: both dimensions must match the source image.
-    source_path = SAMPLES_DIR / annotation["source"]
-    if not source_path.exists():
-        raise FileNotFoundError(f"Source image not found: {source_path}")
-    normalized = load_normalized_image(source_path)
+    # Safety check 2: both dimensions must match the image.
+    image_path = SAMPLES_DIR / image
+    if not image_path.exists():
+        raise FileNotFoundError(f"Image not found: {image_path}")
+    normalized = load_normalized_image(image_path)
     if (
         annotation["image_width"] != normalized.original_width
         or annotation["image_height"] != normalized.original_height
     ):
         raise ValueError(
-            f"Annotation dimensions do not match the source image: "
+            f"Annotation dimensions do not match the image: "
             f"annotation={annotation['image_width']}x{annotation['image_height']} "
             f"source={normalized.original_width}x{normalized.original_height}"
         )

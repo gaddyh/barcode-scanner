@@ -63,8 +63,9 @@ class GroundTruthImage(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    image: str = Field(description="Benchmark name, e.g. 'clean_12_labels.jpeg'.")
-    source: str = Field(description="Filename inside samples/ to load at runtime.")
+    image: str = Field(
+        description="Filename inside samples/ (also the benchmark image name)."
+    )
     expected_visible_label_count: int = Field(ge=0)
     expected_clear_label_count: int | None = Field(
         default=None,

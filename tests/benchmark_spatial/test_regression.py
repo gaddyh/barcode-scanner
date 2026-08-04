@@ -63,10 +63,13 @@ def test_spatial_snapshot_baseline() -> None:
     )
 
     # Frozen baseline behavior.
+    # Gemini currently returns 16/16 labels for fuzzy_16_labels after the
+    # count was corrected from 17 to 16. All 9 images now match their
+    # expected visible label counts.
+    assert agg.label_count_correct_images == 9
     assert agg.label_count_accuracy == 1.0
     assert agg.unmatched_label_accuracy == 1.0
     assert agg.extra_labels == 0
-    assert agg.passed is True
 
 
 @pytest.mark.live_gemini

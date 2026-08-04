@@ -1,0 +1,213 @@
+{
+  "image": "multi_12_clean.jpeg",
+  "coordinate_space": "original_exif_normalized_pixels",
+  "image_width": 1500,
+  "image_height": 2000,
+  "reviewed": false,
+  "labels": [
+    {
+      "label_index": 1,
+      "label_bbox": {
+        "x1": 129,
+        "y1": 436,
+        "x2": 408,
+        "y2": 646
+      },
+      "barcode_bbox": {
+        "x1": 358,
+        "y1": 484,
+        "x2": 388,
+        "y2": 606
+      },
+      "status": "clear",
+      "confidence": "high"
+    },
+    {
+      "label_index": 2,
+      "label_bbox": {
+        "x1": 614,
+        "y1": 444,
+        "x2": 898,
+        "y2": 644
+      },
+      "barcode_bbox": {
+        "x1": 849,
+        "y1": 490,
+        "x2": 880,
+        "y2": 618
+      },
+      "status": "clear",
+      "confidence": "high"
+    },
+    {
+      "label_index": 3,
+      "label_bbox": {
+        "x1": 1098,
+        "y1": 436,
+        "x2": 1395,
+        "y2": 646
+      },
+      "barcode_bbox": {
+        "x1": 1341,
+        "y1": 480,
+        "x2": 1378,
+        "y2": 606
+      },
+      "status": "clear",
+      "confidence": "high"
+    },
+    {
+      "label_index": 4,
+      "label_bbox": {
+        "x1": 82,
+        "y1": 756,
+        "x2": 418,
+        "y2": 964
+      },
+      "barcode_bbox": {
+        "x1": 366,
+        "y1": 800,
+        "x2": 394,
+        "y2": 930
+      },
+      "status": "clear",
+      "confidence": "high"
+    },
+    {
+      "label_index": 5,
+      "label_bbox": {
+        "x1": 624,
+        "y1": 762,
+        "x2": 908,
+        "y2": 962
+      },
+      "barcode_bbox": {
+        "x1": 856,
+        "y1": 806,
+        "x2": 890,
+        "y2": 938
+      },
+      "status": "clear",
+      "confidence": "high"
+    },
+    {
+      "label_index": 6,
+      "label_bbox": {
+        "x1": 1104,
+        "y1": 758,
+        "x2": 1401,
+        "y2": 968
+      },
+      "barcode_bbox": {
+        "x1": 1352,
+        "y1": 804,
+        "x2": 1383,
+        "y2": 936
+      },
+      "status": "clear",
+      "confidence": "high"
+    },
+    {
+      "label_index": 7,
+      "label_bbox": {
+        "x1": 93,
+        "y1": 1084,
+        "x2": 435,
+        "y2": 1296
+      },
+      "barcode_bbox": {
+        "x1": 381,
+        "y1": 1132,
+        "x2": 416,
+        "y2": 1264
+      },
+      "status": "clear",
+      "confidence": "high"
+    },
+    {
+      "label_index": 8,
+      "label_bbox": {
+        "x1": 624,
+        "y1": 1076,
+        "x2": 908,
+        "y2": 1302
+      },
+      "barcode_bbox": {
+        "x1": 861,
+        "y1": 1126,
+        "x2": 891,
+        "y2": 1258
+      },
+      "status": "clear",
+      "confidence": "high"
+    },
+    {
+      "label_index": 9,
+      "label_bbox": {
+        "x1": 1108,
+        "y1": 1078,
+        "x2": 1420,
+        "y2": 1292
+      },
+      "barcode_bbox": {
+        "x1": 1368,
+        "y1": 1122,
+        "x2": 1400,
+        "y2": 1254
+      },
+      "status": "clear",
+      "confidence": "high"
+    },
+    {
+      "label_index": 10,
+      "label_bbox": {
+        "x1": 136,
+        "y1": 1406,
+        "x2": 424,
+        "y2": 1640
+      },
+      "barcode_bbox": {
+        "x1": 368,
+        "y1": 1456,
+        "x2": 399,
+        "y2": 1588
+      },
+      "status": "clear",
+      "confidence": "high"
+    },
+    {
+      "label_index": 11,
+      "label_bbox": {
+        "x1": 618,
+        "y1": 1406,
+        "x2": 914,
+        "y2": 1618
+      },
+      "barcode_bbox": {
+        "x1": 838,
+        "y1": 1458,
+        "x2": 884,
+        "y2": 1590
+      },
+      "status": "clear",
+      "confidence": "high"
+    },
+    {
+      "label_index": 12,
+      "label_bbox": {
+        "x1": 1125,
+        "y1": 1444,
+        "x2": 1432,
+        "y2": 1636
+      },
+      "barcode_bbox": {
+        "x1": 1372,
+        "y1": 1502,
+        "x2": 1410,
+        "y2": 1626
+      },
+      "status": "clear",
+      "confidence": "high"
+    }
+  ]
+}
