@@ -123,17 +123,21 @@ No barcode is still a successful API request:
 
 ## Scan from the command line
 
-The `barcode-scan` console script (installed by `pip install -e ".[dev]"`) scans
-one or more image files directly, with no HTTP server:
+The `barcode-scan` console script (installed by `pip install -e ".[dev]"`) has
+three subcommands: `scan`, `audit`, and `pipeline`.
+
+### scan — deterministic barcode scan
 
 ```bash
-barcode-scan ./product.jpg
-barcode-scan --pretty ./a.png ./b.png
+barcode-scan scan ./product.jpg
+barcode-scan scan --pretty ./a.png ./b.png
+barcode-scan scan --time ./product.jpg
 ```
 
-Each image produces one JSON object in a top-level array. Unreadable files and
-invalid images are reported per-entry with `"status": "error"` and the process
-exits with a non-zero code if any image failed.
+Each image produces one JSON object in a top-level array. `--time` prints
+per-image wall-clock timing to stderr. Unreadable files and invalid images are
+reported per-entry with `"status": "error"` and the process exits non-zero if
+any image failed.
 
 ```json
 [
@@ -165,11 +169,105 @@ exits with a non-zero code if any image failed.
 ]
 ```
 
-You can also run it without installing the entry point:
+### audit — Gemini visual audit
+
+Runs a Gemini visual audit on shoebox images. By default it returns a fast
+counts-only result (~1.5s) using `gemini-3.5-flash-lite`. Use `--full` for the
+detailed audit (bounding boxes, OCR text, per-box observations; ~25s).
 
 ```bash
-python -m app.cli ./product.jpg
+barcode-scan audit ./product.jpg --time --pretty
+barcode-scan audit ./product.jpg --full --pretty
+barcode-scan audit ./product.jpg --model gemini-3.5-flash
 ```
+
+Requires `GEMINI_API_KEY` in `.env` or the environment. The fast audit returns
+four count fields:
+
+```json
+[
+  {
+    "path": "./product.jpg",
+    "status": "ok",
+    "audit": {
+      "visible_product_barcode_label_count": 1,
+      "clear_product_barcode_label_count": 1,
+      "boxes_without_visible_product_barcode": 3,
+      "partially_obscured_product_barcode_count": 0
+    }
+  }
+]
+```
+
+### pipeline — scan + audit in parallel
+
+Runs the deterministic scanner and the Gemini audit concurrently, then returns
+a combined summary with reconciliation metrics. Wall-clock time is the slower
+of the two (~1.5–2s), not their sum.
+
+```bash
+barcode-scan pipeline ./product.jpg --time --pretty
+barcode-scan pipeline ./a.jpg ./b.jpg ./c.jpg --time
+```
+
+Output includes a summary table on stderr and full JSON on stdout:
+
+```text
+Image                             Decoded/Visible  Match    Time
+----------------------------------------------------------------
+marny_brown_42.jpeg                           2/1   DIFF   1.85s
+multi_clear_6_boxes.jpeg                      6/6     OK   2.04s
+multi_12_clean.jpeg                         11/12   DIFF   1.50s
+----------------------------------------------------------------
+```
+
+The `decoded_vs_visible` field reconciles scanner output with Gemini's visual
+count — `match: true` means the scanner decoded exactly as many barcodes as
+Gemini saw labels; a negative `difference` means the scanner missed some.
+
+```json
+[
+  {
+    "path": "samples/multi_clear_6_boxes.jpeg",
+    "scan_status": "found",
+    "audit_status": "ok",
+    "decoded_count": 6,
+    "unique_values": ["7297500243416", "7297500243423", "7297500243430", "7297500243447"],
+    "unique_value_count": 4,
+    "visible_labels": 6,
+    "clear_labels": 6,
+    "boxes_without_label": 0,
+    "partially_obscured": 0,
+    "decoded_vs_visible": {"decoded": 6, "visible": 6, "match": true, "difference": 0},
+    "ok": true
+  }
+]
+```
+
+You can also run any subcommand without installing the entry point:
+
+```bash
+python -m app.cli scan ./product.jpg
+python -m app.cli audit ./product.jpg --time
+python -m app.cli pipeline ./product.jpg --time --pretty
+```
+
+## LangSmith tracing
+
+The `pipeline` subcommand is instrumented with LangSmith tracing. When
+`LANGSMITH_TRACING=true` is set in `.env` (along with `LANGSMITH_API_KEY`,
+`LANGSMITH_PROJECT`, and `LANGSMITH_ENDPOINT`), each pipeline run is traced as
+a nested span tree:
+
+```text
+pipeline (chain)
+├── barcode_scan (tool)     — deterministic scanner
+└── gemini_audit (tool)     — Gemini counts audit
+```
+
+Traces are visible at [smith.langchain.com](https://smith.langchain.com) under
+the configured project. Tracing is automatically disabled when
+`LANGSMITH_TRACING` is not set, so tests and non-tracing runs are unaffected.
 
 ## Run tests
 
@@ -283,14 +381,18 @@ docker compose up --build
 ```text
 app/
   api/routes.py                 HTTP validation and endpoint
-  cli.py                        Command-line scanner (no HTTP server)
+  cli.py                        CLI with scan / audit / pipeline subcommands
   core/config.py                Environment configuration
   models/barcode.py             API response contract (ScanResponse)
-  services/barcode_scanner.py   BarcodeScanner — tiling, preprocessing, dedup
+  services/
+    barcode_scanner.py          BarcodeScanner — tiling, preprocessing, dedup
+    gemini_box_audit.py         Gemini visual audit (fast counts + full audit)
   main.py                       FastAPI application
 samples/
   marny_brown_42.jpeg           Sample photo with 2 barcodes
   multi_clear_6_boxes.jpeg      Sample photo with 6 barcodes
+  multi_12_clean.jpeg           Sample photo with 12 barcodes
+  multi_16_fuzzy.jpeg           Difficult photo (16 boxes, fuzzy barcodes)
 tests/
   benchmark/                    Ground-truth dataset + benchmark runner
   test_api.py                   API endpoint tests
@@ -304,10 +406,13 @@ This version does not:
 
 - call WhatsApp
 - call Priority ERP
-- use an LLM
 - run object detection to find box regions (tiling is a fixed grid, not adaptive)
 - validate barcode check digits
 - expose per-detection confidence scores
+
+The Gemini visual audit is advisory only — it does not decode barcodes or
+replace the deterministic scanner. The pipeline reconciles the two but does not
+yet auto-retry failed decodes with targeted crops guided by Gemini bounding boxes.
 
 The next step is to test it against real warehouse photos and record exact-match
 success and failure reasons.
