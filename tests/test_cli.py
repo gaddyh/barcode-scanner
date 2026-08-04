@@ -526,8 +526,11 @@ def test_cli_pipeline_table_shows_matched_over_visible(
     cli.main(["pipeline", str(image_path)])
 
     captured = capsys.readouterr()
-    # Table header should say Matched/Visible, and the row should show 2/2 OK.
-    assert "Matched/Visible" in captured.err
+    # Table header should have Initial/Final columns, and the row should
+    # show 2/2 in both, with OK match and 0 recovered.
+    assert "Initial" in captured.err
+    assert "Final" in captured.err
+    assert "Recovered" in captured.err
     assert "2/2" in captured.err
     assert "OK" in captured.err
 

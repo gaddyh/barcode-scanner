@@ -93,6 +93,52 @@ def _print_timing(label: str, seconds: float) -> None:
     print(f"{label:<40} {seconds:.2f}s", file=sys.stderr)
 
 
+def _print_scan_table(
+    rows: list[tuple[str, str, int, float | None]],
+) -> None:
+    """Print a rich summary table to stderr.
+
+    Each row: (image, status, count, time).
+    """
+    header = (
+        f"{'Image':<32} {'Status':>10} {'Barcodes':>9} {'Time':>7}"
+    )
+    print(header, file=sys.stderr)
+    print("-" * len(header), file=sys.stderr)
+
+    for image, status, count, elapsed in rows:
+        time_str = f"{elapsed:.2f}s" if elapsed is not None else "-"
+        print(
+            f"{image:<32} {status:>10} {count:>9} {time_str:>7}",
+            file=sys.stderr,
+        )
+
+    print("-" * len(header), file=sys.stderr)
+
+
+def _print_audit_table(
+    rows: list[tuple[str, str, str, str, float | None]],
+) -> None:
+    """Print a rich summary table to stderr.
+
+    Each row: (image, status, visible, clear, time).
+    """
+    header = (
+        f"{'Image':<32} {'Status':>10} {'Visible':>8} {'Clear':>7} {'Time':>7}"
+    )
+    print(header, file=sys.stderr)
+    print("-" * len(header), file=sys.stderr)
+
+    for image, status, visible, clear, elapsed in rows:
+        time_str = f"{elapsed:.2f}s" if elapsed is not None else "-"
+        print(
+            f"{image:<32} {status:>10} {visible:>8} {clear:>7} {time_str:>7}",
+            file=sys.stderr,
+        )
+
+    print("-" * len(header), file=sys.stderr)
+
+
 # ---------------------------------------------------------------------------
 # scan subcommand
 # ---------------------------------------------------------------------------
@@ -130,15 +176,22 @@ def _run_scan(args: argparse.Namespace) -> int:
     scanner = BarcodeScanner()
 
     results: list[dict[str, object]] = []
+    table_rows: list[tuple[str, str, int, float | None]] = []
+
     for path in args.images:
-        if args.time:
-            t0 = time.perf_counter()
-            result = scan_path(path, scanner)
-            elapsed = time.perf_counter() - t0
-            _print_timing(path.name, elapsed)
-        else:
-            result = scan_path(path, scanner)
+        t0 = time.perf_counter()
+        result = scan_path(path, scanner)
+        elapsed = time.perf_counter() - t0
         results.append(result)
+
+        if args.time:
+            _print_timing(path.name, elapsed)
+
+        status = str(result.get("status", "error"))
+        count = int(result.get("count", 0))
+        table_rows.append((path.name, status, count, elapsed if args.time else None))
+
+    _print_scan_table(table_rows)
 
     print(json.dumps(results, indent=2 if args.pretty else None))
 
@@ -203,29 +256,37 @@ def audit_path(
 
 def _run_audit(args: argparse.Namespace) -> int:
     results: list[dict[str, object]] = []
+    table_rows: list[tuple[str, str, str, str, float | None]] = []
+
     for path in args.images:
-        if args.time:
-            t0 = time.perf_counter()
-            result = audit_path(
-                path,
-                model=args.model,
-                max_retries=args.max_retries,
-                retry_delay_seconds=DEFAULT_RETRY_DELAY_SECONDS,
-                full=args.full,
-                labels=args.labels,
-            )
-            elapsed = time.perf_counter() - t0
-            _print_timing(path.name, elapsed)
-        else:
-            result = audit_path(
-                path,
-                model=args.model,
-                max_retries=args.max_retries,
-                retry_delay_seconds=DEFAULT_RETRY_DELAY_SECONDS,
-                full=args.full,
-                labels=args.labels,
-            )
+        t0 = time.perf_counter()
+        result = audit_path(
+            path,
+            model=args.model,
+            max_retries=args.max_retries,
+            retry_delay_seconds=DEFAULT_RETRY_DELAY_SECONDS,
+            full=args.full,
+            labels=args.labels,
+        )
+        elapsed = time.perf_counter() - t0
         results.append(result)
+
+        if args.time:
+            _print_timing(path.name, elapsed)
+
+        status = str(result.get("status", "error"))
+        audit_data = result.get("audit", {})
+        # For --labels: visible/clear from labels array; for counts: from fields.
+        labels = audit_data.get("labels", [])
+        if labels:
+            visible = str(len(labels))
+            clear = str(sum(1 for lbl in labels if lbl.get("status") == "clear"))
+        else:
+            visible = str(audit_data.get("visible_product_barcode_label_count", "-"))
+            clear = str(audit_data.get("clear_product_barcode_label_count", "-"))
+        table_rows.append((path.name, status, visible, clear, elapsed if args.time else None))
+
+    _print_audit_table(table_rows)
 
     print(json.dumps(results, indent=2 if args.pretty else None))
 
@@ -426,8 +487,15 @@ def pipeline_path(
     max_retries: int,
     retry_delay_seconds: float,
     recovery_debug_dir: Path | None = None,
+    dual_audit: bool = True,
 ) -> dict[str, object]:
     """Run deterministic scan and Gemini audit in parallel, return combined summary.
+
+    When ``dual_audit`` is True (default), two Gemini audits run in parallel
+    and the result with more scanner-label matches is used.  This counters
+    Gemini's non-deterministic barcode_bbox placement — when one audit returns
+    barcode bboxes that point at product text instead of the barcode, the
+    other audit typically gets it right.
 
     When ``recovery_debug_dir`` is set and recovery is triggered, crop images
     and preprocessing variants are saved as PNGs for debugging.
@@ -447,13 +515,53 @@ def pipeline_path(
     # Copy the current context so langsmith trace context propagates to threads.
     # Each thread needs its own copy — a single Context cannot be entered twice.
     scan_ctx = contextvars.copy_context()
-    audit_ctx = contextvars.copy_context()
+    audit_ctx_a = contextvars.copy_context()
+    audit_ctx_b = contextvars.copy_context()
 
-    with ThreadPoolExecutor(max_workers=2) as pool:
+    # Run scan + one or two audits in parallel.
+    with ThreadPoolExecutor(max_workers=3) as pool:
         scan_future = pool.submit(scan_ctx.run, _do_scan)
-        audit_future = pool.submit(audit_ctx.run, _do_audit)
+        audit_future_a = pool.submit(audit_ctx_a.run, _do_audit)
+        audit_future_b = (
+            pool.submit(audit_ctx_b.run, _do_audit)
+            if dual_audit
+            else None
+        )
         scan_result = scan_future.result()
-        audit_result = audit_future.result()
+        audit_result_a = audit_future_a.result()
+        audit_result_b = (
+            audit_future_b.result() if audit_future_b is not None else None
+        )
+
+    # Pick the audit result with more scanner-label matches.
+    audit_result = audit_result_a
+    if audit_result_b is not None and audit_result_b.get("status") == "ok":
+        spatial_a = audit_result_a.get("spatial", {})
+        spatial_b = audit_result_b.get("spatial", {})
+        labels_a = spatial_a.get("labels", [])
+        labels_b = spatial_b.get("labels", [])
+        barcodes_for_match = scan_result.get("barcodes", [])
+
+        matches_a = 0
+        matches_b = 0
+        if barcodes_for_match and labels_a:
+            recon_a = match_scanner_to_labels(
+                barcodes_for_match, labels_a,
+                image_width=spatial_a["image_width"],
+                image_height=spatial_a["image_height"],
+            )
+            matches_a = recon_a.matched_label_count
+        if barcodes_for_match and labels_b:
+            recon_b = match_scanner_to_labels(
+                barcodes_for_match, labels_b,
+                image_width=spatial_b["image_width"],
+                image_height=spatial_b["image_height"],
+            )
+            matches_b = recon_b.matched_label_count
+
+        if matches_b > matches_a:
+            audit_result = audit_result_b
+        # else: keep audit_result_a (equal or better matches)
 
     # Build summary reconciliation
     scan_ok = scan_result.get("status") in ("found", "not_found")
@@ -617,22 +725,24 @@ def pipeline_path(
 
 
 def _print_pipeline_table(
-    rows: list[tuple[str, str, str, float | None]],
+    rows: list[tuple[str, str, str, str, int, float | None]],
 ) -> None:
     """Print a rich summary table to stderr.
 
-    Each row: (image, matched/visible, match, time).
+    Each row: (image, initial, final, match, recovered, time).
     """
     header = (
-        f"{'Image':<32} {'Matched/Visible':>16} {'Match':>6} {'Time':>7}"
+        f"{'Image':<32} {'Initial':>8} {'Final':>8} {'Match':>6} "
+        f"{'Recovered':>10} {'Time':>7}"
     )
     print(header, file=sys.stderr)
     print("-" * len(header), file=sys.stderr)
 
-    for image, mv, match, elapsed in rows:
+    for image, initial, final, match, recovered, elapsed in rows:
         time_str = f"{elapsed:.2f}s" if elapsed is not None else "-"
         print(
-            f"{image:<32} {mv:>16} {match:>6} {time_str:>7}",
+            f"{image:<32} {initial:>8} {final:>8} {match:>6} "
+            f"{recovered:>10} {time_str:>7}",
             file=sys.stderr,
         )
 
@@ -643,7 +753,7 @@ def _run_pipeline(args: argparse.Namespace) -> int:
     scanner = BarcodeScanner()
 
     results: list[dict[str, object]] = []
-    table_rows: list[tuple[str, str, str, float | None]] = []
+    table_rows: list[tuple[str, str, str, str, int, float | None]] = []
 
     for path in args.images:
         t0 = time.perf_counter()
@@ -654,6 +764,7 @@ def _run_pipeline(args: argparse.Namespace) -> int:
             max_retries=args.max_retries,
             retry_delay_seconds=DEFAULT_RETRY_DELAY_SECONDS,
             recovery_debug_dir=args.recovery_debug,
+            dual_audit=not args.no_dual_audit,
         )
         elapsed = time.perf_counter() - t0
         results.append(result)
@@ -661,23 +772,32 @@ def _run_pipeline(args: argparse.Namespace) -> int:
         if args.time:
             _print_timing(path.name, elapsed)
 
-        # Build table row — prefer reconciliation matched/visible when available.
+        # Build table row with initial/final/recovered.
         dv = result.get("decoded_vs_visible", {})
-        if "matched_labels" in dv:
-            matched = dv.get("matched_labels", "-")
-            visible = dv.get("visible", "-")
-            all_matched = dv.get("all_labels_matched")
-            if all_matched is True:
-                match_str = "OK"
-            elif all_matched is False:
-                match_str = "DIFF"
-            else:
-                match_str = "ERR"
-            mv_str = f"{matched}/{visible}" if matched != "-" else "-/-"
+        visible = dv.get("visible", "-")
+        final_matched = dv.get("matched_labels", "-")
+        all_matched = dv.get("all_labels_matched")
+        if all_matched is True:
+            match_str = "OK"
+        elif all_matched is False:
+            match_str = "DIFF"
         else:
             match_str = "ERR"
-            mv_str = "-/-"
-        table_rows.append((path.name, mv_str, match_str, elapsed))
+
+        # Initial matched count from initial_reconciliation (before recovery).
+        initial_recon = result.get("initial_reconciliation", {})
+        initial_matched = initial_recon.get("matched_label_count", final_matched)
+
+        # Recovered count from recovery section.
+        recovery = result.get("recovery", {})
+        recovered_count = recovery.get("recovered_label_count", 0)
+
+        initial_str = f"{initial_matched}/{visible}" if visible != "-" else "-/-"
+        final_str = f"{final_matched}/{visible}" if visible != "-" else "-/-"
+        table_rows.append(
+            (path.name, initial_str, final_str, match_str, recovered_count,
+             elapsed if args.time else None)
+        )
 
     _print_pipeline_table(table_rows)
 
@@ -818,6 +938,15 @@ def build_parser() -> argparse.ArgumentParser:
             "Save recovery crops and preprocessing variants as PNGs to this "
             "directory for debugging. Only fires when recovery is triggered "
             "(unmatched labels exist)."
+        ),
+    )
+    pipeline_parser.add_argument(
+        "--no-dual-audit",
+        action="store_true",
+        help=(
+            "Disable the dual Gemini audit. By default two audits run in "
+            "parallel and the result with more scanner-label matches is used, "
+            "countering Gemini's non-deterministic barcode_bbox placement."
         ),
     )
     pipeline_parser.set_defaults(func=_run_pipeline)

@@ -261,7 +261,14 @@ Return one observation per physical product label.
 
 For every observation:
 - label_bbox must cover the complete printed product label.
-- barcode_bbox must tightly cover the barcode bars when they are visible.
+- barcode_bbox must tightly cover the barcode bars — the striped black-and-white
+  pattern of alternating bars and spaces.  This is NOT the human-readable digits
+  printed below the bars, NOT the product name or brand text, and NOT any other
+  printed text on the label.  Point only at the machine-readable bar pattern
+  itself.
+- The barcode bars are typically a narrow horizontal or vertical strip of
+  alternating dark and light bars, usually much wider than it is tall (or taller
+  than it is wide if rotated).  The bounding box should match that aspect ratio.
 - If the label is visible but the barcode region cannot be localized,
   return barcode_bbox as null.
 - Do not return shipping labels, warehouse labels, carton labels, handwritten
