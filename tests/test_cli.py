@@ -328,7 +328,10 @@ def _patch_pipeline(
         def fake_traced_audit(path, *, model, max_retries, retry_delay_seconds):
             return {"status": "ok", "spatial": spatial_result_dict}
 
-    monkeypatch.setattr(cli, "_traced_audit", fake_traced_audit)
+    # _traced_audit lives in app.services.pipeline (extracted from cli).
+    from app.services import pipeline as pipeline_mod
+
+    monkeypatch.setattr(pipeline_mod, "_traced_audit", fake_traced_audit)
     return cli
 
 

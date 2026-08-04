@@ -1,0 +1,4957 @@
+{
+  "version": 1,
+  "captured_at": "2026-08-04T21:17:16.863326+00:00",
+  "model": "gemini-3.5-flash-lite",
+  "images": {
+    "marny_brown_42.jpeg": {
+      "image_width": 2000,
+      "image_height": 1500,
+      "audit_candidates": [
+        {
+          "status": "ok",
+          "spatial": {
+            "image_width": 2000,
+            "image_height": 1500,
+            "labels": [
+              {
+                "label_index": 1,
+                "label_bbox": {
+                  "x1": 424,
+                  "y1": 339,
+                  "x2": 1578,
+                  "y2": 998
+                },
+                "barcode_bbox": {
+                  "x1": 504,
+                  "y1": 416,
+                  "x2": 662,
+                  "y2": 879
+                },
+                "status": "clear",
+                "confidence": "high"
+              }
+            ]
+          }
+        },
+        {
+          "status": "ok",
+          "spatial": {
+            "image_width": 2000,
+            "image_height": 1500,
+            "labels": [
+              {
+                "label_index": 1,
+                "label_bbox": {
+                  "x1": 1414,
+                  "y1": 0,
+                  "x2": 1774,
+                  "y2": 72
+                },
+                "barcode_bbox": {
+                  "x1": 1668,
+                  "y1": 0,
+                  "x2": 1756,
+                  "y2": 20
+                },
+                "status": "cropped",
+                "confidence": "high"
+              },
+              {
+                "label_index": 2,
+                "label_bbox": {
+                  "x1": 422,
+                  "y1": 339,
+                  "x2": 1578,
+                  "y2": 998
+                },
+                "barcode_bbox": {
+                  "x1": 1168,
+                  "y1": 672,
+                  "x2": 1468,
+                  "y2": 789
+                },
+                "status": "clear",
+                "confidence": "high"
+              }
+            ]
+          }
+        }
+      ],
+      "captured_scanner_detections": [
+        {
+          "value": "7297501098442",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": -90,
+          "position": [
+            {
+              "x": 619,
+              "y": 878
+            },
+            {
+              "x": 619,
+              "y": 424
+            },
+            {
+              "x": 559,
+              "y": 415
+            },
+            {
+              "x": 559,
+              "y": 876
+            }
+          ],
+          "bounding_box": {
+            "x1": 559,
+            "y1": 415,
+            "x2": 619,
+            "y2": 878
+          }
+        },
+        {
+          "value": "900439-42",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 0,
+          "position": [
+            {
+              "x": 1171,
+              "y": 680
+            },
+            {
+              "x": 1465,
+              "y": 680
+            },
+            {
+              "x": 1458,
+              "y": 780
+            },
+            {
+              "x": 1170,
+              "y": 780
+            }
+          ],
+          "bounding_box": {
+            "x1": 1170,
+            "y1": 680,
+            "x2": 1465,
+            "y2": 780
+          }
+        }
+      ]
+    },
+    "multi_clear_6_boxes.jpeg": {
+      "image_width": 1608,
+      "image_height": 2048,
+      "audit_candidates": [
+        {
+          "status": "ok",
+          "spatial": {
+            "image_width": 1608,
+            "image_height": 2048,
+            "labels": [
+              {
+                "label_index": 1,
+                "label_bbox": {
+                  "x1": 224,
+                  "y1": 121,
+                  "x2": 693,
+                  "y2": 436
+                },
+                "barcode_bbox": {
+                  "x1": 257,
+                  "y1": 209,
+                  "x2": 307,
+                  "y2": 383
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 2,
+                "label_bbox": {
+                  "x1": 1047,
+                  "y1": 143,
+                  "x2": 1499,
+                  "y2": 426
+                },
+                "barcode_bbox": {
+                  "x1": 1079,
+                  "y1": 188,
+                  "x2": 1127,
+                  "y2": 377
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 3,
+                "label_bbox": {
+                  "x1": 195,
+                  "y1": 659,
+                  "x2": 685,
+                  "y2": 967
+                },
+                "barcode_bbox": {
+                  "x1": 232,
+                  "y1": 709,
+                  "x2": 280,
+                  "y2": 918
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 4,
+                "label_bbox": {
+                  "x1": 1074,
+                  "y1": 694,
+                  "x2": 1553,
+                  "y2": 993
+                },
+                "barcode_bbox": {
+                  "x1": 1110,
+                  "y1": 727,
+                  "x2": 1158,
+                  "y2": 938
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 5,
+                "label_bbox": {
+                  "x1": 191,
+                  "y1": 1200,
+                  "x2": 688,
+                  "y2": 1509
+                },
+                "barcode_bbox": {
+                  "x1": 227,
+                  "y1": 1243,
+                  "x2": 280,
+                  "y2": 1456
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 6,
+                "label_bbox": {
+                  "x1": 217,
+                  "y1": 1722,
+                  "x2": 708,
+                  "y2": 2048
+                },
+                "barcode_bbox": {
+                  "x1": 251,
+                  "y1": 1767,
+                  "x2": 302,
+                  "y2": 1995
+                },
+                "status": "clear",
+                "confidence": "high"
+              }
+            ]
+          }
+        },
+        {
+          "status": "ok",
+          "spatial": {
+            "image_width": 1608,
+            "image_height": 2048,
+            "labels": [
+              {
+                "label_index": 1,
+                "label_bbox": {
+                  "x1": 224,
+                  "y1": 119,
+                  "x2": 695,
+                  "y2": 436
+                },
+                "barcode_bbox": {
+                  "x1": 254,
+                  "y1": 205,
+                  "x2": 312,
+                  "y2": 397
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 2,
+                "label_bbox": {
+                  "x1": 1047,
+                  "y1": 147,
+                  "x2": 1502,
+                  "y2": 430
+                },
+                "barcode_bbox": {
+                  "x1": 1074,
+                  "y1": 184,
+                  "x2": 1130,
+                  "y2": 377
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 3,
+                "label_bbox": {
+                  "x1": 195,
+                  "y1": 659,
+                  "x2": 687,
+                  "y2": 967
+                },
+                "barcode_bbox": {
+                  "x1": 227,
+                  "y1": 707,
+                  "x2": 281,
+                  "y2": 918
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 4,
+                "label_bbox": {
+                  "x1": 1074,
+                  "y1": 694,
+                  "x2": 1553,
+                  "y2": 991
+                },
+                "barcode_bbox": {
+                  "x1": 1106,
+                  "y1": 723,
+                  "x2": 1164,
+                  "y2": 938
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 5,
+                "label_bbox": {
+                  "x1": 191,
+                  "y1": 1198,
+                  "x2": 690,
+                  "y2": 1509
+                },
+                "barcode_bbox": {
+                  "x1": 224,
+                  "y1": 1241,
+                  "x2": 280,
+                  "y2": 1460
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 6,
+                "label_bbox": {
+                  "x1": 214,
+                  "y1": 1724,
+                  "x2": 709,
+                  "y2": 2048
+                },
+                "barcode_bbox": {
+                  "x1": 248,
+                  "y1": 1763,
+                  "x2": 304,
+                  "y2": 1995
+                },
+                "status": "clear",
+                "confidence": "high"
+              }
+            ]
+          }
+        }
+      ],
+      "captured_scanner_detections": [
+        {
+          "value": "7297500243416",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": -90,
+          "position": [
+            {
+              "x": 1112,
+              "y": 378
+            },
+            {
+              "x": 1112,
+              "y": 184
+            },
+            {
+              "x": 1080,
+              "y": 183
+            },
+            {
+              "x": 1080,
+              "y": 378
+            }
+          ],
+          "bounding_box": {
+            "x1": 1080,
+            "y1": 183,
+            "x2": 1112,
+            "y2": 378
+          }
+        },
+        {
+          "value": "7297500243416",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": -90,
+          "position": [
+            {
+              "x": 302,
+              "y": 386
+            },
+            {
+              "x": 302,
+              "y": 190
+            },
+            {
+              "x": 265,
+              "y": 191
+            },
+            {
+              "x": 265,
+              "y": 387
+            }
+          ],
+          "bounding_box": {
+            "x1": 265,
+            "y1": 190,
+            "x2": 302,
+            "y2": 387
+          }
+        },
+        {
+          "value": "7297500243430",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": -90,
+          "position": [
+            {
+              "x": 274,
+              "y": 914
+            },
+            {
+              "x": 274,
+              "y": 710
+            },
+            {
+              "x": 233,
+              "y": 712
+            },
+            {
+              "x": 233,
+              "y": 916
+            }
+          ],
+          "bounding_box": {
+            "x1": 233,
+            "y1": 710,
+            "x2": 274,
+            "y2": 916
+          }
+        },
+        {
+          "value": "7297500243423",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": -90,
+          "position": [
+            {
+              "x": 1154,
+              "y": 937
+            },
+            {
+              "x": 1154,
+              "y": 730
+            },
+            {
+              "x": 1112,
+              "y": 729
+            },
+            {
+              "x": 1112,
+              "y": 937
+            }
+          ],
+          "bounding_box": {
+            "x1": 1112,
+            "y1": 729,
+            "x2": 1154,
+            "y2": 937
+          }
+        },
+        {
+          "value": "7297500243447",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": -90,
+          "position": [
+            {
+              "x": 238,
+              "y": 1457
+            },
+            {
+              "x": 238,
+              "y": 1244
+            },
+            {
+              "x": 230,
+              "y": 1245
+            },
+            {
+              "x": 230,
+              "y": 1458
+            }
+          ],
+          "bounding_box": {
+            "x1": 230,
+            "y1": 1244,
+            "x2": 238,
+            "y2": 1458
+          }
+        },
+        {
+          "value": "7297500243423",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": -90,
+          "position": [
+            {
+              "x": 294,
+              "y": 1993
+            },
+            {
+              "x": 294,
+              "y": 1767
+            },
+            {
+              "x": 256,
+              "y": 1768
+            },
+            {
+              "x": 256,
+              "y": 1993
+            }
+          ],
+          "bounding_box": {
+            "x1": 256,
+            "y1": 1767,
+            "x2": 294,
+            "y2": 1993
+          }
+        }
+      ]
+    },
+    "stacked_6_labels.jpeg": {
+      "image_width": 1500,
+      "image_height": 2000,
+      "audit_candidates": [
+        {
+          "status": "ok",
+          "spatial": {
+            "image_width": 1500,
+            "image_height": 2000,
+            "labels": [
+              {
+                "label_index": 1,
+                "label_bbox": {
+                  "x1": 780,
+                  "y1": 236,
+                  "x2": 1173,
+                  "y2": 484
+                },
+                "barcode_bbox": {
+                  "x1": 1098,
+                  "y1": 274,
+                  "x2": 1144,
+                  "y2": 422
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 2,
+                "label_bbox": {
+                  "x1": 800,
+                  "y1": 650,
+                  "x2": 1188,
+                  "y2": 900
+                },
+                "barcode_bbox": {
+                  "x1": 1118,
+                  "y1": 686,
+                  "x2": 1162,
+                  "y2": 836
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 3,
+                "label_bbox": {
+                  "x1": 192,
+                  "y1": 1068,
+                  "x2": 534,
+                  "y2": 1298
+                },
+                "barcode_bbox": {
+                  "x1": 470,
+                  "y1": 1108,
+                  "x2": 513,
+                  "y2": 1264
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 4,
+                "label_bbox": {
+                  "x1": 801,
+                  "y1": 1092,
+                  "x2": 1188,
+                  "y2": 1324
+                },
+                "barcode_bbox": {
+                  "x1": 1116,
+                  "y1": 1124,
+                  "x2": 1164,
+                  "y2": 1274
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 5,
+                "label_bbox": {
+                  "x1": 200,
+                  "y1": 1488,
+                  "x2": 548,
+                  "y2": 1728
+                },
+                "barcode_bbox": {
+                  "x1": 484,
+                  "y1": 1532,
+                  "x2": 526,
+                  "y2": 1682
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 6,
+                "label_bbox": {
+                  "x1": 801,
+                  "y1": 1530,
+                  "x2": 1174,
+                  "y2": 1766
+                },
+                "barcode_bbox": {
+                  "x1": 1107,
+                  "y1": 1564,
+                  "x2": 1160,
+                  "y2": 1736
+                },
+                "status": "clear",
+                "confidence": "high"
+              }
+            ]
+          }
+        },
+        {
+          "status": "ok",
+          "spatial": {
+            "image_width": 1500,
+            "image_height": 2000,
+            "labels": [
+              {
+                "label_index": 1,
+                "label_bbox": {
+                  "x1": 774,
+                  "y1": 236,
+                  "x2": 1167,
+                  "y2": 484
+                },
+                "barcode_bbox": {
+                  "x1": 1101,
+                  "y1": 272,
+                  "x2": 1143,
+                  "y2": 430
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 2,
+                "label_bbox": {
+                  "x1": 800,
+                  "y1": 652,
+                  "x2": 1190,
+                  "y2": 900
+                },
+                "barcode_bbox": {
+                  "x1": 1119,
+                  "y1": 688,
+                  "x2": 1162,
+                  "y2": 846
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 3,
+                "label_bbox": {
+                  "x1": 190,
+                  "y1": 1068,
+                  "x2": 531,
+                  "y2": 1298
+                },
+                "barcode_bbox": {
+                  "x1": 472,
+                  "y1": 1112,
+                  "x2": 510,
+                  "y2": 1274
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 4,
+                "label_bbox": {
+                  "x1": 801,
+                  "y1": 1092,
+                  "x2": 1184,
+                  "y2": 1324
+                },
+                "barcode_bbox": {
+                  "x1": 1119,
+                  "y1": 1126,
+                  "x2": 1164,
+                  "y2": 1296
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 5,
+                "label_bbox": {
+                  "x1": 200,
+                  "y1": 1490,
+                  "x2": 549,
+                  "y2": 1722
+                },
+                "barcode_bbox": {
+                  "x1": 489,
+                  "y1": 1534,
+                  "x2": 526,
+                  "y2": 1700
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 6,
+                "label_bbox": {
+                  "x1": 789,
+                  "y1": 1530,
+                  "x2": 1182,
+                  "y2": 1762
+                },
+                "barcode_bbox": {
+                  "x1": 1110,
+                  "y1": 1564,
+                  "x2": 1156,
+                  "y2": 1734
+                },
+                "status": "clear",
+                "confidence": "high"
+              }
+            ]
+          }
+        }
+      ],
+      "captured_scanner_detections": [
+        {
+          "value": "7297500243423",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 90,
+          "position": [
+            {
+              "x": 1139,
+              "y": 277
+            },
+            {
+              "x": 1139,
+              "y": 447
+            },
+            {
+              "x": 1104,
+              "y": 449
+            },
+            {
+              "x": 1104,
+              "y": 277
+            }
+          ],
+          "bounding_box": {
+            "x1": 1104,
+            "y1": 277,
+            "x2": 1139,
+            "y2": 449
+          }
+        },
+        {
+          "value": "217224-38",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 180,
+          "position": [
+            {
+              "x": 911,
+              "y": 355
+            },
+            {
+              "x": 809,
+              "y": 355
+            },
+            {
+              "x": 809,
+              "y": 359
+            },
+            {
+              "x": 911,
+              "y": 359
+            }
+          ],
+          "bounding_box": {
+            "x1": 809,
+            "y1": 355,
+            "x2": 911,
+            "y2": 359
+          }
+        },
+        {
+          "value": "7297500243447",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 90,
+          "position": [
+            {
+              "x": 1159,
+              "y": 691
+            },
+            {
+              "x": 1159,
+              "y": 860
+            },
+            {
+              "x": 1123,
+              "y": 860
+            },
+            {
+              "x": 1123,
+              "y": 693
+            }
+          ],
+          "bounding_box": {
+            "x1": 1123,
+            "y1": 691,
+            "x2": 1159,
+            "y2": 860
+          }
+        },
+        {
+          "value": "217224-40",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 180,
+          "position": [
+            {
+              "x": 931,
+              "y": 768
+            },
+            {
+              "x": 831,
+              "y": 768
+            },
+            {
+              "x": 831,
+              "y": 784
+            },
+            {
+              "x": 931,
+              "y": 784
+            }
+          ],
+          "bounding_box": {
+            "x1": 831,
+            "y1": 768,
+            "x2": 931,
+            "y2": 784
+          }
+        },
+        {
+          "value": "7297500243423",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 90,
+          "position": [
+            {
+              "x": 506,
+              "y": 1115
+            },
+            {
+              "x": 506,
+              "y": 1274
+            },
+            {
+              "x": 476,
+              "y": 1272
+            },
+            {
+              "x": 476,
+              "y": 1114
+            }
+          ],
+          "bounding_box": {
+            "x1": 476,
+            "y1": 1114,
+            "x2": 506,
+            "y2": 1274
+          }
+        },
+        {
+          "value": "7297500243430",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 90,
+          "position": [
+            {
+              "x": 1159,
+              "y": 1128
+            },
+            {
+              "x": 1159,
+              "y": 1296
+            },
+            {
+              "x": 1127,
+              "y": 1294
+            },
+            {
+              "x": 1127,
+              "y": 1129
+            }
+          ],
+          "bounding_box": {
+            "x1": 1127,
+            "y1": 1128,
+            "x2": 1159,
+            "y2": 1296
+          }
+        },
+        {
+          "value": "7297500243416",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 90,
+          "position": [
+            {
+              "x": 1147,
+              "y": 1566
+            },
+            {
+              "x": 1147,
+              "y": 1732
+            },
+            {
+              "x": 1119,
+              "y": 1731
+            },
+            {
+              "x": 1119,
+              "y": 1566
+            }
+          ],
+          "bounding_box": {
+            "x1": 1119,
+            "y1": 1566,
+            "x2": 1147,
+            "y2": 1732
+          }
+        }
+      ]
+    },
+    "multi_12_clean.jpeg": {
+      "image_width": 1500,
+      "image_height": 2000,
+      "audit_candidates": [
+        {
+          "status": "ok",
+          "spatial": {
+            "image_width": 1500,
+            "image_height": 2000,
+            "labels": [
+              {
+                "label_index": 1,
+                "label_bbox": {
+                  "x1": 129,
+                  "y1": 458,
+                  "x2": 408,
+                  "y2": 642
+                },
+                "barcode_bbox": {
+                  "x1": 358,
+                  "y1": 486,
+                  "x2": 388,
+                  "y2": 626
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 2,
+                "label_bbox": {
+                  "x1": 614,
+                  "y1": 468,
+                  "x2": 900,
+                  "y2": 642
+                },
+                "barcode_bbox": {
+                  "x1": 849,
+                  "y1": 494,
+                  "x2": 880,
+                  "y2": 620
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 3,
+                "label_bbox": {
+                  "x1": 1102,
+                  "y1": 460,
+                  "x2": 1394,
+                  "y2": 638
+                },
+                "barcode_bbox": {
+                  "x1": 1342,
+                  "y1": 484,
+                  "x2": 1376,
+                  "y2": 624
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 4,
+                "label_bbox": {
+                  "x1": 138,
+                  "y1": 774,
+                  "x2": 418,
+                  "y2": 958
+                },
+                "barcode_bbox": {
+                  "x1": 364,
+                  "y1": 802,
+                  "x2": 398,
+                  "y2": 940
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 5,
+                "label_bbox": {
+                  "x1": 627,
+                  "y1": 780,
+                  "x2": 908,
+                  "y2": 960
+                },
+                "barcode_bbox": {
+                  "x1": 856,
+                  "y1": 810,
+                  "x2": 890,
+                  "y2": 946
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 6,
+                "label_bbox": {
+                  "x1": 1107,
+                  "y1": 782,
+                  "x2": 1401,
+                  "y2": 964
+                },
+                "barcode_bbox": {
+                  "x1": 1352,
+                  "y1": 810,
+                  "x2": 1384,
+                  "y2": 952
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 7,
+                "label_bbox": {
+                  "x1": 148,
+                  "y1": 1106,
+                  "x2": 435,
+                  "y2": 1286
+                },
+                "barcode_bbox": {
+                  "x1": 381,
+                  "y1": 1132,
+                  "x2": 412,
+                  "y2": 1274
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 8,
+                "label_bbox": {
+                  "x1": 627,
+                  "y1": 1102,
+                  "x2": 909,
+                  "y2": 1298
+                },
+                "barcode_bbox": {
+                  "x1": 860,
+                  "y1": 1130,
+                  "x2": 891,
+                  "y2": 1268
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 9,
+                "label_bbox": {
+                  "x1": 1124,
+                  "y1": 1104,
+                  "x2": 1420,
+                  "y2": 1286
+                },
+                "barcode_bbox": {
+                  "x1": 1368,
+                  "y1": 1130,
+                  "x2": 1400,
+                  "y2": 1268
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 10,
+                "label_bbox": {
+                  "x1": 136,
+                  "y1": 1432,
+                  "x2": 424,
+                  "y2": 1636
+                },
+                "barcode_bbox": {
+                  "x1": 366,
+                  "y1": 1460,
+                  "x2": 399,
+                  "y2": 1606
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 11,
+                "label_bbox": {
+                  "x1": 618,
+                  "y1": 1430,
+                  "x2": 914,
+                  "y2": 1620
+                },
+                "barcode_bbox": {
+                  "x1": 852,
+                  "y1": 1458,
+                  "x2": 885,
+                  "y2": 1608
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 12,
+                "label_bbox": {
+                  "x1": 1125,
+                  "y1": 1448,
+                  "x2": 1431,
+                  "y2": 1634
+                },
+                "barcode_bbox": {
+                  "x1": 1372,
+                  "y1": 1476,
+                  "x2": 1407,
+                  "y2": 1622
+                },
+                "status": "clear",
+                "confidence": "high"
+              }
+            ]
+          }
+        },
+        {
+          "status": "ok",
+          "spatial": {
+            "image_width": 1500,
+            "image_height": 2000,
+            "labels": [
+              {
+                "label_index": 1,
+                "label_bbox": {
+                  "x1": 129,
+                  "y1": 458,
+                  "x2": 408,
+                  "y2": 640
+                },
+                "barcode_bbox": {
+                  "x1": 358,
+                  "y1": 484,
+                  "x2": 390,
+                  "y2": 612
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 2,
+                "label_bbox": {
+                  "x1": 614,
+                  "y1": 470,
+                  "x2": 898,
+                  "y2": 640
+                },
+                "barcode_bbox": {
+                  "x1": 849,
+                  "y1": 490,
+                  "x2": 882,
+                  "y2": 620
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 3,
+                "label_bbox": {
+                  "x1": 1100,
+                  "y1": 460,
+                  "x2": 1395,
+                  "y2": 642
+                },
+                "barcode_bbox": {
+                  "x1": 1341,
+                  "y1": 480,
+                  "x2": 1377,
+                  "y2": 616
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 4,
+                "label_bbox": {
+                  "x1": 135,
+                  "y1": 774,
+                  "x2": 416,
+                  "y2": 964
+                },
+                "barcode_bbox": {
+                  "x1": 366,
+                  "y1": 802,
+                  "x2": 396,
+                  "y2": 928
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 5,
+                "label_bbox": {
+                  "x1": 626,
+                  "y1": 780,
+                  "x2": 908,
+                  "y2": 960
+                },
+                "barcode_bbox": {
+                  "x1": 856,
+                  "y1": 806,
+                  "x2": 890,
+                  "y2": 936
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 6,
+                "label_bbox": {
+                  "x1": 1106,
+                  "y1": 782,
+                  "x2": 1401,
+                  "y2": 968
+                },
+                "barcode_bbox": {
+                  "x1": 1350,
+                  "y1": 808,
+                  "x2": 1383,
+                  "y2": 936
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 7,
+                "label_bbox": {
+                  "x1": 147,
+                  "y1": 1108,
+                  "x2": 434,
+                  "y2": 1282
+                },
+                "barcode_bbox": {
+                  "x1": 381,
+                  "y1": 1132,
+                  "x2": 414,
+                  "y2": 1256
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 8,
+                "label_bbox": {
+                  "x1": 626,
+                  "y1": 1100,
+                  "x2": 908,
+                  "y2": 1298
+                },
+                "barcode_bbox": {
+                  "x1": 861,
+                  "y1": 1128,
+                  "x2": 892,
+                  "y2": 1256
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 9,
+                "label_bbox": {
+                  "x1": 1120,
+                  "y1": 1102,
+                  "x2": 1420,
+                  "y2": 1290
+                },
+                "barcode_bbox": {
+                  "x1": 1368,
+                  "y1": 1128,
+                  "x2": 1401,
+                  "y2": 1254
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 10,
+                "label_bbox": {
+                  "x1": 136,
+                  "y1": 1434,
+                  "x2": 424,
+                  "y2": 1640
+                },
+                "barcode_bbox": {
+                  "x1": 366,
+                  "y1": 1458,
+                  "x2": 399,
+                  "y2": 1588
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 11,
+                "label_bbox": {
+                  "x1": 618,
+                  "y1": 1432,
+                  "x2": 914,
+                  "y2": 1620
+                },
+                "barcode_bbox": {
+                  "x1": 852,
+                  "y1": 1458,
+                  "x2": 885,
+                  "y2": 1586
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 12,
+                "label_bbox": {
+                  "x1": 1130,
+                  "y1": 1448,
+                  "x2": 1430,
+                  "y2": 1634
+                },
+                "barcode_bbox": {
+                  "x1": 1374,
+                  "y1": 1474,
+                  "x2": 1407,
+                  "y2": 1602
+                },
+                "status": "clear",
+                "confidence": "high"
+              }
+            ]
+          }
+        }
+      ],
+      "captured_scanner_detections": [
+        {
+          "value": "7297501154117",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 90,
+          "position": [
+            {
+              "x": 1373,
+              "y": 484
+            },
+            {
+              "x": 1373,
+              "y": 612
+            },
+            {
+              "x": 1371,
+              "y": 612
+            },
+            {
+              "x": 1371,
+              "y": 484
+            }
+          ],
+          "bounding_box": {
+            "x1": 1371,
+            "y1": 484,
+            "x2": 1373,
+            "y2": 612
+          }
+        },
+        {
+          "value": "7297501154179",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 90,
+          "position": [
+            {
+              "x": 383,
+              "y": 486
+            },
+            {
+              "x": 383,
+              "y": 611
+            },
+            {
+              "x": 373,
+              "y": 611
+            },
+            {
+              "x": 373,
+              "y": 487
+            }
+          ],
+          "bounding_box": {
+            "x1": 373,
+            "y1": 486,
+            "x2": 383,
+            "y2": 611
+          }
+        },
+        {
+          "value": "7297501154292",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 90,
+          "position": [
+            {
+              "x": 869,
+              "y": 495
+            },
+            {
+              "x": 869,
+              "y": 620
+            },
+            {
+              "x": 861,
+              "y": 620
+            },
+            {
+              "x": 861,
+              "y": 495
+            }
+          ],
+          "bounding_box": {
+            "x1": 861,
+            "y1": 495,
+            "x2": 869,
+            "y2": 620
+          }
+        },
+        {
+          "value": "7297501154230",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 90,
+          "position": [
+            {
+              "x": 391,
+              "y": 800
+            },
+            {
+              "x": 391,
+              "y": 924
+            },
+            {
+              "x": 370,
+              "y": 925
+            },
+            {
+              "x": 370,
+              "y": 800
+            }
+          ],
+          "bounding_box": {
+            "x1": 370,
+            "y1": 800,
+            "x2": 391,
+            "y2": 925
+          }
+        },
+        {
+          "value": "7297501154056",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 90,
+          "position": [
+            {
+              "x": 870,
+              "y": 808
+            },
+            {
+              "x": 870,
+              "y": 933
+            },
+            {
+              "x": 865,
+              "y": 933
+            },
+            {
+              "x": 865,
+              "y": 808
+            }
+          ],
+          "bounding_box": {
+            "x1": 865,
+            "y1": 808,
+            "x2": 870,
+            "y2": 933
+          }
+        },
+        {
+          "value": "7297501153936",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 90,
+          "position": [
+            {
+              "x": 1379,
+              "y": 809
+            },
+            {
+              "x": 1379,
+              "y": 938
+            },
+            {
+              "x": 1360,
+              "y": 938
+            },
+            {
+              "x": 1360,
+              "y": 809
+            }
+          ],
+          "bounding_box": {
+            "x1": 1360,
+            "y1": 809,
+            "x2": 1379,
+            "y2": 938
+          }
+        },
+        {
+          "value": "7297501154117",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 90,
+          "position": [
+            {
+              "x": 880,
+              "y": 1127
+            },
+            {
+              "x": 880,
+              "y": 1256
+            },
+            {
+              "x": 872,
+              "y": 1256
+            },
+            {
+              "x": 872,
+              "y": 1127
+            }
+          ],
+          "bounding_box": {
+            "x1": 872,
+            "y1": 1127,
+            "x2": 880,
+            "y2": 1256
+          }
+        },
+        {
+          "value": "7297501154179",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 90,
+          "position": [
+            {
+              "x": 1372,
+              "y": 1130
+            },
+            {
+              "x": 1372,
+              "y": 1260
+            },
+            {
+              "x": 1372,
+              "y": 1260
+            },
+            {
+              "x": 1372,
+              "y": 1130
+            }
+          ],
+          "bounding_box": {
+            "x1": 1372,
+            "y1": 1130,
+            "x2": 1372,
+            "y2": 1260
+          }
+        },
+        {
+          "value": "7297501153998",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 90,
+          "position": [
+            {
+              "x": 402,
+              "y": 1134
+            },
+            {
+              "x": 402,
+              "y": 1260
+            },
+            {
+              "x": 402,
+              "y": 1260
+            },
+            {
+              "x": 402,
+              "y": 1134
+            }
+          ],
+          "bounding_box": {
+            "x1": 402,
+            "y1": 1134,
+            "x2": 402,
+            "y2": 1260
+          }
+        },
+        {
+          "value": "7297501195257",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 90,
+          "position": [
+            {
+              "x": 387,
+              "y": 1459
+            },
+            {
+              "x": 387,
+              "y": 1587
+            },
+            {
+              "x": 387,
+              "y": 1587
+            },
+            {
+              "x": 387,
+              "y": 1459
+            }
+          ],
+          "bounding_box": {
+            "x1": 387,
+            "y1": 1459,
+            "x2": 387,
+            "y2": 1587
+          }
+        },
+        {
+          "value": "7297501195134",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 90,
+          "position": [
+            {
+              "x": 860,
+              "y": 1460
+            },
+            {
+              "x": 860,
+              "y": 1591
+            },
+            {
+              "x": 860,
+              "y": 1591
+            },
+            {
+              "x": 860,
+              "y": 1460
+            }
+          ],
+          "bounding_box": {
+            "x1": 860,
+            "y1": 1460,
+            "x2": 860,
+            "y2": 1591
+          }
+        },
+        {
+          "value": "7297501154056",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 90,
+          "position": [
+            {
+              "x": 1399,
+              "y": 1476
+            },
+            {
+              "x": 1399,
+              "y": 1608
+            },
+            {
+              "x": 1398,
+              "y": 1608
+            },
+            {
+              "x": 1398,
+              "y": 1476
+            }
+          ],
+          "bounding_box": {
+            "x1": 1398,
+            "y1": 1476,
+            "x2": 1399,
+            "y2": 1608
+          }
+        }
+      ]
+    },
+    "topdown_12_labels_a.jpeg": {
+      "image_width": 1500,
+      "image_height": 2000,
+      "audit_candidates": [
+        {
+          "status": "ok",
+          "spatial": {
+            "image_width": 1500,
+            "image_height": 2000,
+            "labels": [
+              {
+                "label_index": 1,
+                "label_bbox": {
+                  "x1": 234,
+                  "y1": 544,
+                  "x2": 414,
+                  "y2": 824
+                },
+                "barcode_bbox": {
+                  "x1": 258,
+                  "y1": 558,
+                  "x2": 386,
+                  "y2": 592
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 2,
+                "label_bbox": {
+                  "x1": 549,
+                  "y1": 520,
+                  "x2": 735,
+                  "y2": 810
+                },
+                "barcode_bbox": {
+                  "x1": 572,
+                  "y1": 546,
+                  "x2": 698,
+                  "y2": 580
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 3,
+                "label_bbox": {
+                  "x1": 846,
+                  "y1": 506,
+                  "x2": 1029,
+                  "y2": 794
+                },
+                "barcode_bbox": {
+                  "x1": 870,
+                  "y1": 528,
+                  "x2": 994,
+                  "y2": 562
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 4,
+                "label_bbox": {
+                  "x1": 1156,
+                  "y1": 496,
+                  "x2": 1347,
+                  "y2": 778
+                },
+                "barcode_bbox": {
+                  "x1": 1186,
+                  "y1": 518,
+                  "x2": 1310,
+                  "y2": 550
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 5,
+                "label_bbox": {
+                  "x1": 250,
+                  "y1": 1008,
+                  "x2": 428,
+                  "y2": 1286
+                },
+                "barcode_bbox": {
+                  "x1": 276,
+                  "y1": 1026,
+                  "x2": 404,
+                  "y2": 1058
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 6,
+                "label_bbox": {
+                  "x1": 558,
+                  "y1": 988,
+                  "x2": 735,
+                  "y2": 1274
+                },
+                "barcode_bbox": {
+                  "x1": 582,
+                  "y1": 1004,
+                  "x2": 706,
+                  "y2": 1038
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 7,
+                "label_bbox": {
+                  "x1": 862,
+                  "y1": 970,
+                  "x2": 1047,
+                  "y2": 1256
+                },
+                "barcode_bbox": {
+                  "x1": 886,
+                  "y1": 996,
+                  "x2": 1011,
+                  "y2": 1030
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 8,
+                "label_bbox": {
+                  "x1": 1170,
+                  "y1": 966,
+                  "x2": 1362,
+                  "y2": 1256
+                },
+                "barcode_bbox": {
+                  "x1": 1197,
+                  "y1": 992,
+                  "x2": 1322,
+                  "y2": 1026
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 9,
+                "label_bbox": {
+                  "x1": 249,
+                  "y1": 1490,
+                  "x2": 435,
+                  "y2": 1784
+                },
+                "barcode_bbox": {
+                  "x1": 272,
+                  "y1": 1514,
+                  "x2": 404,
+                  "y2": 1546
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 10,
+                "label_bbox": {
+                  "x1": 558,
+                  "y1": 1464,
+                  "x2": 748,
+                  "y2": 1760
+                },
+                "barcode_bbox": {
+                  "x1": 585,
+                  "y1": 1490,
+                  "x2": 710,
+                  "y2": 1526
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 11,
+                "label_bbox": {
+                  "x1": 886,
+                  "y1": 1436,
+                  "x2": 1077,
+                  "y2": 1726
+                },
+                "barcode_bbox": {
+                  "x1": 912,
+                  "y1": 1460,
+                  "x2": 1038,
+                  "y2": 1494
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 12,
+                "label_bbox": {
+                  "x1": 1194,
+                  "y1": 1436,
+                  "x2": 1377,
+                  "y2": 1718
+                },
+                "barcode_bbox": {
+                  "x1": 1220,
+                  "y1": 1462,
+                  "x2": 1347,
+                  "y2": 1496
+                },
+                "status": "clear",
+                "confidence": "high"
+              }
+            ]
+          }
+        },
+        {
+          "status": "ok",
+          "spatial": {
+            "image_width": 1500,
+            "image_height": 2000,
+            "labels": [
+              {
+                "label_index": 1,
+                "label_bbox": {
+                  "x1": 234,
+                  "y1": 544,
+                  "x2": 423,
+                  "y2": 818
+                },
+                "barcode_bbox": {
+                  "x1": 258,
+                  "y1": 556,
+                  "x2": 386,
+                  "y2": 592
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 2,
+                "label_bbox": {
+                  "x1": 549,
+                  "y1": 524,
+                  "x2": 738,
+                  "y2": 808
+                },
+                "barcode_bbox": {
+                  "x1": 572,
+                  "y1": 544,
+                  "x2": 698,
+                  "y2": 580
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 3,
+                "label_bbox": {
+                  "x1": 850,
+                  "y1": 508,
+                  "x2": 1036,
+                  "y2": 794
+                },
+                "barcode_bbox": {
+                  "x1": 870,
+                  "y1": 528,
+                  "x2": 993,
+                  "y2": 560
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 4,
+                "label_bbox": {
+                  "x1": 1161,
+                  "y1": 502,
+                  "x2": 1347,
+                  "y2": 774
+                },
+                "barcode_bbox": {
+                  "x1": 1186,
+                  "y1": 516,
+                  "x2": 1310,
+                  "y2": 550
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 5,
+                "label_bbox": {
+                  "x1": 254,
+                  "y1": 1008,
+                  "x2": 424,
+                  "y2": 1288
+                },
+                "barcode_bbox": {
+                  "x1": 276,
+                  "y1": 1024,
+                  "x2": 404,
+                  "y2": 1058
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 6,
+                "label_bbox": {
+                  "x1": 560,
+                  "y1": 988,
+                  "x2": 735,
+                  "y2": 1274
+                },
+                "barcode_bbox": {
+                  "x1": 584,
+                  "y1": 1004,
+                  "x2": 706,
+                  "y2": 1040
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 7,
+                "label_bbox": {
+                  "x1": 862,
+                  "y1": 974,
+                  "x2": 1046,
+                  "y2": 1254
+                },
+                "barcode_bbox": {
+                  "x1": 886,
+                  "y1": 994,
+                  "x2": 1011,
+                  "y2": 1028
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 8,
+                "label_bbox": {
+                  "x1": 1170,
+                  "y1": 970,
+                  "x2": 1362,
+                  "y2": 1254
+                },
+                "barcode_bbox": {
+                  "x1": 1194,
+                  "y1": 992,
+                  "x2": 1320,
+                  "y2": 1028
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 9,
+                "label_bbox": {
+                  "x1": 249,
+                  "y1": 1494,
+                  "x2": 435,
+                  "y2": 1782
+                },
+                "barcode_bbox": {
+                  "x1": 273,
+                  "y1": 1512,
+                  "x2": 400,
+                  "y2": 1548
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 10,
+                "label_bbox": {
+                  "x1": 558,
+                  "y1": 1464,
+                  "x2": 748,
+                  "y2": 1760
+                },
+                "barcode_bbox": {
+                  "x1": 585,
+                  "y1": 1486,
+                  "x2": 710,
+                  "y2": 1526
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 11,
+                "label_bbox": {
+                  "x1": 888,
+                  "y1": 1436,
+                  "x2": 1076,
+                  "y2": 1726
+                },
+                "barcode_bbox": {
+                  "x1": 912,
+                  "y1": 1458,
+                  "x2": 1038,
+                  "y2": 1492
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 12,
+                "label_bbox": {
+                  "x1": 1196,
+                  "y1": 1442,
+                  "x2": 1376,
+                  "y2": 1718
+                },
+                "barcode_bbox": {
+                  "x1": 1220,
+                  "y1": 1460,
+                  "x2": 1347,
+                  "y2": 1496
+                },
+                "status": "clear",
+                "confidence": "high"
+              }
+            ]
+          }
+        }
+      ],
+      "captured_scanner_detections": [
+        {
+          "value": "7297501154056",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 0,
+          "position": [
+            {
+              "x": 1187,
+              "y": 526
+            },
+            {
+              "x": 1307,
+              "y": 526
+            },
+            {
+              "x": 1308,
+              "y": 544
+            },
+            {
+              "x": 1188,
+              "y": 544
+            }
+          ],
+          "bounding_box": {
+            "x1": 1187,
+            "y1": 526,
+            "x2": 1308,
+            "y2": 544
+          }
+        },
+        {
+          "value": "7297501154179",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 0,
+          "position": [
+            {
+              "x": 871,
+              "y": 536
+            },
+            {
+              "x": 991,
+              "y": 536
+            },
+            {
+              "x": 992,
+              "y": 546
+            },
+            {
+              "x": 872,
+              "y": 546
+            }
+          ],
+          "bounding_box": {
+            "x1": 871,
+            "y1": 536,
+            "x2": 992,
+            "y2": 546
+          }
+        },
+        {
+          "value": "7297501153936",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 0,
+          "position": [
+            {
+              "x": 572,
+              "y": 557
+            },
+            {
+              "x": 694,
+              "y": 557
+            },
+            {
+              "x": 695,
+              "y": 574
+            },
+            {
+              "x": 574,
+              "y": 574
+            }
+          ],
+          "bounding_box": {
+            "x1": 572,
+            "y1": 557,
+            "x2": 695,
+            "y2": 574
+          }
+        },
+        {
+          "value": "7297501154117",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 0,
+          "position": [
+            {
+              "x": 261,
+              "y": 574
+            },
+            {
+              "x": 384,
+              "y": 574
+            },
+            {
+              "x": 384,
+              "y": 575
+            },
+            {
+              "x": 262,
+              "y": 575
+            }
+          ],
+          "bounding_box": {
+            "x1": 261,
+            "y1": 574,
+            "x2": 384,
+            "y2": 575
+          }
+        },
+        {
+          "value": "7297501154117",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 0,
+          "position": [
+            {
+              "x": 887,
+              "y": 1005
+            },
+            {
+              "x": 1008,
+              "y": 1005
+            },
+            {
+              "x": 1008,
+              "y": 1006
+            },
+            {
+              "x": 887,
+              "y": 1006
+            }
+          ],
+          "bounding_box": {
+            "x1": 887,
+            "y1": 1005,
+            "x2": 1008,
+            "y2": 1006
+          }
+        },
+        {
+          "value": "7297501195134",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 0,
+          "position": [
+            {
+              "x": 1198,
+              "y": 1008
+            },
+            {
+              "x": 1319,
+              "y": 1008
+            },
+            {
+              "x": 1319,
+              "y": 1011
+            },
+            {
+              "x": 1199,
+              "y": 1011
+            }
+          ],
+          "bounding_box": {
+            "x1": 1198,
+            "y1": 1008,
+            "x2": 1319,
+            "y2": 1011
+          }
+        },
+        {
+          "value": "7297501154056",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 0,
+          "position": [
+            {
+              "x": 584,
+              "y": 1011
+            },
+            {
+              "x": 704,
+              "y": 1011
+            },
+            {
+              "x": 704,
+              "y": 1013
+            },
+            {
+              "x": 584,
+              "y": 1013
+            }
+          ],
+          "bounding_box": {
+            "x1": 584,
+            "y1": 1011,
+            "x2": 704,
+            "y2": 1013
+          }
+        },
+        {
+          "value": "7297501153998",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 0,
+          "position": [
+            {
+              "x": 914,
+              "y": 1464
+            },
+            {
+              "x": 1036,
+              "y": 1464
+            },
+            {
+              "x": 1036,
+              "y": 1488
+            },
+            {
+              "x": 914,
+              "y": 1488
+            }
+          ],
+          "bounding_box": {
+            "x1": 914,
+            "y1": 1464,
+            "x2": 1036,
+            "y2": 1488
+          }
+        },
+        {
+          "value": "7297501195257",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 0,
+          "position": [
+            {
+              "x": 1223,
+              "y": 1483
+            },
+            {
+              "x": 1343,
+              "y": 1483
+            },
+            {
+              "x": 1344,
+              "y": 1488
+            },
+            {
+              "x": 1223,
+              "y": 1488
+            }
+          ],
+          "bounding_box": {
+            "x1": 1223,
+            "y1": 1483,
+            "x2": 1344,
+            "y2": 1488
+          }
+        },
+        {
+          "value": "7297501154230",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 0,
+          "position": [
+            {
+              "x": 588,
+              "y": 1505
+            },
+            {
+              "x": 710,
+              "y": 1505
+            },
+            {
+              "x": 710,
+              "y": 1508
+            },
+            {
+              "x": 588,
+              "y": 1508
+            }
+          ],
+          "bounding_box": {
+            "x1": 588,
+            "y1": 1505,
+            "x2": 710,
+            "y2": 1508
+          }
+        },
+        {
+          "value": "7297501154179",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 0,
+          "position": [
+            {
+              "x": 275,
+              "y": 1536
+            },
+            {
+              "x": 401,
+              "y": 1536
+            },
+            {
+              "x": 401,
+              "y": 1542
+            },
+            {
+              "x": 276,
+              "y": 1542
+            }
+          ],
+          "bounding_box": {
+            "x1": 275,
+            "y1": 1536,
+            "x2": 401,
+            "y2": 1542
+          }
+        }
+      ]
+    },
+    "topdown_12_labels_b.jpeg": {
+      "image_width": 1500,
+      "image_height": 2000,
+      "audit_candidates": [
+        {
+          "status": "ok",
+          "spatial": {
+            "image_width": 1500,
+            "image_height": 2000,
+            "labels": [
+              {
+                "label_index": 1,
+                "label_bbox": {
+                  "x1": 166,
+                  "y1": 436,
+                  "x2": 339,
+                  "y2": 716
+                },
+                "barcode_bbox": {
+                  "x1": 189,
+                  "y1": 456,
+                  "x2": 316,
+                  "y2": 484
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 2,
+                "label_bbox": {
+                  "x1": 482,
+                  "y1": 438,
+                  "x2": 656,
+                  "y2": 718
+                },
+                "barcode_bbox": {
+                  "x1": 504,
+                  "y1": 458,
+                  "x2": 632,
+                  "y2": 488
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 3,
+                "label_bbox": {
+                  "x1": 786,
+                  "y1": 436,
+                  "x2": 957,
+                  "y2": 716
+                },
+                "barcode_bbox": {
+                  "x1": 808,
+                  "y1": 454,
+                  "x2": 933,
+                  "y2": 484
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 4,
+                "label_bbox": {
+                  "x1": 1107,
+                  "y1": 440,
+                  "x2": 1280,
+                  "y2": 718
+                },
+                "barcode_bbox": {
+                  "x1": 1130,
+                  "y1": 460,
+                  "x2": 1256,
+                  "y2": 488
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 5,
+                "label_bbox": {
+                  "x1": 165,
+                  "y1": 908,
+                  "x2": 334,
+                  "y2": 1186
+                },
+                "barcode_bbox": {
+                  "x1": 188,
+                  "y1": 928,
+                  "x2": 312,
+                  "y2": 958
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 6,
+                "label_bbox": {
+                  "x1": 465,
+                  "y1": 910,
+                  "x2": 640,
+                  "y2": 1180
+                },
+                "barcode_bbox": {
+                  "x1": 494,
+                  "y1": 926,
+                  "x2": 618,
+                  "y2": 956
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 7,
+                "label_bbox": {
+                  "x1": 776,
+                  "y1": 914,
+                  "x2": 945,
+                  "y2": 1182
+                },
+                "barcode_bbox": {
+                  "x1": 798,
+                  "y1": 930,
+                  "x2": 922,
+                  "y2": 960
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 8,
+                "label_bbox": {
+                  "x1": 1082,
+                  "y1": 916,
+                  "x2": 1258,
+                  "y2": 1194
+                },
+                "barcode_bbox": {
+                  "x1": 1112,
+                  "y1": 944,
+                  "x2": 1238,
+                  "y2": 970
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 9,
+                "label_bbox": {
+                  "x1": 147,
+                  "y1": 1386,
+                  "x2": 320,
+                  "y2": 1660
+                },
+                "barcode_bbox": {
+                  "x1": 170,
+                  "y1": 1404,
+                  "x2": 297,
+                  "y2": 1436
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 10,
+                "label_bbox": {
+                  "x1": 453,
+                  "y1": 1382,
+                  "x2": 622,
+                  "y2": 1652
+                },
+                "barcode_bbox": {
+                  "x1": 476,
+                  "y1": 1400,
+                  "x2": 600,
+                  "y2": 1428
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 11,
+                "label_bbox": {
+                  "x1": 764,
+                  "y1": 1360,
+                  "x2": 942,
+                  "y2": 1640
+                },
+                "barcode_bbox": {
+                  "x1": 798,
+                  "y1": 1412,
+                  "x2": 920,
+                  "y2": 1436
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 12,
+                "label_bbox": {
+                  "x1": 1082,
+                  "y1": 1382,
+                  "x2": 1251,
+                  "y2": 1660
+                },
+                "barcode_bbox": {
+                  "x1": 1104,
+                  "y1": 1402,
+                  "x2": 1228,
+                  "y2": 1430
+                },
+                "status": "clear",
+                "confidence": "high"
+              }
+            ]
+          }
+        },
+        {
+          "status": "ok",
+          "spatial": {
+            "image_width": 1500,
+            "image_height": 2000,
+            "labels": [
+              {
+                "label_index": 1,
+                "label_bbox": {
+                  "x1": 165,
+                  "y1": 438,
+                  "x2": 339,
+                  "y2": 716
+                },
+                "barcode_bbox": {
+                  "x1": 220,
+                  "y1": 622,
+                  "x2": 254,
+                  "y2": 696
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 2,
+                "label_bbox": {
+                  "x1": 482,
+                  "y1": 440,
+                  "x2": 656,
+                  "y2": 718
+                },
+                "barcode_bbox": {
+                  "x1": 537,
+                  "y1": 624,
+                  "x2": 570,
+                  "y2": 700
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 3,
+                "label_bbox": {
+                  "x1": 786,
+                  "y1": 436,
+                  "x2": 958,
+                  "y2": 716
+                },
+                "barcode_bbox": {
+                  "x1": 840,
+                  "y1": 624,
+                  "x2": 870,
+                  "y2": 696
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 4,
+                "label_bbox": {
+                  "x1": 1107,
+                  "y1": 442,
+                  "x2": 1280,
+                  "y2": 718
+                },
+                "barcode_bbox": {
+                  "x1": 1162,
+                  "y1": 624,
+                  "x2": 1192,
+                  "y2": 700
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 5,
+                "label_bbox": {
+                  "x1": 165,
+                  "y1": 908,
+                  "x2": 334,
+                  "y2": 1182
+                },
+                "barcode_bbox": {
+                  "x1": 206,
+                  "y1": 1092,
+                  "x2": 244,
+                  "y2": 1166
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 6,
+                "label_bbox": {
+                  "x1": 465,
+                  "y1": 910,
+                  "x2": 642,
+                  "y2": 1182
+                },
+                "barcode_bbox": {
+                  "x1": 522,
+                  "y1": 1088,
+                  "x2": 554,
+                  "y2": 1162
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 7,
+                "label_bbox": {
+                  "x1": 777,
+                  "y1": 914,
+                  "x2": 946,
+                  "y2": 1182
+                },
+                "barcode_bbox": {
+                  "x1": 830,
+                  "y1": 1090,
+                  "x2": 861,
+                  "y2": 1166
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 8,
+                "label_bbox": {
+                  "x1": 1082,
+                  "y1": 916,
+                  "x2": 1258,
+                  "y2": 1194
+                },
+                "barcode_bbox": {
+                  "x1": 1142,
+                  "y1": 1108,
+                  "x2": 1173,
+                  "y2": 1180
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 9,
+                "label_bbox": {
+                  "x1": 147,
+                  "y1": 1388,
+                  "x2": 320,
+                  "y2": 1658
+                },
+                "barcode_bbox": {
+                  "x1": 202,
+                  "y1": 1566,
+                  "x2": 234,
+                  "y2": 1640
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 10,
+                "label_bbox": {
+                  "x1": 453,
+                  "y1": 1384,
+                  "x2": 622,
+                  "y2": 1652
+                },
+                "barcode_bbox": {
+                  "x1": 508,
+                  "y1": 1562,
+                  "x2": 540,
+                  "y2": 1636
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 11,
+                "label_bbox": {
+                  "x1": 768,
+                  "y1": 1358,
+                  "x2": 944,
+                  "y2": 1636
+                },
+                "barcode_bbox": {
+                  "x1": 810,
+                  "y1": 1544,
+                  "x2": 850,
+                  "y2": 1620
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 12,
+                "label_bbox": {
+                  "x1": 1082,
+                  "y1": 1396,
+                  "x2": 1250,
+                  "y2": 1668
+                },
+                "barcode_bbox": {
+                  "x1": 1132,
+                  "y1": 1564,
+                  "x2": 1162,
+                  "y2": 1636
+                },
+                "status": "clear",
+                "confidence": "high"
+              }
+            ]
+          }
+        }
+      ],
+      "captured_scanner_detections": [
+        {
+          "value": "7297501154179",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 0,
+          "position": [
+            {
+              "x": 810,
+              "y": 456
+            },
+            {
+              "x": 933,
+              "y": 456
+            },
+            {
+              "x": 933,
+              "y": 469
+            },
+            {
+              "x": 810,
+              "y": 469
+            }
+          ],
+          "bounding_box": {
+            "x1": 810,
+            "y1": 456,
+            "x2": 933,
+            "y2": 469
+          }
+        },
+        {
+          "value": "7297501153936",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 0,
+          "position": [
+            {
+              "x": 506,
+              "y": 464
+            },
+            {
+              "x": 629,
+              "y": 464
+            },
+            {
+              "x": 629,
+              "y": 470
+            },
+            {
+              "x": 506,
+              "y": 470
+            }
+          ],
+          "bounding_box": {
+            "x1": 506,
+            "y1": 464,
+            "x2": 629,
+            "y2": 470
+          }
+        },
+        {
+          "value": "7297501154117",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 0,
+          "position": [
+            {
+              "x": 191,
+              "y": 466
+            },
+            {
+              "x": 315,
+              "y": 466
+            },
+            {
+              "x": 315,
+              "y": 468
+            },
+            {
+              "x": 191,
+              "y": 468
+            }
+          ],
+          "bounding_box": {
+            "x1": 191,
+            "y1": 466,
+            "x2": 315,
+            "y2": 468
+          }
+        },
+        {
+          "value": "7297501154292",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 0,
+          "position": [
+            {
+              "x": 190,
+              "y": 932
+            },
+            {
+              "x": 312,
+              "y": 932
+            },
+            {
+              "x": 312,
+              "y": 937
+            },
+            {
+              "x": 190,
+              "y": 937
+            }
+          ],
+          "bounding_box": {
+            "x1": 190,
+            "y1": 932,
+            "x2": 312,
+            "y2": 937
+          }
+        },
+        {
+          "value": "7297501154117",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 0,
+          "position": [
+            {
+              "x": 801,
+              "y": 944
+            },
+            {
+              "x": 921,
+              "y": 944
+            },
+            {
+              "x": 921,
+              "y": 960
+            },
+            {
+              "x": 801,
+              "y": 960
+            }
+          ],
+          "bounding_box": {
+            "x1": 801,
+            "y1": 944,
+            "x2": 921,
+            "y2": 960
+          }
+        },
+        {
+          "value": "7297501154056",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 0,
+          "position": [
+            {
+              "x": 496,
+              "y": 948
+            },
+            {
+              "x": 617,
+              "y": 948
+            },
+            {
+              "x": 617,
+              "y": 949
+            },
+            {
+              "x": 496,
+              "y": 949
+            }
+          ],
+          "bounding_box": {
+            "x1": 496,
+            "y1": 948,
+            "x2": 617,
+            "y2": 949
+          }
+        },
+        {
+          "value": "7297501195134",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 0,
+          "position": [
+            {
+              "x": 1111,
+              "y": 965
+            },
+            {
+              "x": 1233,
+              "y": 965
+            },
+            {
+              "x": 1233,
+              "y": 968
+            },
+            {
+              "x": 1111,
+              "y": 968
+            }
+          ],
+          "bounding_box": {
+            "x1": 1111,
+            "y1": 965,
+            "x2": 1233,
+            "y2": 968
+          }
+        },
+        {
+          "value": "7297501153998",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 0,
+          "position": [
+            {
+              "x": 798,
+              "y": 1402
+            },
+            {
+              "x": 918,
+              "y": 1402
+            },
+            {
+              "x": 918,
+              "y": 1402
+            },
+            {
+              "x": 798,
+              "y": 1402
+            }
+          ],
+          "bounding_box": {
+            "x1": 798,
+            "y1": 1402,
+            "x2": 918,
+            "y2": 1402
+          }
+        },
+        {
+          "value": "7297501154230",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 0,
+          "position": [
+            {
+              "x": 477,
+              "y": 1406
+            },
+            {
+              "x": 598,
+              "y": 1406
+            },
+            {
+              "x": 598,
+              "y": 1423
+            },
+            {
+              "x": 477,
+              "y": 1423
+            }
+          ],
+          "bounding_box": {
+            "x1": 477,
+            "y1": 1406,
+            "x2": 598,
+            "y2": 1423
+          }
+        },
+        {
+          "value": "7297501154179",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 0,
+          "position": [
+            {
+              "x": 171,
+              "y": 1409
+            },
+            {
+              "x": 293,
+              "y": 1409
+            },
+            {
+              "x": 293,
+              "y": 1410
+            },
+            {
+              "x": 171,
+              "y": 1410
+            }
+          ],
+          "bounding_box": {
+            "x1": 171,
+            "y1": 1409,
+            "x2": 293,
+            "y2": 1410
+          }
+        },
+        {
+          "value": "7297501195257",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": 0,
+          "position": [
+            {
+              "x": 1104,
+              "y": 1428
+            },
+            {
+              "x": 1224,
+              "y": 1428
+            },
+            {
+              "x": 1224,
+              "y": 1428
+            },
+            {
+              "x": 1104,
+              "y": 1428
+            }
+          ],
+          "bounding_box": {
+            "x1": 1104,
+            "y1": 1428,
+            "x2": 1224,
+            "y2": 1428
+          }
+        }
+      ]
+    },
+    "vegan_12_labels_a.jpeg": {
+      "image_width": 2048,
+      "image_height": 1152,
+      "audit_candidates": [
+        {
+          "status": "ok",
+          "spatial": {
+            "image_width": 2048,
+            "image_height": 1152,
+            "labels": [
+              {
+                "label_index": 1,
+                "label_bbox": {
+                  "x1": 446,
+                  "y1": 172,
+                  "x2": 682,
+                  "y2": 279
+                },
+                "barcode_bbox": {
+                  "x1": 455,
+                  "y1": 189,
+                  "x2": 489,
+                  "y2": 275
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 2,
+                "label_bbox": {
+                  "x1": 829,
+                  "y1": 177,
+                  "x2": 1047,
+                  "y2": 295
+                },
+                "barcode_bbox": {
+                  "x1": 836,
+                  "y1": 198,
+                  "x2": 868,
+                  "y2": 279
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 3,
+                "label_bbox": {
+                  "x1": 1194,
+                  "y1": 187,
+                  "x2": 1413,
+                  "y2": 302
+                },
+                "barcode_bbox": {
+                  "x1": 1200,
+                  "y1": 206,
+                  "x2": 1231,
+                  "y2": 287
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 4,
+                "label_bbox": {
+                  "x1": 401,
+                  "y1": 369,
+                  "x2": 659,
+                  "y2": 492
+                },
+                "barcode_bbox": {
+                  "x1": 414,
+                  "y1": 391,
+                  "x2": 459,
+                  "y2": 486
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 5,
+                "label_bbox": {
+                  "x1": 819,
+                  "y1": 371,
+                  "x2": 1053,
+                  "y2": 498
+                },
+                "barcode_bbox": {
+                  "x1": 827,
+                  "y1": 396,
+                  "x2": 862,
+                  "y2": 490
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 6,
+                "label_bbox": {
+                  "x1": 1210,
+                  "y1": 382,
+                  "x2": 1448,
+                  "y2": 509
+                },
+                "barcode_bbox": {
+                  "x1": 1217,
+                  "y1": 408,
+                  "x2": 1253,
+                  "y2": 501
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 7,
+                "label_bbox": {
+                  "x1": 338,
+                  "y1": 592,
+                  "x2": 625,
+                  "y2": 743
+                },
+                "barcode_bbox": {
+                  "x1": 348,
+                  "y1": 619,
+                  "x2": 401,
+                  "y2": 736
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 8,
+                "label_bbox": {
+                  "x1": 797,
+                  "y1": 597,
+                  "x2": 1053,
+                  "y2": 741
+                },
+                "barcode_bbox": {
+                  "x1": 805,
+                  "y1": 623,
+                  "x2": 844,
+                  "y2": 735
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 9,
+                "label_bbox": {
+                  "x1": 1219,
+                  "y1": 602,
+                  "x2": 1470,
+                  "y2": 767
+                },
+                "barcode_bbox": {
+                  "x1": 1233,
+                  "y1": 634,
+                  "x2": 1274,
+                  "y2": 760
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 10,
+                "label_bbox": {
+                  "x1": 272,
+                  "y1": 862,
+                  "x2": 590,
+                  "y2": 1048
+                },
+                "barcode_bbox": {
+                  "x1": 285,
+                  "y1": 901,
+                  "x2": 346,
+                  "y2": 1041
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 11,
+                "label_bbox": {
+                  "x1": 762,
+                  "y1": 874,
+                  "x2": 1053,
+                  "y2": 1059
+                },
+                "barcode_bbox": {
+                  "x1": 772,
+                  "y1": 917,
+                  "x2": 823,
+                  "y2": 1047
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 12,
+                "label_bbox": {
+                  "x1": 1239,
+                  "y1": 879,
+                  "x2": 1534,
+                  "y2": 1053
+                },
+                "barcode_bbox": {
+                  "x1": 1253,
+                  "y1": 908,
+                  "x2": 1298,
+                  "y2": 1044
+                },
+                "status": "clear",
+                "confidence": "high"
+              }
+            ]
+          }
+        },
+        {
+          "status": "ok",
+          "spatial": {
+            "image_width": 2048,
+            "image_height": 1152,
+            "labels": [
+              {
+                "label_index": 1,
+                "label_bbox": {
+                  "x1": 446,
+                  "y1": 164,
+                  "x2": 682,
+                  "y2": 276
+                },
+                "barcode_bbox": {
+                  "x1": 455,
+                  "y1": 185,
+                  "x2": 489,
+                  "y2": 275
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 2,
+                "label_bbox": {
+                  "x1": 825,
+                  "y1": 175,
+                  "x2": 1047,
+                  "y2": 295
+                },
+                "barcode_bbox": {
+                  "x1": 836,
+                  "y1": 196,
+                  "x2": 870,
+                  "y2": 279
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 3,
+                "label_bbox": {
+                  "x1": 1194,
+                  "y1": 184,
+                  "x2": 1415,
+                  "y2": 301
+                },
+                "barcode_bbox": {
+                  "x1": 1198,
+                  "y1": 205,
+                  "x2": 1231,
+                  "y2": 288
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 4,
+                "label_bbox": {
+                  "x1": 401,
+                  "y1": 367,
+                  "x2": 659,
+                  "y2": 492
+                },
+                "barcode_bbox": {
+                  "x1": 414,
+                  "y1": 389,
+                  "x2": 455,
+                  "y2": 485
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 5,
+                "label_bbox": {
+                  "x1": 821,
+                  "y1": 371,
+                  "x2": 1055,
+                  "y2": 498
+                },
+                "barcode_bbox": {
+                  "x1": 827,
+                  "y1": 396,
+                  "x2": 862,
+                  "y2": 490
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 6,
+                "label_bbox": {
+                  "x1": 1214,
+                  "y1": 382,
+                  "x2": 1448,
+                  "y2": 508
+                },
+                "barcode_bbox": {
+                  "x1": 1219,
+                  "y1": 407,
+                  "x2": 1253,
+                  "y2": 501
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 7,
+                "label_bbox": {
+                  "x1": 338,
+                  "y1": 591,
+                  "x2": 625,
+                  "y2": 744
+                },
+                "barcode_bbox": {
+                  "x1": 348,
+                  "y1": 616,
+                  "x2": 401,
+                  "y2": 736
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 8,
+                "label_bbox": {
+                  "x1": 799,
+                  "y1": 598,
+                  "x2": 1053,
+                  "y2": 743
+                },
+                "barcode_bbox": {
+                  "x1": 807,
+                  "y1": 622,
+                  "x2": 844,
+                  "y2": 736
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 9,
+                "label_bbox": {
+                  "x1": 1223,
+                  "y1": 606,
+                  "x2": 1475,
+                  "y2": 768
+                },
+                "barcode_bbox": {
+                  "x1": 1231,
+                  "y1": 632,
+                  "x2": 1274,
+                  "y2": 761
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 10,
+                "label_bbox": {
+                  "x1": 272,
+                  "y1": 863,
+                  "x2": 592,
+                  "y2": 1048
+                },
+                "barcode_bbox": {
+                  "x1": 285,
+                  "y1": 894,
+                  "x2": 336,
+                  "y2": 1041
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 11,
+                "label_bbox": {
+                  "x1": 762,
+                  "y1": 874,
+                  "x2": 1053,
+                  "y2": 1059
+                },
+                "barcode_bbox": {
+                  "x1": 774,
+                  "y1": 907,
+                  "x2": 811,
+                  "y2": 1048
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 12,
+                "label_bbox": {
+                  "x1": 1241,
+                  "y1": 879,
+                  "x2": 1534,
+                  "y2": 1053
+                },
+                "barcode_bbox": {
+                  "x1": 1253,
+                  "y1": 908,
+                  "x2": 1296,
+                  "y2": 1045
+                },
+                "status": "clear",
+                "confidence": "high"
+              }
+            ]
+          }
+        }
+      ],
+      "captured_scanner_detections": [
+        {
+          "value": "7297501154155",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": -90,
+          "position": [
+            {
+              "x": 376,
+              "y": 732
+            },
+            {
+              "x": 376,
+              "y": 629
+            },
+            {
+              "x": 375,
+              "y": 629
+            },
+            {
+              "x": 375,
+              "y": 732
+            }
+          ],
+          "bounding_box": {
+            "x1": 375,
+            "y1": 629,
+            "x2": 376,
+            "y2": 732
+          }
+        },
+        {
+          "value": "7297501154155",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": -90,
+          "position": [
+            {
+              "x": 312,
+              "y": 1037
+            },
+            {
+              "x": 312,
+              "y": 913
+            },
+            {
+              "x": 309,
+              "y": 913
+            },
+            {
+              "x": 309,
+              "y": 1037
+            }
+          ],
+          "bounding_box": {
+            "x1": 309,
+            "y1": 913,
+            "x2": 312,
+            "y2": 1037
+          }
+        },
+        {
+          "value": "7297501154032",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": -90,
+          "position": [
+            {
+              "x": 793,
+              "y": 1042
+            },
+            {
+              "x": 793,
+              "y": 917
+            },
+            {
+              "x": 792,
+              "y": 917
+            },
+            {
+              "x": 792,
+              "y": 1042
+            }
+          ],
+          "bounding_box": {
+            "x1": 792,
+            "y1": 917,
+            "x2": 793,
+            "y2": 1042
+          }
+        },
+        {
+          "value": "7297501154094",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": -90,
+          "position": [
+            {
+              "x": 1281,
+              "y": 1042
+            },
+            {
+              "x": 1281,
+              "y": 918
+            },
+            {
+              "x": 1279,
+              "y": 918
+            },
+            {
+              "x": 1279,
+              "y": 1042
+            }
+          ],
+          "bounding_box": {
+            "x1": 1279,
+            "y1": 918,
+            "x2": 1281,
+            "y2": 1042
+          }
+        }
+      ]
+    },
+    "vegan_12_labels_b.jpeg": {
+      "image_width": 2048,
+      "image_height": 1152,
+      "audit_candidates": [
+        {
+          "status": "ok",
+          "spatial": {
+            "image_width": 2048,
+            "image_height": 1152,
+            "labels": [
+              {
+                "label_index": 1,
+                "label_bbox": {
+                  "x1": 336,
+                  "y1": 130,
+                  "x2": 719,
+                  "y2": 287
+                },
+                "barcode_bbox": {
+                  "x1": 453,
+                  "y1": 189,
+                  "x2": 479,
+                  "y2": 258
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 2,
+                "label_bbox": {
+                  "x1": 723,
+                  "y1": 141,
+                  "x2": 1083,
+                  "y2": 296
+                },
+                "barcode_bbox": {
+                  "x1": 825,
+                  "y1": 198,
+                  "x2": 856,
+                  "y2": 263
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 3,
+                "label_bbox": {
+                  "x1": 1090,
+                  "y1": 160,
+                  "x2": 1440,
+                  "y2": 313
+                },
+                "barcode_bbox": {
+                  "x1": 1194,
+                  "y1": 191,
+                  "x2": 1217,
+                  "y2": 278
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 4,
+                "label_bbox": {
+                  "x1": 289,
+                  "y1": 332,
+                  "x2": 698,
+                  "y2": 511
+                },
+                "barcode_bbox": {
+                  "x1": 414,
+                  "y1": 376,
+                  "x2": 455,
+                  "y2": 472
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 5,
+                "label_bbox": {
+                  "x1": 702,
+                  "y1": 341,
+                  "x2": 1081,
+                  "y2": 522
+                },
+                "barcode_bbox": {
+                  "x1": 819,
+                  "y1": 391,
+                  "x2": 848,
+                  "y2": 478
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 6,
+                "label_bbox": {
+                  "x1": 1096,
+                  "y1": 359,
+                  "x2": 1470,
+                  "y2": 532
+                },
+                "barcode_bbox": {
+                  "x1": 1204,
+                  "y1": 412,
+                  "x2": 1231,
+                  "y2": 501
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 7,
+                "label_bbox": {
+                  "x1": 231,
+                  "y1": 566,
+                  "x2": 674,
+                  "y2": 770
+                },
+                "barcode_bbox": {
+                  "x1": 356,
+                  "y1": 614,
+                  "x2": 401,
+                  "y2": 725
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 8,
+                "label_bbox": {
+                  "x1": 674,
+                  "y1": 577,
+                  "x2": 1083,
+                  "y2": 771
+                },
+                "barcode_bbox": {
+                  "x1": 797,
+                  "y1": 620,
+                  "x2": 829,
+                  "y2": 726
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 9,
+                "label_bbox": {
+                  "x1": 1090,
+                  "y1": 588,
+                  "x2": 1497,
+                  "y2": 783
+                },
+                "barcode_bbox": {
+                  "x1": 1210,
+                  "y1": 643,
+                  "x2": 1239,
+                  "y2": 750
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 10,
+                "label_bbox": {
+                  "x1": 158,
+                  "y1": 835,
+                  "x2": 641,
+                  "y2": 1074
+                },
+                "barcode_bbox": {
+                  "x1": 301,
+                  "y1": 895,
+                  "x2": 352,
+                  "y2": 1022
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 11,
+                "label_bbox": {
+                  "x1": 631,
+                  "y1": 844,
+                  "x2": 1081,
+                  "y2": 1082
+                },
+                "barcode_bbox": {
+                  "x1": 766,
+                  "y1": 896,
+                  "x2": 809,
+                  "y2": 1028
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 12,
+                "label_bbox": {
+                  "x1": 1098,
+                  "y1": 856,
+                  "x2": 1534,
+                  "y2": 1083
+                },
+                "barcode_bbox": {
+                  "x1": 1227,
+                  "y1": 901,
+                  "x2": 1253,
+                  "y2": 1029
+                },
+                "status": "clear",
+                "confidence": "high"
+              }
+            ]
+          }
+        },
+        {
+          "status": "ok",
+          "spatial": {
+            "image_width": 2048,
+            "image_height": 1152,
+            "labels": [
+              {
+                "label_index": 1,
+                "label_bbox": {
+                  "x1": 446,
+                  "y1": 130,
+                  "x2": 672,
+                  "y2": 270
+                },
+                "barcode_bbox": {
+                  "x1": 594,
+                  "y1": 190,
+                  "x2": 657,
+                  "y2": 214
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 2,
+                "label_bbox": {
+                  "x1": 821,
+                  "y1": 153,
+                  "x2": 1038,
+                  "y2": 276
+                },
+                "barcode_bbox": {
+                  "x1": 963,
+                  "y1": 209,
+                  "x2": 1024,
+                  "y2": 235
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 3,
+                "label_bbox": {
+                  "x1": 1186,
+                  "y1": 169,
+                  "x2": 1395,
+                  "y2": 290
+                },
+                "barcode_bbox": {
+                  "x1": 1321,
+                  "y1": 217,
+                  "x2": 1380,
+                  "y2": 241
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 4,
+                "label_bbox": {
+                  "x1": 401,
+                  "y1": 351,
+                  "x2": 653,
+                  "y2": 480
+                },
+                "barcode_bbox": {
+                  "x1": 567,
+                  "y1": 396,
+                  "x2": 635,
+                  "y2": 422
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 5,
+                "label_bbox": {
+                  "x1": 809,
+                  "y1": 359,
+                  "x2": 1038,
+                  "y2": 498
+                },
+                "barcode_bbox": {
+                  "x1": 961,
+                  "y1": 412,
+                  "x2": 1024,
+                  "y2": 442
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 6,
+                "label_bbox": {
+                  "x1": 1194,
+                  "y1": 378,
+                  "x2": 1421,
+                  "y2": 505
+                },
+                "barcode_bbox": {
+                  "x1": 1337,
+                  "y1": 422,
+                  "x2": 1403,
+                  "y2": 449
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 7,
+                "label_bbox": {
+                  "x1": 346,
+                  "y1": 586,
+                  "x2": 618,
+                  "y2": 736
+                },
+                "barcode_bbox": {
+                  "x1": 522,
+                  "y1": 643,
+                  "x2": 594,
+                  "y2": 674
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 8,
+                "label_bbox": {
+                  "x1": 786,
+                  "y1": 594,
+                  "x2": 1032,
+                  "y2": 734
+                },
+                "barcode_bbox": {
+                  "x1": 950,
+                  "y1": 644,
+                  "x2": 1018,
+                  "y2": 670
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 9,
+                "label_bbox": {
+                  "x1": 1186,
+                  "y1": 616,
+                  "x2": 1448,
+                  "y2": 761
+                },
+                "barcode_bbox": {
+                  "x1": 1356,
+                  "y1": 666,
+                  "x2": 1423,
+                  "y2": 694
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 10,
+                "label_bbox": {
+                  "x1": 289,
+                  "y1": 856,
+                  "x2": 582,
+                  "y2": 1030
+                },
+                "barcode_bbox": {
+                  "x1": 479,
+                  "y1": 917,
+                  "x2": 557,
+                  "y2": 947
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 11,
+                "label_bbox": {
+                  "x1": 756,
+                  "y1": 871,
+                  "x2": 1026,
+                  "y2": 1041
+                },
+                "barcode_bbox": {
+                  "x1": 934,
+                  "y1": 932,
+                  "x2": 1008,
+                  "y2": 963
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 12,
+                "label_bbox": {
+                  "x1": 1214,
+                  "y1": 871,
+                  "x2": 1470,
+                  "y2": 1038
+                },
+                "barcode_bbox": {
+                  "x1": 1378,
+                  "y1": 930,
+                  "x2": 1456,
+                  "y2": 961
+                },
+                "status": "clear",
+                "confidence": "high"
+              }
+            ]
+          }
+        }
+      ],
+      "captured_scanner_detections": [
+        {
+          "value": "7297501154155",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": -90,
+          "position": [
+            {
+              "x": 325,
+              "y": 1017
+            },
+            {
+              "x": 325,
+              "y": 899
+            },
+            {
+              "x": 324,
+              "y": 899
+            },
+            {
+              "x": 324,
+              "y": 1017
+            }
+          ],
+          "bounding_box": {
+            "x1": 324,
+            "y1": 899,
+            "x2": 325,
+            "y2": 1017
+          }
+        },
+        {
+          "value": "7297501154094",
+          "format": "Code128",
+          "content_type": "ContentType.Text",
+          "orientation": -90,
+          "position": [
+            {
+              "x": 1247,
+              "y": 1025
+            },
+            {
+              "x": 1247,
+              "y": 907
+            },
+            {
+              "x": 1241,
+              "y": 906
+            },
+            {
+              "x": 1241,
+              "y": 1025
+            }
+          ],
+          "bounding_box": {
+            "x1": 1241,
+            "y1": 906,
+            "x2": 1247,
+            "y2": 1025
+          }
+        }
+      ]
+    },
+    "fuzzy_16_labels.jpeg": {
+      "image_width": 900,
+      "image_height": 1600,
+      "audit_candidates": [
+        {
+          "status": "ok",
+          "spatial": {
+            "image_width": 900,
+            "image_height": 1600,
+            "labels": [
+              {
+                "label_index": 1,
+                "label_bbox": {
+                  "x1": 13,
+                  "y1": 224,
+                  "x2": 287,
+                  "y2": 374
+                },
+                "barcode_bbox": {
+                  "x1": 184,
+                  "y1": 317,
+                  "x2": 249,
+                  "y2": 333
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 2,
+                "label_bbox": {
+                  "x1": 287,
+                  "y1": 234,
+                  "x2": 551,
+                  "y2": 376
+                },
+                "barcode_bbox": {
+                  "x1": 457,
+                  "y1": 317,
+                  "x2": 514,
+                  "y2": 333
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 3,
+                "label_bbox": {
+                  "x1": 549,
+                  "y1": 222,
+                  "x2": 816,
+                  "y2": 354
+                },
+                "barcode_bbox": {
+                  "x1": 700,
+                  "y1": 246,
+                  "x2": 721,
+                  "y2": 262
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 4,
+                "label_bbox": {
+                  "x1": 550,
+                  "y1": 349,
+                  "x2": 837,
+                  "y2": 506
+                },
+                "barcode_bbox": {
+                  "x1": 718,
+                  "y1": 378,
+                  "x2": 740,
+                  "y2": 429
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 5,
+                "label_bbox": {
+                  "x1": 266,
+                  "y1": 374,
+                  "x2": 549,
+                  "y2": 525
+                },
+                "barcode_bbox": {
+                  "x1": 458,
+                  "y1": 464,
+                  "x2": 504,
+                  "y2": 483
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 6,
+                "label_bbox": {
+                  "x1": 2,
+                  "y1": 371,
+                  "x2": 274,
+                  "y2": 520
+                },
+                "barcode_bbox": {
+                  "x1": 182,
+                  "y1": 454,
+                  "x2": 229,
+                  "y2": 474
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 7,
+                "label_bbox": {
+                  "x1": 581,
+                  "y1": 512,
+                  "x2": 883,
+                  "y2": 651
+                },
+                "barcode_bbox": {
+                  "x1": 764,
+                  "y1": 534,
+                  "x2": 790,
+                  "y2": 590
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 8,
+                "label_bbox": {
+                  "x1": 264,
+                  "y1": 520,
+                  "x2": 560,
+                  "y2": 693
+                },
+                "barcode_bbox": {
+                  "x1": 465,
+                  "y1": 622,
+                  "x2": 514,
+                  "y2": 642
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 9,
+                "label_bbox": {
+                  "x1": 0,
+                  "y1": 514,
+                  "x2": 259,
+                  "y2": 683
+                },
+                "barcode_bbox": {
+                  "x1": 163,
+                  "y1": 610,
+                  "x2": 212,
+                  "y2": 629
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 10,
+                "label_bbox": {
+                  "x1": 681,
+                  "y1": 632,
+                  "x2": 897,
+                  "y2": 1003
+                },
+                "barcode_bbox": {
+                  "x1": 798,
+                  "y1": 722,
+                  "x2": 828,
+                  "y2": 886
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 11,
+                "label_bbox": {
+                  "x1": 428,
+                  "y1": 645,
+                  "x2": 747,
+                  "y2": 1026
+                },
+                "barcode_bbox": {
+                  "x1": 491,
+                  "y1": 742,
+                  "x2": 586,
+                  "y2": 762
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 12,
+                "label_bbox": {
+                  "x1": 182,
+                  "y1": 675,
+                  "x2": 422,
+                  "y2": 1019
+                },
+                "barcode_bbox": {
+                  "x1": 335,
+                  "y1": 722,
+                  "x2": 364,
+                  "y2": 766
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 13,
+                "label_bbox": {
+                  "x1": 0,
+                  "y1": 683,
+                  "x2": 184,
+                  "y2": 1006
+                },
+                "barcode_bbox": {
+                  "x1": 28,
+                  "y1": 848,
+                  "x2": 110,
+                  "y2": 869
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 14,
+                "label_bbox": {
+                  "x1": 704,
+                  "y1": 1035,
+                  "x2": 900,
+                  "y2": 1451
+                },
+                "barcode_bbox": {
+                  "x1": 758,
+                  "y1": 1154,
+                  "x2": 865,
+                  "y2": 1186
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 15,
+                "label_bbox": {
+                  "x1": 440,
+                  "y1": 1059,
+                  "x2": 744,
+                  "y2": 1470
+                },
+                "barcode_bbox": {
+                  "x1": 617,
+                  "y1": 1118,
+                  "x2": 646,
+                  "y2": 1181
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 16,
+                "label_bbox": {
+                  "x1": 119,
+                  "y1": 1014,
+                  "x2": 448,
+                  "y2": 1498
+                },
+                "barcode_bbox": {
+                  "x1": 261,
+                  "y1": 1282,
+                  "x2": 376,
+                  "y2": 1315
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 17,
+                "label_bbox": {
+                  "x1": 0,
+                  "y1": 998,
+                  "x2": 136,
+                  "y2": 1491
+                },
+                "barcode_bbox": null,
+                "status": "partially_obscured",
+                "confidence": "medium"
+              }
+            ]
+          }
+        },
+        {
+          "status": "ok",
+          "spatial": {
+            "image_width": 900,
+            "image_height": 1600,
+            "labels": [
+              {
+                "label_index": 1,
+                "label_bbox": {
+                  "x1": 94,
+                  "y1": 224,
+                  "x2": 287,
+                  "y2": 374
+                },
+                "barcode_bbox": {
+                  "x1": 184,
+                  "y1": 314,
+                  "x2": 249,
+                  "y2": 333
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 2,
+                "label_bbox": {
+                  "x1": 287,
+                  "y1": 232,
+                  "x2": 551,
+                  "y2": 374
+                },
+                "barcode_bbox": {
+                  "x1": 384,
+                  "y1": 315,
+                  "x2": 450,
+                  "y2": 334
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 3,
+                "label_bbox": {
+                  "x1": 544,
+                  "y1": 224,
+                  "x2": 816,
+                  "y2": 355
+                },
+                "barcode_bbox": {
+                  "x1": 698,
+                  "y1": 245,
+                  "x2": 721,
+                  "y2": 262
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 4,
+                "label_bbox": {
+                  "x1": 544,
+                  "y1": 349,
+                  "x2": 836,
+                  "y2": 504
+                },
+                "barcode_bbox": {
+                  "x1": 715,
+                  "y1": 374,
+                  "x2": 745,
+                  "y2": 430
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 5,
+                "label_bbox": {
+                  "x1": 266,
+                  "y1": 374,
+                  "x2": 544,
+                  "y2": 525
+                },
+                "barcode_bbox": {
+                  "x1": 377,
+                  "y1": 464,
+                  "x2": 442,
+                  "y2": 483
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 6,
+                "label_bbox": {
+                  "x1": 3,
+                  "y1": 371,
+                  "x2": 272,
+                  "y2": 520
+                },
+                "barcode_bbox": {
+                  "x1": 80,
+                  "y1": 429,
+                  "x2": 140,
+                  "y2": 448
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 7,
+                "label_bbox": {
+                  "x1": 579,
+                  "y1": 501,
+                  "x2": 881,
+                  "y2": 654
+                },
+                "barcode_bbox": {
+                  "x1": 760,
+                  "y1": 533,
+                  "x2": 792,
+                  "y2": 598
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 8,
+                "label_bbox": {
+                  "x1": 264,
+                  "y1": 520,
+                  "x2": 557,
+                  "y2": 691
+                },
+                "barcode_bbox": {
+                  "x1": 377,
+                  "y1": 619,
+                  "x2": 442,
+                  "y2": 638
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 9,
+                "label_bbox": {
+                  "x1": 0,
+                  "y1": 517,
+                  "x2": 258,
+                  "y2": 683
+                },
+                "barcode_bbox": {
+                  "x1": 52,
+                  "y1": 578,
+                  "x2": 76,
+                  "y2": 648
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 10,
+                "label_bbox": {
+                  "x1": 683,
+                  "y1": 630,
+                  "x2": 900,
+                  "y2": 1000
+                },
+                "barcode_bbox": {
+                  "x1": 798,
+                  "y1": 722,
+                  "x2": 830,
+                  "y2": 888
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 11,
+                "label_bbox": {
+                  "x1": 428,
+                  "y1": 645,
+                  "x2": 746,
+                  "y2": 1022
+                },
+                "barcode_bbox": {
+                  "x1": 522,
+                  "y1": 851,
+                  "x2": 586,
+                  "y2": 910
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 12,
+                "label_bbox": {
+                  "x1": 180,
+                  "y1": 680,
+                  "x2": 421,
+                  "y2": 981
+                },
+                "barcode_bbox": {
+                  "x1": 335,
+                  "y1": 718,
+                  "x2": 365,
+                  "y2": 766
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 13,
+                "label_bbox": {
+                  "x1": 0,
+                  "y1": 683,
+                  "x2": 185,
+                  "y2": 882
+                },
+                "barcode_bbox": {
+                  "x1": 28,
+                  "y1": 846,
+                  "x2": 109,
+                  "y2": 870
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 14,
+                "label_bbox": {
+                  "x1": 0,
+                  "y1": 995,
+                  "x2": 135,
+                  "y2": 1491
+                },
+                "barcode_bbox": null,
+                "status": "cropped",
+                "confidence": "medium"
+              },
+              {
+                "label_index": 15,
+                "label_bbox": {
+                  "x1": 118,
+                  "y1": 1014,
+                  "x2": 450,
+                  "y2": 1498
+                },
+                "barcode_bbox": {
+                  "x1": 260,
+                  "y1": 1282,
+                  "x2": 376,
+                  "y2": 1315
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 16,
+                "label_bbox": {
+                  "x1": 438,
+                  "y1": 1045,
+                  "x2": 743,
+                  "y2": 1470
+                },
+                "barcode_bbox": {
+                  "x1": 560,
+                  "y1": 1301,
+                  "x2": 681,
+                  "y2": 1331
+                },
+                "status": "clear",
+                "confidence": "high"
+              },
+              {
+                "label_index": 17,
+                "label_bbox": {
+                  "x1": 704,
+                  "y1": 1034,
+                  "x2": 900,
+                  "y2": 1440
+                },
+                "barcode_bbox": {
+                  "x1": 814,
+                  "y1": 1298,
+                  "x2": 856,
+                  "y2": 1371
+                },
+                "status": "clear",
+                "confidence": "high"
+              }
+            ]
+          }
+        }
+      ],
+      "captured_scanner_detections": []
+    }
+  }
+}
