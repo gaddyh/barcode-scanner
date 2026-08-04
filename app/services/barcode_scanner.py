@@ -746,22 +746,39 @@ class BarcodeScanner:
                 )
                 crop_basis = "label_bbox"
 
-            # Attempt 3: exact barcode region (no padding) at high scales.
-            # Some barcodes are so narrow that padding kills detection —
-            # ZXing can't find the barcode pattern in the surrounding white
-            # space.  The exact region at 6-12x scaling can recover these.
+            # Attempt 3: exact barcode region at high scales with small
+            # expansion variants.
+            #
+            # Some barcodes are so narrow that standard padding kills
+            # detection — ZXing can't find the barcode pattern in the
+            # surrounding white space.  The exact region at 6-12x scaling can
+            # recover these, but Gemini's coordinates jitter by ±2px between
+            # runs.  To make recovery deterministic, we try the exact crop
+            # plus small expansions (+2px, +4px) that cover Gemini's coordinate
+            # variance.  A +2px expansion on all sides reliably recovers
+            # barcodes regardless of Gemini's exact bbox.
             if not found:
-                exact_crop_image = image.crop(
-                    (req.exact_barcode_crop.x1, req.exact_barcode_crop.y1,
-                     req.exact_barcode_crop.x2, req.exact_barcode_crop.y2)
-                )
-                found = self._decode_crop_high_scale(
-                    exact_crop_image,
-                    offset_x=req.exact_barcode_crop.x1,
-                    offset_y=req.exact_barcode_crop.y1,
-                    debug_dir=debug_dir,
-                    debug_tag=f"label{req.label_index}_exact",
-                )
+                box = req.exact_barcode_crop
+                for expansion in (0, 2, 4):
+                    crop_box = BoundingBox(
+                        x1=max(0, box.x1 - expansion),
+                        y1=max(0, box.y1 - expansion),
+                        x2=min(image.width, box.x2 + expansion),
+                        y2=min(image.height, box.y2 + expansion),
+                    )
+                    crop_image = image.crop(
+                        (crop_box.x1, crop_box.y1,
+                         crop_box.x2, crop_box.y2)
+                    )
+                    found = self._decode_crop_high_scale(
+                        crop_image,
+                        offset_x=crop_box.x1,
+                        offset_y=crop_box.y1,
+                        debug_dir=debug_dir,
+                        debug_tag=f"label{req.label_index}_exact{expansion}",
+                    )
+                    if found:
+                        break
                 crop_basis = "barcode_bbox"
 
             for det in found:
