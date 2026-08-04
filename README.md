@@ -239,12 +239,21 @@ Runs the deterministic scanner and the Gemini spatial label audit concurrently,
 then matches scanner detections to Gemini product labels geometrically.
 Wall-clock time is the slower of the two.
 
+By default **two Gemini audits run in parallel** and the result with more
+scanner-label matches is used. This counters Gemini's non-deterministic
+`barcode_bbox` placement — when one audit returns barcode boxes that point at
+product text instead of the barcode bars, the other audit typically gets it
+right. Use `--no-dual-audit` to disable and run a single audit.
+
 ```
                          ┌─ ZXing scanner
 input image ─ normalize ─┤     → decoded values + pixel bounding boxes
                          │
-                         └─ Gemini spatial audit
+                         ├─ Gemini spatial audit (1)
+                         └─ Gemini spatial audit (2)   [dual, parallel]
                                → product-label boxes + barcode boxes
+                                      ↓
+                               pick audit with more scanner-label matches
 
 scanner detection centers  +  Gemini barcode/label regions
         ↓
@@ -256,18 +265,24 @@ matched labels · unmatched labels · unassigned scanner detections
 ```bash
 barcode-scan pipeline ./product.jpg --time --pretty
 barcode-scan pipeline ./a.jpg ./b.jpg ./c.jpg --time
+barcode-scan pipeline ./product.jpg --no-dual-audit   # single audit only
 ```
 
 Output includes a summary table on stderr and full JSON on stdout:
 
 ```text
-Image                             Matched/Visible  Match    Time
-------------------------------------------------------------------
-marny_brown_42.jpeg                           1/2   DIFF   3.85s
-multi_clear_6_boxes.jpeg                      6/6     OK   4.04s
-multi_12_clean.jpeg                         11/12   DIFF   3.50s
-------------------------------------------------------------------
+Image                             Initial    Final  Match  Recovered    Time
+----------------------------------------------------------------------------
+marny_brown_42.jpeg                  1/2      2/2     OK          1   3.85s
+multi_clear_6_boxes.jpeg             6/6      6/6     OK          0   4.04s
+multi_12_clean.jpeg                 11/12    12/12     OK          1   3.50s
+topdown_12_labels_a.jpeg             8/12    12/12     OK          4   5.03s
+----------------------------------------------------------------------------
 ```
+
+The **Initial** column shows scanner-label matches before recovery; **Final**
+shows matches after Gemini-guided recovery. The difference between them
+(Recovered) is the number of labels rescued by the recovery pipeline.
 
 The pipeline preserves full scanner detections (with bounding boxes), Gemini
 labels, and a `reconciliation` object with matches, unmatched labels, and
@@ -356,6 +371,12 @@ falls back to the wider `label_bbox`. If that also fails, it tries the exact
 (unpadded) barcode region at high scales (6x–12x) — this recovers very small
 barcodes that only decode at high magnification. Recovered detections are
 merged with existing scanner detections and reconciliation re-runs.
+
+The Gemini prompt explicitly describes barcode bars as the striped
+black-and-white bar pattern (not the human-readable digits, product name, or
+brand text) and notes the expected aspect ratio. Combined with the dual-audit
+strategy, this prevents the most common failure mode where Gemini's
+`barcode_bbox` points at product text instead of the actual barcode.
 
 ```
 scan everything once (parallel with Gemini audit)
@@ -463,7 +484,8 @@ a nested span tree:
 ```text
 pipeline (chain)
 ├── barcode_scan (tool)     — deterministic scanner
-└── gemini_audit (tool)     — Gemini spatial label audit
+├── gemini_audit (tool)     — Gemini spatial label audit (1st)
+└── gemini_audit (tool)     — Gemini spatial label audit (2nd, dual)
 ```
 
 Traces are visible at [smith.langchain.com](https://smith.langchain.com) under
@@ -706,9 +728,10 @@ This version does not:
 
 The Gemini visual audit is advisory only — it does not decode barcodes or
 replace the deterministic scanner. The pipeline reconciles the two spatially
-(matched labels, unmatched labels, unassigned scanner detections) but does not
-yet auto-retry failed decodes with targeted crops guided by Gemini bounding
-boxes.
+(matched labels, unmatched labels, unassigned scanner detections) and then
+runs Gemini-guided crop recovery on unmatched labels: tight barcode crops,
+wider label crops, and high-scale exact crops (6x–12x) to recover barcodes
+the full-image scanner missed.
 
 The next step is to test it against real warehouse photos and record exact-match
 success and failure reasons.
