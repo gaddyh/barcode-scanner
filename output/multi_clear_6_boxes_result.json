@@ -1,0 +1,126 @@
+{
+  "ok": true,
+  "outcome": "complete",
+  "audit_available": true,
+  "image_width": 1608,
+  "image_height": 2048,
+  "found": [
+    {
+      "label_index": 3,
+      "barcode_value": "7297500243430",
+      "barcode_format": "Code128",
+      "barcode_bbox": {
+        "x1": 233,
+        "y1": 710,
+        "x2": 274,
+        "y2": 916
+      },
+      "label_bbox": {
+        "x1": 195,
+        "y1": 662,
+        "x2": 680,
+        "y2": 963
+      },
+      "match_basis": "barcode_bbox"
+    },
+    {
+      "label_index": 6,
+      "barcode_value": "7297500243423",
+      "barcode_format": "Code128",
+      "barcode_bbox": {
+        "x1": 256,
+        "y1": 1767,
+        "x2": 294,
+        "y2": 1993
+      },
+      "label_bbox": {
+        "x1": 217,
+        "y1": 1722,
+        "x2": 706,
+        "y2": 2042
+      },
+      "match_basis": "barcode_bbox"
+    },
+    {
+      "label_index": 4,
+      "barcode_value": "7297500243423",
+      "barcode_format": "Code128",
+      "barcode_bbox": {
+        "x1": 1112,
+        "y1": 729,
+        "x2": 1154,
+        "y2": 937
+      },
+      "label_bbox": {
+        "x1": 1073,
+        "y1": 696,
+        "x2": 1553,
+        "y2": 989
+      },
+      "match_basis": "barcode_bbox"
+    },
+    {
+      "label_index": 2,
+      "barcode_value": "7297500243416",
+      "barcode_format": "Code128",
+      "barcode_bbox": {
+        "x1": 1080,
+        "y1": 183,
+        "x2": 1112,
+        "y2": 378
+      },
+      "label_bbox": {
+        "x1": 1047,
+        "y1": 131,
+        "x2": 1499,
+        "y2": 426
+      },
+      "match_basis": "barcode_bbox"
+    },
+    {
+      "label_index": 1,
+      "barcode_value": "7297500243416",
+      "barcode_format": "Code128",
+      "barcode_bbox": {
+        "x1": 265,
+        "y1": 190,
+        "x2": 302,
+        "y2": 387
+      },
+      "label_bbox": {
+        "x1": 224,
+        "y1": 121,
+        "x2": 693,
+        "y2": 436
+      },
+      "match_basis": "barcode_bbox"
+    },
+    {
+      "label_index": 5,
+      "barcode_value": "7297500243447",
+      "barcode_format": "Code128",
+      "barcode_bbox": {
+        "x1": 230,
+        "y1": 1244,
+        "x2": 238,
+        "y2": 1458
+      },
+      "label_bbox": {
+        "x1": 191,
+        "y1": 1200,
+        "x2": 688,
+        "y2": 1509
+      },
+      "match_basis": "barcode_bbox"
+    }
+  ],
+  "missing": [],
+  "unassigned": [],
+  "summary": {
+    "visible_label_count": 6,
+    "found_count": 6,
+    "missing_count": 0,
+    "unassigned_count": 0,
+    "all_found": true
+  }
+}

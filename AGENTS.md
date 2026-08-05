@@ -190,6 +190,9 @@ else:  # "retryable_error"
 | `unassigned` | list | Scanner detections not matched to any Gemini label. Each entry: `barcode_value`, `barcode_format`, `barcode_bbox`. |
 | `summary` | object | `visible_label_count`, `found_count`, `missing_count`, `unassigned_count`, `all_found`. |
 | `error` | object | Present on `retryable_error`: `{code, message}`. |
+| `annotated_image_b64` | str | Present on `needs_better_photo`: base64-encoded PNG with red circles around the regions to re-photograph. EXIF-normalized, downscaled to ≤1600px on the longest side. |
+| `annotated_image_width` / `annotated_image_height` | int | Present on `needs_better_photo`: dimensions (pixels) of the possibly-downscaled annotated PNG. |
+| `message` | str | Present on `needs_better_photo`: human-readable prompt for the user (e.g. "Please photograph the marked barcode area more closely."). |
 
 ### Outcome decision
 

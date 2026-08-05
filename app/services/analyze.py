@@ -21,7 +21,9 @@ The client switches on ``outcome``:
     if result["outcome"] == "complete":
         # every label has a decoded barcode — create the draft order
     elif result["outcome"] == "needs_better_photo":
-        # show the missing regions to the user
+        # show the missing regions to the user — ``annotated_image_b64``
+        # is a PNG with red circles around the regions to re-photograph,
+        # and ``message`` is a human-readable prompt.
     else:  # "retryable_error"
         # retry the service (Gemini failure, not the user's fault)
 
@@ -32,11 +34,20 @@ retries the service.
 
 from __future__ import annotations
 
+import base64
+import io
+import logging
 import os
 import tempfile
 from pathlib import Path
 
-from PIL import Image, UnidentifiedImageError
+from PIL import (
+    Image,
+    ImageDraw,
+    ImageFont,
+    ImageOps,
+    UnidentifiedImageError,
+)
 
 from app.services.barcode_scanner import BarcodeScanner
 from app.services.gemini_box_audit import (
@@ -45,7 +56,13 @@ from app.services.gemini_box_audit import (
 )
 from app.services.pipeline import pipeline_path
 
+logger = logging.getLogger(__name__)
+
 ImageInput = bytes | Path | str
+
+# Annotated preview images are display-only; cap the longest side so the
+# base64 payload stays reasonable for HTTP / WhatsApp transport.
+ANNOTATION_MAX_DIMENSION = 1600
 
 
 # ---------------------------------------------------------------------------
@@ -76,8 +93,12 @@ def analyze_image(
 
     Returns:
         A JSON-serializable dict with ``outcome``, ``found``, ``missing``,
-        ``unassigned``, and ``summary``. See module docstring for the full
-        schema.
+        ``unassigned``, and ``summary``. On ``needs_better_photo`` it also
+        includes ``annotated_image_b64`` (base64 PNG with red circles around
+        the missing regions), ``annotated_image_width`` /
+        ``annotated_image_height`` (dimensions of the possibly-downscaled
+        annotated PNG), and ``message`` (human-readable prompt). See module
+        docstring for the full schema.
     """
     own_scanner = scanner is None
     if own_scanner:
@@ -109,7 +130,7 @@ def analyze_image(
             recovery_debug_dir=None,
             dual_audit=dual_audit,
         )
-        return _reshape(summary, image_width, image_height)
+        return _reshape(summary, image_width, image_height, image_path=path)
     finally:
         if cleanup_path is not None:
             try:
@@ -150,6 +171,8 @@ def _reshape(
     summary: dict[str, object],
     image_width: int = 0,
     image_height: int = 0,
+    *,
+    image_path: Path | None = None,
 ) -> dict[str, object]:
     """Reshape a pipeline_path summary into the product schema."""
     scan_status = summary.get("scan_status")
@@ -285,7 +308,7 @@ def _reshape(
     else:
         outcome = "complete"
 
-    return {
+    result: dict[str, object] = {
         "ok": True,
         "outcome": outcome,
         "audit_available": True,
@@ -303,6 +326,34 @@ def _reshape(
         },
     }
 
+    # --- annotated preview for needs_better_photo -------------------------
+    # Draw red circles around the missing regions so the user can see where
+    # to re-photograph without interpreting pixel coordinates. Render failure
+    # never changes the outcome — the field is just omitted.
+    if outcome == "needs_better_photo":
+        if visible_label_count == 0:
+            result["message"] = (
+                "No barcode labels were identified. "
+                "Please take a closer, well-lit photo."
+            )
+        else:
+            result["message"] = (
+                "Please photograph the marked barcode area more closely."
+            )
+        if image_path is not None:
+            try:
+                b64, aw, ah = _render_missing_annotation(image_path, missing)
+                result["annotated_image_b64"] = b64
+                result["annotated_image_width"] = aw
+                result["annotated_image_height"] = ah
+            except Exception:
+                logger.exception(
+                    "Failed to render missing-region annotation for %s",
+                    image_path,
+                )
+
+    return result
+
 
 def _detection_to_unassigned(detection: dict) -> dict[str, object]:
     """Convert a scanner detection dict to the unassigned product shape."""
@@ -311,3 +362,67 @@ def _detection_to_unassigned(detection: dict) -> dict[str, object]:
         "barcode_format": detection.get("format"),
         "barcode_bbox": detection.get("bounding_box"),
     }
+
+
+def _render_missing_annotation(
+    image_path: Path,
+    missing: list[dict[str, object]],
+) -> tuple[str, int, int]:
+    """Render an annotated preview PNG marking the missing regions.
+
+    The pipeline's bounding boxes are in EXIF-normalized pixel space, so the
+    image is opened with ``ImageOps.exif_transpose`` before drawing — otherwise
+    circles would land in the wrong place on rotated phone photos.
+
+    A red circle is drawn around each missing label's ``barcode_bbox``
+    (falling back to ``label_bbox`` when no barcode box is present) with the
+    label index number beside it. The result is downscaled to
+    ``ANNOTATION_MAX_DIMENSION`` on its longest side for transport.
+
+    Returns a ``(base64_png_str, width, height)`` tuple where width/height
+    are the dimensions of the possibly-downscaled annotated image.
+    """
+    with Image.open(image_path) as opened:
+        image = ImageOps.exif_transpose(opened).convert("RGB")
+
+    draw = ImageDraw.Draw(image)
+    font = ImageFont.load_default()
+
+    padding = max(8, round(image.width * 0.02))
+    stroke_width = max(3, image.width // 400)
+
+    for item in missing:
+        box = item.get("barcode_bbox") or item.get("label_bbox")
+        if not box:
+            continue
+
+        center_x = (box["x1"] + box["x2"]) / 2
+        center_y = (box["y1"] + box["y2"]) / 2
+        radius = max(
+            (box["x2"] - box["x1"]) / 2,
+            (box["y2"] - box["y1"]) / 2,
+        ) + padding
+        circle = (
+            center_x - radius,
+            center_y - radius,
+            center_x + radius,
+            center_y + radius,
+        )
+        draw.ellipse(circle, outline="red", width=stroke_width)
+
+        # Label index beside/above the circle so it doesn't cover the barcode.
+        idx_text = str(item.get("label_index", "?"))
+        text_x = max(0, int(circle[0]))
+        text_y = max(0, int(circle[1] - stroke_width * 6))
+        draw.text((text_x, text_y), idx_text, fill="red", font=font)
+
+    # Downscale for transport (display-only — original pixel fidelity not needed).
+    image.thumbnail(
+        (ANNOTATION_MAX_DIMENSION, ANNOTATION_MAX_DIMENSION),
+        Image.Resampling.LANCZOS,
+    )
+
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    b64 = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return b64, image.width, image.height

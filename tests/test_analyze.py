@@ -7,6 +7,7 @@ These tests mock the pipeline the same way tests/test_cli.py does:
 
 from __future__ import annotations
 
+import base64
 import io
 from pathlib import Path
 
@@ -30,6 +31,11 @@ def make_png(width: int = 100, height: int = 50) -> bytes:
     buffer = io.BytesIO()
     Image.new("RGB", (width, height), "white").save(buffer, format="PNG")
     return buffer.getvalue()
+
+
+def _decode_b64_png(b64: str) -> Image.Image:
+    """Decode a base64-encoded PNG string into a PIL Image."""
+    return Image.open(io.BytesIO(base64.b64decode(b64)))
 
 
 def _fake_barcode(
@@ -172,6 +178,10 @@ def test_analyze_all_found(tmp_path, monkeypatch) -> None:
     assert "label_bbox" in found[0]
     assert found[0]["match_basis"] in ("barcode_bbox", "label_bbox")
 
+    # No annotated preview or message on complete outcome.
+    assert "annotated_image_b64" not in result
+    assert "message" not in result
+
 
 def test_analyze_some_missing(tmp_path, monkeypatch) -> None:
     """1 barcode, 2 labels → outcome=needs_better_photo, missing has location."""
@@ -201,6 +211,21 @@ def test_analyze_some_missing(tmp_path, monkeypatch) -> None:
     assert missing[0]["label_bbox"]["x1"] == 100
     assert missing[0]["barcode_bbox"]["x1"] == 150
 
+    # Annotated preview + message are present on needs_better_photo.
+    assert "annotated_image_b64" in result
+    assert "annotated_image_width" in result
+    assert "annotated_image_height" in result
+    assert result["annotated_image_width"] <= 1600
+    assert result["annotated_image_height"] <= 1600
+    with _decode_b64_png(result["annotated_image_b64"]) as annotated:
+        assert annotated.size == (
+            result["annotated_image_width"],
+            result["annotated_image_height"],
+        )
+    assert result["message"] == (
+        "Please photograph the marked barcode area more closely."
+    )
+
 
 def test_analyze_audit_failure_is_retryable_error(tmp_path, monkeypatch) -> None:
     """Gemini 429/audit error → outcome=retryable_error, NOT needs_better_photo."""
@@ -223,6 +248,10 @@ def test_analyze_audit_failure_is_retryable_error(tmp_path, monkeypatch) -> None
     assert len(result["unassigned"]) == 1
     assert result["unassigned"][0]["barcode_value"] == "V1"
     assert result["summary"]["all_found"] is False
+
+    # No annotated preview or message on retryable_error.
+    assert "annotated_image_b64" not in result
+    assert "message" not in result
 
 
 def test_analyze_invalid_image(tmp_path, monkeypatch) -> None:
@@ -261,6 +290,18 @@ def test_analyze_zero_labels_zero_barcodes(tmp_path, monkeypatch) -> None:
     assert result["missing"] == []
     assert result["summary"]["visible_label_count"] == 0
     assert result["summary"]["all_found"] is False
+
+    # needs_better_photo with zero labels: unannotated image + distinct message.
+    assert "annotated_image_b64" in result
+    with _decode_b64_png(result["annotated_image_b64"]) as annotated:
+        assert annotated.size == (
+            result["annotated_image_width"],
+            result["annotated_image_height"],
+        )
+    assert result["message"] == (
+        "No barcode labels were identified. "
+        "Please take a closer, well-lit photo."
+    )
 
 
 def test_analyze_non_contiguous_label_indexes(tmp_path, monkeypatch) -> None:
@@ -303,6 +344,14 @@ def test_analyze_non_contiguous_label_indexes(tmp_path, monkeypatch) -> None:
     # Label 1 is missing.
     assert len(result["missing"]) == 1
     assert result["missing"][0]["label_index"] == 1
+
+    # Annotated preview is present (1 missing label).
+    assert "annotated_image_b64" in result
+    with _decode_b64_png(result["annotated_image_b64"]) as annotated:
+        assert annotated.size == (
+            result["annotated_image_width"],
+            result["annotated_image_height"],
+        )
 
 
 def test_analyze_bytes_input(tmp_path, monkeypatch) -> None:

@@ -13,4 +13,5 @@ RUN pip install --upgrade pip && pip install .
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Render assigns the port via $PORT; fall back to 8000 for local/docker-compose.
+CMD sh -c "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
