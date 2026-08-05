@@ -103,12 +103,11 @@ app.add_middleware(
 
 app.include_router(router)
 
-# Serve the built React frontend from web/dist/ when it exists (Docker/prod).
-# In local dev, Vite serves the frontend separately on :5173 and this dir is
-# absent, so we skip the mount.
-_static_dir = Path(__file__).resolve().parent.parent / "web" / "dist"
-if _static_dir.is_dir():
-    app.mount("/", StaticFiles(directory=str(_static_dir), html=True), name="frontend")
+# NOTE: The static files mount at "/" must be added AFTER all API routes
+# (including the @app.post/@app.get routes defined below). Starlette matches
+# routes in registration order, and a Mount("/") catch-all would shadow any
+# route added after it. The mount is therefore registered at the very end of
+# this module — see the bottom of the file.
 
 
 def sanitize_process_message_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
@@ -644,3 +643,15 @@ async def webhook(
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Static frontend — must be mounted LAST so it doesn't shadow API routes.
+# ---------------------------------------------------------------------------
+
+# Serve the built React frontend from web/dist/ when it exists (Docker/prod).
+# In local dev, Vite serves the frontend separately on :5173 and this dir is
+# absent, so we skip the mount.
+_static_dir = Path(__file__).resolve().parent.parent / "web" / "dist"
+if _static_dir.is_dir():
+    app.mount("/", StaticFiles(directory=str(_static_dir), html=True), name="frontend")
