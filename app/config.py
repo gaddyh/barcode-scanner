@@ -127,8 +127,7 @@ class Settings:
             langsmith_api_key=os.getenv("LANGSMITH_API_KEY", "").strip(),
             langsmith_project=os.getenv("LANGSMITH_PROJECT", "echo2").strip(),
             langsmith_tracing=(
-                os.getenv("LANGSMITH_TRACING_V2", "false").strip().lower()
-                == "true"
+                os.getenv("LANGSMITH_TRACING", "false").strip().lower() == "true"
             ),
             conversation_max_messages=int(
                 os.getenv("CONVERSATION_MAX_MESSAGES", "20")

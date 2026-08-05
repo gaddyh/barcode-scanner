@@ -130,7 +130,25 @@ def analyze_image(
             recovery_debug_dir=None,
             dual_audit=dual_audit,
         )
-        return _reshape(summary, image_width, image_height, image_path=path)
+        result = _reshape(summary, image_width, image_height, image_path=path)
+        logger.info(
+            "analyze_image result: outcome=%s found=%d missing=%d unassigned=%d "
+            "image=%dx%d",
+            result.get("outcome"),
+            result.get("summary", {}).get("found_count", 0),
+            result.get("summary", {}).get("missing_count", 0),
+            result.get("summary", {}).get("unassigned_count", 0),
+            image_width,
+            image_height,
+        )
+        for item in result.get("found", []):
+            logger.info(
+                "  found: label=%s value=%s format=%s",
+                item.get("label_index"),
+                item.get("barcode_value"),
+                item.get("barcode_format"),
+            )
+        return result
     finally:
         if cleanup_path is not None:
             try:

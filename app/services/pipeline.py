@@ -20,6 +20,7 @@ It contains no argument parsing or CLI presentation code.
 from __future__ import annotations
 
 import contextvars
+import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, is_dataclass
@@ -47,6 +48,8 @@ from app.services.spatial_reconciliation import (
 
 # Load .env early so LANGSMITH_* vars are set before langsmith is imported.
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # langsmith is optional — tracing is enabled when LANGSMITH_TRACING=true.
 _TRACING = os.getenv("LANGSMITH_TRACING", "").lower() in ("true", "1", "yes")
@@ -563,6 +566,29 @@ def pipeline_path(
             audit_future_b.result() if audit_future_b is not None else None
         )
 
+    # Log scanner detections for debugging (values + formats).
+    scan_barcodes = scan_result.get("barcodes", [])
+    if scan_barcodes:
+        scan_values = [
+            (b.get("value"), b.get("format")) for b in scan_barcodes  # type: ignore[union-attr]
+        ]
+        logger.info(
+            "Scanner detected %d barcode(s): %s",
+            len(scan_values),
+            scan_values,
+        )
+    else:
+        logger.info("Scanner detected 0 barcodes (status=%s)", scan_result.get("status"))
+
+    # Log audit status.
+    audit_status_a = audit_result_a.get("status")
+    audit_status_b = audit_result_b.get("status") if audit_result_b else None
+    logger.info(
+        "Gemini audit status: A=%s B=%s",
+        audit_status_a,
+        audit_status_b,
+    )
+
     # Pick the audit result with more scanner-label matches.
     barcodes_for_match: list[dict] = scan_result.get("barcodes", [])  # type: ignore[assignment]
     audit_candidates = [audit_result_a]
@@ -618,6 +644,32 @@ def pipeline_path(
             recovery_debug_dir=recovery_debug_dir,
         )
         summary.update(recon_summary)
+
+        # Log reconciliation results for debugging.
+        matches = reconciliation.matches
+        unmatched = reconciliation.unmatched_labels
+        logger.info(
+            "Reconciliation: %d matched, %d unmatched, %d recovered",
+            len(matches),
+            len(unmatched),
+            len(getattr(reconciliation, "recovered_labels", [])),
+        )
+        for m in matches:
+            m_dict = m.model_dump() if hasattr(m, "model_dump") else m
+            logger.info(
+                "  match: label=%s barcode=%s format=%s basis=%s",
+                m_dict.get("label_index"),
+                m_dict.get("barcode_value"),
+                m_dict.get("barcode_format"),
+                m_dict.get("match_basis"),
+            )
+        for u in unmatched:
+            u_dict = u.model_dump() if hasattr(u, "model_dump") else u
+            logger.info(
+                "  unmatched: label=%s status=%s",
+                u_dict.get("label_index"),
+                u_dict.get("status"),
+            )
         barcodes = summary.get("scanner_detections", barcodes)  # type: ignore[assignment]
 
         # Backward-compatible decoded-vs-visible summary for table rendering.

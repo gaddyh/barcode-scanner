@@ -199,6 +199,11 @@ async def process_message(msg: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 
 
+@ls.traceable(
+    name="process_image_message",
+    run_type="chain",
+    tags=["barcode-scanner", "whatsapp", "image"],
+)
 async def process_image_message(
     msg: dict[str, Any],
     sender: str,
@@ -208,6 +213,12 @@ async def process_image_message(
     msg_id = msg.get("id", "")
     media_id = msg.get("media_id", "")
     mime_type = (msg.get("mime_type") or "").lower()
+
+    sub_run = ls.get_current_run_tree()
+    if sub_run is not None:
+        sub_run.metadata.update(
+            {"sender": sender, "media_id": media_id, "mime_type": mime_type}
+        )
 
     if not media_id:
         logger.error("Image message missing media_id from=%s", sender)
@@ -230,10 +241,22 @@ async def process_image_message(
     temp_path: Path | None = None
     try:
         try:
+            logger.info("Downloading media media_id=%s from=%s", media_id, sender)
             temp_path = await wa_client.download_media_to_tempfile(  # type: ignore[union-attr]
                 media_id=media_id,
                 suffix=suffix,
             )
+            file_size = temp_path.stat().st_size
+            logger.info(
+                "Downloaded media to %s (%d bytes) from=%s",
+                temp_path,
+                file_size,
+                sender,
+            )
+            if sub_run is not None:
+                sub_run.metadata.update(
+                    {"downloaded_bytes": file_size, "temp_path": str(temp_path)}
+                )
         except Exception:
             logger.exception(
                 "image media_download failed msg_id=%s sender=%s media_id=%s",
@@ -241,6 +264,8 @@ async def process_image_message(
                 sender,
                 media_id,
             )
+            if sub_run is not None:
+                sub_run.metadata["stage"] = "media_download_failed"
             await _safe_send_text(
                 sender, "Could not download the image. Please try sending it again."
             )
@@ -249,14 +274,39 @@ async def process_image_message(
         # --- Analyze -----------------------------------------------------
         result: dict[str, Any]
         try:
+            logger.info("Starting analyze_image for %s from=%s", temp_path, sender)
             result = await asyncio.to_thread(analyze_image, temp_path)
-        except Exception:
+            outcome = result.get("outcome", "retryable_error")
+            summary = result.get("summary", {})
+            logger.info(
+                "analyze_image complete outcome=%s found=%s missing=%s from=%s",
+                outcome,
+                summary.get("found_count", 0),
+                summary.get("missing_count", 0),
+                sender,
+            )
+            if sub_run is not None:
+                sub_run.metadata.update(
+                    {
+                        "outcome": outcome,
+                        "found_count": summary.get("found_count", 0),
+                        "missing_count": summary.get("missing_count", 0),
+                        "unassigned_count": summary.get("unassigned_count", 0),
+                        "visible_label_count": summary.get("visible_label_count", 0),
+                        "audit_available": result.get("audit_available", False),
+                    }
+                )
+        except Exception as exc:
             logger.exception(
                 "image analyze failed msg_id=%s sender=%s media_id=%s",
                 msg_id,
                 sender,
                 media_id,
             )
+            if sub_run is not None:
+                sub_run.metadata.update(
+                    {"stage": "analyze_failed", "error_type": type(exc).__name__}
+                )
             await _safe_send_text(
                 sender,
                 "The barcode service is temporarily unavailable. "
@@ -290,6 +340,14 @@ async def process_image_message(
                 run.metadata["processing_status"] = "needs_better_photo"
 
         else:  # retryable_error
+            error = result.get("error", {})
+            logger.warning(
+                "analyze_image returned retryable_error from=%s error=%s",
+                sender,
+                error,
+            )
+            if sub_run is not None:
+                sub_run.metadata["error"] = error
             await _safe_send_text(
                 sender,
                 "The barcode service is temporarily unavailable. "
@@ -380,6 +438,11 @@ async def send_photo_instruction(sender: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+@ls.traceable(
+    name="send_complete_reply",
+    run_type="chain",
+    tags=["barcode-scanner", "whatsapp", "reply"],
+)
 async def _send_complete_reply(sender: str, result: dict[str, Any]) -> None:
     """Send the barcode list as a WhatsApp text message."""
     found = result.get("found", [])
@@ -393,9 +456,20 @@ async def _send_complete_reply(sender: str, result: dict[str, Any]) -> None:
         lines.append(f"{label_index}. {value} ({fmt})")
 
     body = "\n".join(lines)
+    logger.info("Sending complete reply to=%s barcodes=%s", sender, found_count)
+    reply_run = ls.get_current_run_tree()
+    if reply_run is not None:
+        reply_run.metadata.update(
+            {"found_count": found_count, "reply_length": len(body)}
+        )
     await _safe_send_text(sender, body)
 
 
+@ls.traceable(
+    name="send_needs_better_photo_reply",
+    run_type="chain",
+    tags=["barcode-scanner", "whatsapp", "reply"],
+)
 async def _send_needs_better_photo_reply(
     sender: str,
     result: dict[str, Any],
@@ -508,7 +582,14 @@ async def webhook(
     messages = list(iter_incoming_messages(payload))
 
     if not messages:
+        logger.info("Webhook received but no messages in payload")
         return JSONResponse(status_code=200, content={"status": "ok"})
+
+    logger.info(
+        "Webhook received %d message(s): %s",
+        len(messages),
+        [m.get("type") for m in messages],
+    )
 
     for msg in messages:
         background_tasks.add_task(process_message, msg)
