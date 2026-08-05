@@ -294,6 +294,14 @@ def iter_incoming_messages(payload: dict[str, Any]) -> Iterable[dict[str, Any]]:
                     normalized["caption"] = image.get("caption", "")
                     yield normalized
 
+                elif msg_type == "document":
+                    doc = message.get("document", {}) or {}
+                    normalized["media_id"] = doc.get("id", "")
+                    normalized["mime_type"] = doc.get("mime_type", "")
+                    normalized["filename"] = doc.get("filename", "")
+                    normalized["caption"] = doc.get("caption", "")
+                    yield normalized
+
                 else:
                     logger.info(
                         "Ignoring unsupported message type=%s from=%s",

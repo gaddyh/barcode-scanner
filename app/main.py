@@ -193,6 +193,16 @@ async def _traced_process_message(
 
         if msg_type == "image":
             await process_image_message(msg, sender, run, trace_id=trace_id)
+        elif msg_type == "document":
+            # Documents with image MIME types are treated as image uploads.
+            # Non-image documents (e.g. PDF) get a "please send a photo" reply.
+            mime = (msg.get("mime_type") or "").lower()
+            if mime in _SUPPORTED_IMAGE_MIMES:
+                await process_image_message(msg, sender, run, trace_id=trace_id)
+            else:
+                await send_photo_instruction(sender)
+                if run is not None:
+                    run.metadata["processing_status"] = "unsupported_document_type"
         elif msg_type == "audio":
             await process_audio_message(msg, sender, run)
         elif msg_type == "text":
@@ -261,10 +271,16 @@ async def process_image_message(
     *,
     trace_id: str = "",
 ) -> None:
-    """Download, analyze, and reply to an inbound WhatsApp image."""
+    """Download, analyze, and reply to an inbound WhatsApp image.
+
+    Handles both ``image`` messages (camera/gallery — no filename) and
+    ``document`` messages with image MIME types (preserves the original
+    filename in ``msg["filename"]``).
+    """
     msg_id = msg.get("id", "")
     media_id = msg.get("media_id", "")
     mime_type = (msg.get("mime_type") or "").lower()
+    filename = msg.get("filename", "") or ""
 
     sub_run = ls.get_current_run_tree()
     if sub_run is not None:
@@ -274,6 +290,8 @@ async def process_image_message(
                 "media_id": media_id,
                 "mime_type": mime_type,
                 "trace_id": trace_id,
+                "filename": filename or None,
+                "whatsapp_msg_type": msg.get("type", ""),
             }
         )
 
@@ -340,13 +358,15 @@ async def process_image_message(
             result["upload_id"] = upload_id
             result["trace_id"] = trace_id
             result["source"] = "whatsapp"
+            result["filename"] = filename or "unknown"
             outcome = result.get("outcome", "retryable_error")
             summary = result.get("summary", {})
             logger.info(
-                "analyze_image complete upload_id=%s trace_id=%s outcome=%s "
-                "found=%s missing=%s from=%s",
+                "analyze_image complete upload_id=%s trace_id=%s filename=%s "
+                "outcome=%s found=%s missing=%s from=%s",
                 upload_id,
                 trace_id,
+                filename or "unknown",
                 outcome,
                 summary.get("found_count", 0),
                 summary.get("missing_count", 0),
@@ -358,6 +378,7 @@ async def process_image_message(
                         "upload_id": upload_id,
                         "trace_id": trace_id,
                         "source": "whatsapp",
+                        "filename": filename or None,
                         "outcome": outcome,
                         "found_count": summary.get("found_count", 0),
                         "missing_count": summary.get("missing_count", 0),
@@ -396,6 +417,7 @@ async def process_image_message(
                     "upload_id": upload_id,
                     "trace_id": trace_id,
                     "source": "whatsapp",
+                    "filename": filename or None,
                     "outcome": outcome,
                     "found_count": summary.get("found_count", 0),
                     "missing_count": summary.get("missing_count", 0),
