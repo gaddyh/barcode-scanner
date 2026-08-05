@@ -11,6 +11,7 @@ export interface DetectedBarcode {
 
 export interface ScanResponse {
   upload_id: string;
+  trace_id: string;
   source: string;
   status: "found" | "not_found";
   count: number;
@@ -61,6 +62,7 @@ export interface AnalyzeResponse {
   image_width: number;
   image_height: number;
   upload_id: string;
+  trace_id: string;
   source: string;
   filename: string;
   upload_bytes: number;

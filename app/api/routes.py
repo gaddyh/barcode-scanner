@@ -2,6 +2,7 @@ import logging
 import time
 from io import BytesIO as _BytesIO
 from typing import Any
+from uuid import uuid4
 
 import langsmith as ls
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -36,12 +37,12 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@router.post(
-    "/barcode/scan",
-    response_model=ScanResponse,
-    tags=["barcode"],
-    summary="Scan all barcodes visible in one product photo (scanner only)",
-)
+# ---------------------------------------------------------------------------
+# Traced pipeline functions — accept langsmith_extra at call time so the
+# route handler can assign an explicit run_id (trace_id) and metadata.
+# ---------------------------------------------------------------------------
+
+
 @ls.traceable(
     name="web_scan_barcode",
     run_type="chain",
@@ -52,6 +53,162 @@ def health() -> dict[str, str]:
         "app_version": "v1",
     },
     process_inputs=_sanitize_scan_inputs,
+)
+async def _traced_scan(
+    *,
+    file: UploadFile,
+    image_bytes: bytes,
+    upload_id: str,
+    trace_id: str,
+    source: str,
+    settings: Settings,
+    scanner: BarcodeScanner,
+) -> ScanResponse:
+    """Traced scanner-only path. Called with langsmith_extra to set run_id."""
+    filename = file.filename or "unknown"
+    upload_bytes = len(image_bytes)
+
+    try:
+        t0 = time.perf_counter()
+        barcodes = scanner.scan_bytes(image_bytes)
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "invalid_image", "message": str(exc)},
+        ) from exc
+
+    with Image.open(_BytesIO(image_bytes)) as img:
+        image_width, image_height = img.size
+
+    logger.info(
+        "scan upload_id=%s trace_id=%s filename=%s upload_bytes=%d "
+        "dims=%dx%d count=%d elapsed_ms=%d",
+        upload_id, trace_id, filename, upload_bytes,
+        image_width, image_height, len(barcodes), elapsed_ms,
+    )
+
+    run = ls.get_current_run_tree()
+    if run is not None:
+        run.metadata.update(
+            {
+                "upload_id": upload_id,
+                "source": source,
+                "filename": filename,
+                "upload_bytes": upload_bytes,
+                "image_width": image_width,
+                "image_height": image_height,
+                "barcode_count": len(barcodes),
+                "scan_status": "found" if barcodes else "not_found",
+                "elapsed_ms": elapsed_ms,
+                "barcode_values": [b.value for b in barcodes],
+            }
+        )
+
+    return ScanResponse(
+        upload_id=upload_id,
+        trace_id=trace_id,
+        source=source,
+        status=ScanStatus.FOUND if barcodes else ScanStatus.NOT_FOUND,
+        count=len(barcodes),
+        image_width=image_width,
+        image_height=image_height,
+        filename=filename,
+        upload_bytes=upload_bytes,
+        elapsed_ms=elapsed_ms,
+        barcodes=barcodes,
+    )
+
+
+@ls.traceable(
+    name="web_analyze_barcode",
+    run_type="chain",
+    tags=["barcode-scanner", "web", "pipeline", "gemini"],
+    metadata={
+        "channel": "web",
+        "endpoint": "/barcode/analyze",
+        "app_version": "v1",
+    },
+    process_inputs=_sanitize_scan_inputs,
+)
+async def _traced_analyze(
+    *,
+    file: UploadFile,
+    image_bytes: bytes,
+    upload_id: str,
+    trace_id: str,
+    source: str,
+) -> dict:
+    """Traced full-pipeline path. Called with langsmith_extra to set run_id."""
+    filename = file.filename or "unknown"
+    upload_bytes = len(image_bytes)
+
+    t0 = time.perf_counter()
+    result = analyze_image(image_bytes)
+    elapsed_ms = int((time.perf_counter() - t0) * 1000)
+
+    result["upload_id"] = upload_id
+    result["trace_id"] = trace_id
+    result["source"] = source
+    result["filename"] = filename
+    result["upload_bytes"] = upload_bytes
+    result["elapsed_ms"] = elapsed_ms
+
+    logger.info(
+        "analyze upload_id=%s trace_id=%s filename=%s upload_bytes=%d "
+        "dims=%dx%d outcome=%s found=%d missing=%d unassigned=%d elapsed_ms=%d",
+        upload_id, trace_id, filename, upload_bytes,
+        result.get("image_width", 0), result.get("image_height", 0),
+        result.get("outcome"),
+        result.get("summary", {}).get("found_count", 0),
+        result.get("summary", {}).get("missing_count", 0),
+        result.get("summary", {}).get("unassigned_count", 0),
+        elapsed_ms,
+    )
+
+    summary = result.get("summary", {})
+    run = ls.get_current_run_tree()
+    if run is not None:
+        run.metadata.update(
+            {
+                "upload_id": upload_id,
+                "source": source,
+                "filename": filename,
+                "upload_bytes": upload_bytes,
+                "image_width": result.get("image_width", 0),
+                "image_height": result.get("image_height", 0),
+                "outcome": result.get("outcome"),
+                "audit_available": result.get("audit_available"),
+                "visible_label_count": summary.get("visible_label_count", 0),
+                "found_count": summary.get("found_count", 0),
+                "missing_count": summary.get("missing_count", 0),
+                "unassigned_count": summary.get("unassigned_count", 0),
+                "all_found": summary.get("all_found", False),
+                "elapsed_ms": elapsed_ms,
+                "found_values": [
+                    f.get("barcode_value") for f in result.get("found", [])
+                ],
+                "missing_labels": [
+                    m.get("label_index") for m in result.get("missing", [])
+                ],
+                "has_annotated_image": bool(result.get("annotated_image_b64")),
+            }
+        )
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Route handlers — thin HTTP layer. Generate upload_id + trace_id, read the
+# file, validate, then call the traced function with langsmith_extra.
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/barcode/scan",
+    response_model=ScanResponse,
+    tags=["barcode"],
+    summary="Scan all barcodes visible in one product photo (scanner only)",
 )
 async def scan_barcode(
     file: UploadFile = File(..., description="JPEG, PNG, or WebP product photo"),
@@ -69,8 +226,6 @@ async def scan_barcode(
             },
         )
 
-    filename = file.filename or "unknown"
-
     image_bytes = await file.read(settings.max_upload_bytes + 1)
     await file.close()
 
@@ -83,63 +238,26 @@ async def scan_barcode(
             },
         )
 
-    upload_bytes = len(image_bytes)
     upload_id = generate_upload_id()
+    trace_id = str(uuid4())
+    source = "web"
 
-    try:
-        t0 = time.perf_counter()
-        barcodes = scanner.scan_bytes(image_bytes)
-        elapsed_ms = int((time.perf_counter() - t0) * 1000)
-    except (UnidentifiedImageError, OSError, ValueError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"code": "invalid_image", "message": str(exc)},
-        ) from exc
-
-    # Read just the header for dimensions — PIL.Image.open is lazy and does
-    # not decode pixel data, so this is cheap.
-    with Image.open(_BytesIO(image_bytes)) as img:
-        image_width, image_height = img.size
-
-    logger.info(
-        "scan upload_id=%s filename=%s upload_bytes=%d dims=%dx%d count=%d elapsed_ms=%d",
-        upload_id,
-        filename,
-        upload_bytes,
-        image_width,
-        image_height,
-        len(barcodes),
-        elapsed_ms,
-    )
-
-    run = ls.get_current_run_tree()
-    if run is not None:
-        run.metadata.update(
-            {
-                "upload_id": upload_id,
-                "source": "web",
-                "filename": filename,
-                "upload_bytes": upload_bytes,
-                "image_width": image_width,
-                "image_height": image_height,
-                "barcode_count": len(barcodes),
-                "scan_status": "found" if barcodes else "not_found",
-                "elapsed_ms": elapsed_ms,
-                "barcode_values": [b.value for b in barcodes],
-            }
-        )
-
-    return ScanResponse(
+    return await _traced_scan(
+        file=file,
+        image_bytes=image_bytes,
         upload_id=upload_id,
-        source="web",
-        status=ScanStatus.FOUND if barcodes else ScanStatus.NOT_FOUND,
-        count=len(barcodes),
-        image_width=image_width,
-        image_height=image_height,
-        filename=filename,
-        upload_bytes=upload_bytes,
-        elapsed_ms=elapsed_ms,
-        barcodes=barcodes,
+        trace_id=trace_id,
+        source=source,
+        settings=settings,
+        scanner=scanner,
+        langsmith_extra={
+            "run_id": trace_id,
+            "metadata": {
+                "upload_id": upload_id,
+                "source": source,
+            },
+            "tags": [f"source:{source}", "image-upload"],
+        },
     )
 
 
@@ -147,17 +265,6 @@ async def scan_barcode(
     "/barcode/analyze",
     tags=["barcode"],
     summary="Full pipeline: scanner + Gemini audit + annotated image on missing",
-)
-@ls.traceable(
-    name="web_analyze_barcode",
-    run_type="chain",
-    tags=["barcode-scanner", "web", "pipeline", "gemini"],
-    metadata={
-        "channel": "web",
-        "endpoint": "/barcode/analyze",
-        "app_version": "v1",
-    },
-    process_inputs=_sanitize_scan_inputs,
 )
 async def analyze_barcode(
     file: UploadFile = File(..., description="JPEG, PNG, or WebP product photo"),
@@ -183,7 +290,6 @@ async def analyze_barcode(
             },
         )
 
-    filename = file.filename or "unknown"
     image_bytes = await file.read(settings.max_upload_bytes + 1)
     await file.close()
 
@@ -196,62 +302,22 @@ async def analyze_barcode(
             },
         )
 
-    upload_bytes = len(image_bytes)
     upload_id = generate_upload_id()
+    trace_id = str(uuid4())
+    source = "web"
 
-    t0 = time.perf_counter()
-    result = analyze_image(image_bytes)
-    elapsed_ms = int((time.perf_counter() - t0) * 1000)
-
-    # Merge upload metadata into the result.
-    result["upload_id"] = upload_id
-    result["source"] = "web"
-    result["filename"] = filename
-    result["upload_bytes"] = upload_bytes
-    result["elapsed_ms"] = elapsed_ms
-
-    logger.info(
-        "analyze upload_id=%s filename=%s upload_bytes=%d dims=%dx%d outcome=%s "
-        "found=%d missing=%d unassigned=%d elapsed_ms=%d",
-        upload_id,
-        filename,
-        upload_bytes,
-        result.get("image_width", 0),
-        result.get("image_height", 0),
-        result.get("outcome"),
-        result.get("summary", {}).get("found_count", 0),
-        result.get("summary", {}).get("missing_count", 0),
-        result.get("summary", {}).get("unassigned_count", 0),
-        elapsed_ms,
-    )
-
-    summary = result.get("summary", {})
-    run = ls.get_current_run_tree()
-    if run is not None:
-        run.metadata.update(
-            {
+    return await _traced_analyze(
+        file=file,
+        image_bytes=image_bytes,
+        upload_id=upload_id,
+        trace_id=trace_id,
+        source=source,
+        langsmith_extra={
+            "run_id": trace_id,
+            "metadata": {
                 "upload_id": upload_id,
-                "source": "web",
-                "filename": filename,
-                "upload_bytes": upload_bytes,
-                "image_width": result.get("image_width", 0),
-                "image_height": result.get("image_height", 0),
-                "outcome": result.get("outcome"),
-                "audit_available": result.get("audit_available"),
-                "visible_label_count": summary.get("visible_label_count", 0),
-                "found_count": summary.get("found_count", 0),
-                "missing_count": summary.get("missing_count", 0),
-                "unassigned_count": summary.get("unassigned_count", 0),
-                "all_found": summary.get("all_found", False),
-                "elapsed_ms": elapsed_ms,
-                "found_values": [
-                    f.get("barcode_value") for f in result.get("found", [])
-                ],
-                "missing_labels": [
-                    m.get("label_index") for m in result.get("missing", [])
-                ],
-                "has_annotated_image": bool(result.get("annotated_image_b64")),
-            }
-        )
-
-    return result
+                "source": source,
+            },
+            "tags": [f"source:{source}", "image-upload"],
+        },
+    )
