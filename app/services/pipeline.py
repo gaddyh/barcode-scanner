@@ -657,8 +657,9 @@ def pipeline_path(
         for m in matches:
             m_dict = m.model_dump() if hasattr(m, "model_dump") else m
             logger.info(
-                "  match: label=%s barcode=%s format=%s basis=%s",
+                "  match: label=%s detection=%s barcode=%s format=%s basis=%s",
                 m_dict.get("label_index"),
+                m_dict.get("scanner_detection_index"),
                 m_dict.get("barcode_value"),
                 m_dict.get("barcode_format"),
                 m_dict.get("match_basis"),

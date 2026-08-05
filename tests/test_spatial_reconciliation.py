@@ -387,3 +387,54 @@ def test_labels_but_no_detections() -> None:
     assert result.visible_label_count == 1
     assert result.all_labels_matched is False
     assert len(result.unmatched_labels) == 1
+
+
+# ---------------------------------------------------------------------------
+# 11. One detection inside two overlapping labels → one-to-one invariant
+# ---------------------------------------------------------------------------
+
+
+def test_one_detection_two_overlapping_labels_one_to_one() -> None:
+    """Regression: 1 scanner detection whose center falls inside two
+    overlapping Gemini label boxes must be assigned to at most ONE label.
+
+    The global nearest-first assignment must never assign the same
+    detection index to two labels. The second label stays unmatched.
+    """
+    labels = [
+        _label(
+            1,
+            label_bbox={"x1": 100, "y1": 100, "x2": 400, "y2": 300},
+            barcode_bbox={"x1": 150, "y1": 120, "x2": 380, "y2": 280},
+        ),
+        _label(
+            2,
+            # Overlapping label — barcode region also contains the detection.
+            label_bbox={"x1": 200, "y1": 100, "x2": 500, "y2": 300},
+            barcode_bbox={"x1": 220, "y1": 120, "x2": 480, "y2": 280},
+        ),
+    ]
+    # Single detection centered at ~300, 200 — inside both labels' barcode regions.
+    detections = [_detection(280, 195, 320, 205, "7297500243423")]
+
+    result = match_scanner_to_labels(
+        detections, labels, image_width=IMAGE_WIDTH, image_height=IMAGE_HEIGHT
+    )
+
+    # One-to-one invariant: detection assigned to at most one label.
+    detection_indexes = [
+        m.scanner_detection_index for m in result.matches
+    ]
+    assert len(detection_indexes) == len(set(detection_indexes)), (
+        f"Detection indexes not unique: {detection_indexes}"
+    )
+
+    # One-to-one invariant: each label assigned at most once.
+    label_indexes = [m.label_index for m in result.matches]
+    assert len(label_indexes) == len(set(label_indexes)), (
+        f"Label indexes not unique: {label_indexes}"
+    )
+
+    assert result.matched_label_count == 1
+    assert len(result.unmatched_labels) == 1
+    assert len(result.unassigned_scanner_detections) == 0

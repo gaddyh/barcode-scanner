@@ -280,6 +280,15 @@ def match_scanner_to_labels(
 
     matches: list[LabelMatch] = []
     for li, di, basis, dist in raw_matches:
+        # Defensive: enforce one-to-one invariant. This should never trigger
+        # because assign_matches uses assigned_labels/assigned_detections sets,
+        # but if it does, we have a critical bug to catch early.
+        assert li not in matched_label_indices, (
+            f"Label {li} assigned twice — one-to-one invariant violated"
+        )
+        assert di not in matched_detection_indices, (
+            f"Detection {di} assigned twice — one-to-one invariant violated"
+        )
         matched_label_indices.add(li)
         matched_detection_indices.add(di)
         matches.append(

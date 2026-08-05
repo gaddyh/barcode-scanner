@@ -817,8 +817,22 @@ class BarcodeScanner:
         existing: list[DetectedBarcode],
         recovered: list[DetectedBarcode],
     ) -> list[DetectedBarcode]:
-        """Merge recovered detections into existing using spatial dedup."""
-        return cls._deduplicate([*existing, *recovered])
+        """Merge recovered detections into existing using spatial + value dedup.
+
+        In the recovery context, a recovered detection with the same value as
+        an existing detection is almost certainly the same physical barcode
+        seen from a different crop — not a new barcode on a different label.
+        Skip it to prevent double-counting (one barcode → two labels).
+
+        This is distinct from ``_deduplicate`` (used for the initial scan),
+        which intentionally keeps same-value detections at different positions
+        because they could be two physical barcodes on two labels.
+        """
+        existing_values = {d.value for d in existing}
+        new_recovered = [
+            d for d in recovered if d.value not in existing_values
+        ]
+        return cls._deduplicate([*existing, *new_recovered])
 
     # ------------------------------------------------------------------
     # Structured-grid targeted recovery
@@ -1445,18 +1459,38 @@ class BarcodeScanner:
             duplicate_index: int | None = None
 
             for index, existing in enumerate(unique):
-                if candidate.value != existing.value:
-                    continue
-
-                if candidate.format != existing.format:
-                    continue
-
-                if cls._same_physical_barcode(candidate, existing):
+                # Same value + format + overlapping position → duplicate.
+                if (
+                    candidate.value == existing.value
+                    and candidate.format == existing.format
+                    and cls._same_physical_barcode(candidate, existing)
+                ):
                     duplicate_index = index
+                    break
+
+                # Different value but same format and nearly identical position
+                # → likely a misread of the same barcode (zxing sometimes
+                # produces partial/garbled values on the same physical barcode).
+                # Use a TIGHT position check — only merge when centers are
+                # within 15px, far stricter than _same_physical_barcode's
+                # 40px+ tolerance. Two different barcodes on the same label
+                # are typically 30+px apart and must NOT be merged.
+                if (
+                    candidate.format == existing.format
+                    and candidate.value != existing.value
+                    and cls._centers_within(candidate, existing, 15)
+                ):
+                    if cls._is_more_plausible(candidate.value, existing.value):
+                        duplicate_index = index
+                        break
+                    duplicate_index = -1  # sentinel: skip, don't replace
                     break
 
             if duplicate_index is None:
                 unique.append(candidate)
+                continue
+
+            if duplicate_index == -1:
                 continue
 
             existing = unique[duplicate_index]
@@ -1473,6 +1507,43 @@ class BarcodeScanner:
                 detection.bounding_box.x1,
             ),
         )
+
+    @staticmethod
+    def _centers_within(
+        first: DetectedBarcode,
+        second: DetectedBarcode,
+        tolerance: float,
+    ) -> bool:
+        """Check if two detections' centers are within ``tolerance`` pixels."""
+        fx, fy = (first.bounding_box.x1 + first.bounding_box.x2) / 2, (
+            first.bounding_box.y1 + first.bounding_box.y2
+        ) / 2
+        sx, sy = (second.bounding_box.x1 + second.bounding_box.x2) / 2, (
+            second.bounding_box.y1 + second.bounding_box.y2
+        ) / 2
+        return abs(fx - sx) <= tolerance and abs(fy - sy) <= tolerance
+
+    @staticmethod
+    def _is_more_plausible(value: str, other: str) -> bool:
+        """Heuristic: is ``value`` a more plausible barcode read than ``other``?
+
+        Prefers:
+        1. Longer values (more digits decoded = more confident read).
+        2. All-digit values over values containing non-digit characters
+           (real EAN/UPC/Code128 product barcodes are typically all digits;
+           partial reads often contain dashes, spaces, or truncated values).
+        """
+        value_digits = value.replace(" ", "").replace("-", "")
+        other_digits = other.replace(" ", "").replace("-", "")
+
+        # All-digit and longer → more plausible.
+        if value_digits.isdigit() and not other_digits.isdigit():
+            return True
+        if not value_digits.isdigit() and other_digits.isdigit():
+            return False
+
+        # Both digit or both non-digit → longer is more plausible.
+        return len(value) > len(other)
 
     @classmethod
     def _same_physical_barcode(
