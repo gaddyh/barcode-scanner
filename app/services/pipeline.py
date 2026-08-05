@@ -54,6 +54,7 @@ logger = logging.getLogger(__name__)
 # langsmith is optional — tracing is enabled when LANGSMITH_TRACING=true.
 _TRACING = os.getenv("LANGSMITH_TRACING", "").lower() in ("true", "1", "yes")
 if _TRACING:
+    import langsmith as ls
     from langsmith import traceable
 else:
     # no-op decorator fallback when tracing is disabled.
@@ -65,6 +66,12 @@ else:
             return fn
 
         return _wrap
+
+    class _NoRun:
+        metadata: dict = {}
+
+    def get_current_run_tree():  # type: ignore[misc]
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -253,7 +260,16 @@ def pipeline_path(
         # scan it aggressively (including a 90° rotation attempt). Any newly
         # decoded barcodes are merged into the scanner detections and
         # reconciliation is re-run.
+        recovery_attempted = False
+        recovery_labels_tried = 0
+        recovery_barcodes_found = 0
+        recovery_labels_resolved = 0
+
         if reconciliation.unmatched_labels:
+            recovery_attempted = True
+            recovery_labels_tried = len(reconciliation.unmatched_labels)
+            matched_before = reconciliation.matched_label_count
+
             recovery_detections = _gemini_guided_recovery(
                 path,
                 scanner,
@@ -261,6 +277,8 @@ def pipeline_path(
                 image_width,
                 image_height,
             )
+            recovery_barcodes_found = len(recovery_detections)
+
             if recovery_detections:
                 logger.info(
                     "Recovery decoded %d additional barcode(s)",
@@ -280,11 +298,33 @@ def pipeline_path(
                     image_width=image_width,
                     image_height=image_height,
                 )
+                recovery_labels_resolved = (
+                    reconciliation.matched_label_count - matched_before
+                )
                 logger.info(
                     "Reconciliation after recovery: %d matched, %d unmatched",
                     len(reconciliation.matches),
                     len(reconciliation.unmatched_labels),
                 )
+
+        # Emit recovery metrics to LangSmith trace metadata and pipeline summary.
+        run = ls.get_current_run_tree()
+        if run is not None:
+            run.metadata.update(
+                {
+                    "recovery_attempted": recovery_attempted,
+                    "recovery_labels_tried": recovery_labels_tried,
+                    "recovery_barcodes_found": recovery_barcodes_found,
+                    "recovery_labels_resolved": recovery_labels_resolved,
+                }
+            )
+
+        summary["recovery"] = {
+            "attempted": recovery_attempted,
+            "labels_tried": recovery_labels_tried,
+            "barcodes_found": recovery_barcodes_found,
+            "labels_resolved": recovery_labels_resolved,
+        }
 
         summary["reconciliation"] = reconciliation.model_dump(mode="json")
 

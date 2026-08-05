@@ -237,6 +237,10 @@ async def _traced_analyze(
                     m.get("label_index") for m in result.get("missing", [])
                 ],
                 "has_annotated_image": bool(result.get("annotated_image_b64")),
+                "recovery_attempted": summary.get("recovery", {}).get("attempted", False),
+                "recovery_labels_tried": summary.get("recovery", {}).get("labels_tried", 0),
+                "recovery_barcodes_found": summary.get("recovery", {}).get("barcodes_found", 0),
+                "recovery_labels_resolved": summary.get("recovery", {}).get("labels_resolved", 0),
             }
         )
 

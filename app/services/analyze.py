@@ -338,6 +338,12 @@ def _reshape(
             "missing_count": missing_count,
             "unassigned_count": unassigned_count,
             "all_found": all_found,
+            "recovery": summary.get("recovery", {
+                "attempted": False,
+                "labels_tried": 0,
+                "barcodes_found": 0,
+                "labels_resolved": 0,
+            }),
         },
     }
 
