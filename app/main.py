@@ -29,6 +29,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import langsmith as ls
 from fastapi import BackgroundTasks, FastAPI, Request
@@ -138,7 +139,12 @@ def sanitize_process_message_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
     },
     process_inputs=sanitize_process_message_inputs,
 )
-async def process_message(msg: dict[str, Any]) -> None:
+async def _traced_process_message(
+    msg: dict[str, Any],
+    *,
+    trace_id: str,
+) -> None:
+    """Traced WhatsApp message processor. Called with langsmith_extra to set run_id."""
     sender = msg["from"]
     msg_id = msg["id"]
     msg_type = msg["type"]
@@ -151,6 +157,7 @@ async def process_message(msg: dict[str, Any]) -> None:
                 "environment": settings.app_env,
                 "message_type": msg_type,
                 "provider_message_id": msg_id,
+                "trace_id": trace_id,
             }
         )
 
@@ -185,7 +192,7 @@ async def process_message(msg: dict[str, Any]) -> None:
                 )
 
         if msg_type == "image":
-            await process_image_message(msg, sender, run)
+            await process_image_message(msg, sender, run, trace_id=trace_id)
         elif msg_type == "audio":
             await process_audio_message(msg, sender, run)
         elif msg_type == "text":
@@ -199,7 +206,8 @@ async def process_message(msg: dict[str, Any]) -> None:
 
     except Exception as exc:
         logger.exception(
-            "Failed to process message from=%s type=%s msg_id=%s",
+            "Failed to process message trace_id=%s from=%s type=%s msg_id=%s",
+            trace_id,
             sender,
             msg_type,
             msg_id,
@@ -213,6 +221,27 @@ async def process_message(msg: dict[str, Any]) -> None:
             )
         # Swallow — background-task failures must not crash the server.
         return
+
+
+async def process_message(msg: dict[str, Any]) -> None:
+    """Thin dispatcher — generates trace_id, calls the traced function.
+
+    This is the entry point for BackgroundTasks. It generates a stable
+    trace_id (UUID4) and passes it to _traced_process_message via
+    langsmith_extra so the LangSmith root run ID is explicitly set.
+    """
+    trace_id = str(uuid4())
+    await _traced_process_message(
+        msg,
+        trace_id=trace_id,
+        langsmith_extra={
+            "run_id": trace_id,
+            "metadata": {
+                "source": "whatsapp",
+            },
+            "tags": ["source:whatsapp", "image-upload"],
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -229,6 +258,8 @@ async def process_image_message(
     msg: dict[str, Any],
     sender: str,
     run: Any,
+    *,
+    trace_id: str = "",
 ) -> None:
     """Download, analyze, and reply to an inbound WhatsApp image."""
     msg_id = msg.get("id", "")
@@ -238,7 +269,12 @@ async def process_image_message(
     sub_run = ls.get_current_run_tree()
     if sub_run is not None:
         sub_run.metadata.update(
-            {"sender": sender, "media_id": media_id, "mime_type": mime_type}
+            {
+                "sender": sender,
+                "media_id": media_id,
+                "mime_type": mime_type,
+                "trace_id": trace_id,
+            }
         )
 
     if not media_id:
@@ -297,17 +333,20 @@ async def process_image_message(
         result: dict[str, Any]
         try:
             logger.info(
-                "Starting analyze_image upload_id=%s for %s from=%s",
-                upload_id, temp_path, sender,
+                "Starting analyze_image upload_id=%s trace_id=%s for %s from=%s",
+                upload_id, trace_id, temp_path, sender,
             )
             result = await asyncio.to_thread(analyze_image, temp_path)
             result["upload_id"] = upload_id
+            result["trace_id"] = trace_id
             result["source"] = "whatsapp"
             outcome = result.get("outcome", "retryable_error")
             summary = result.get("summary", {})
             logger.info(
-                "analyze_image complete upload_id=%s outcome=%s found=%s missing=%s from=%s",
+                "analyze_image complete upload_id=%s trace_id=%s outcome=%s "
+                "found=%s missing=%s from=%s",
                 upload_id,
+                trace_id,
                 outcome,
                 summary.get("found_count", 0),
                 summary.get("missing_count", 0),
@@ -317,6 +356,7 @@ async def process_image_message(
                 sub_run.metadata.update(
                     {
                         "upload_id": upload_id,
+                        "trace_id": trace_id,
                         "source": "whatsapp",
                         "outcome": outcome,
                         "found_count": summary.get("found_count", 0),
@@ -328,8 +368,10 @@ async def process_image_message(
                 )
         except Exception as exc:
             logger.exception(
-                "image analyze failed upload_id=%s msg_id=%s sender=%s media_id=%s",
+                "image analyze failed upload_id=%s trace_id=%s msg_id=%s "
+                "sender=%s media_id=%s",
                 upload_id,
+                trace_id,
                 msg_id,
                 sender,
                 media_id,
@@ -352,6 +394,7 @@ async def process_image_message(
             run.metadata.update(
                 {
                     "upload_id": upload_id,
+                    "trace_id": trace_id,
                     "source": "whatsapp",
                     "outcome": outcome,
                     "found_count": summary.get("found_count", 0),
@@ -489,6 +532,7 @@ async def _send_complete_reply(sender: str, result: dict[str, Any]) -> None:
     unassigned = result.get("unassigned", [])
     total = len(found) + len(unassigned)
     upload_id = result.get("upload_id", "")
+    trace_id = result.get("trace_id", "")
 
     lines = [f"Found {total} barcodes:"]
     for item in found:
@@ -502,11 +546,15 @@ async def _send_complete_reply(sender: str, result: dict[str, Any]) -> None:
         lines.append(f"-. {value} ({fmt})")
     if upload_id:
         lines.append(f"\nID: {upload_id}")
+    if trace_id:
+        lines.append(f"Trace: {trace_id}")
 
     body = "\n".join(lines)
     logger.info(
-        "Sending complete reply upload_id=%s to=%s barcodes=%d (found=%d unassigned=%d)",
+        "Sending complete reply upload_id=%s trace_id=%s to=%s barcodes=%d "
+        "(found=%d unassigned=%d)",
         upload_id,
+        trace_id,
         sender,
         total,
         len(found),
@@ -547,6 +595,7 @@ async def _send_needs_better_photo_reply(
     found_count = summary.get("found_count", 0)
     visible_label_count = summary.get("visible_label_count", 0)
     upload_id = result.get("upload_id", "")
+    trace_id = result.get("trace_id", "")
 
     caption = (
         f"I read {found_count} of {visible_label_count} labels. "
@@ -554,6 +603,8 @@ async def _send_needs_better_photo_reply(
     )
     if upload_id:
         caption = f"{caption}\nID: {upload_id}"
+    if trace_id:
+        caption = f"{caption}\nTrace: {trace_id}"
 
     if not b64:
         # Render failure in analyze.py — fall back to text.
