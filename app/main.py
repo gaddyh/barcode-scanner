@@ -444,23 +444,46 @@ async def send_photo_instruction(sender: str) -> None:
     tags=["barcode-scanner", "whatsapp", "reply"],
 )
 async def _send_complete_reply(sender: str, result: dict[str, Any]) -> None:
-    """Send the barcode list as a WhatsApp text message."""
-    found = result.get("found", [])
-    found_count = result.get("summary", {}).get("found_count", len(found))
+    """Send the barcode list as a WhatsApp text message.
 
-    lines = [f"Found {found_count} barcodes:"]
+    Includes ALL decoded barcodes: Gemini-matched ``found`` entries first
+    (with their label index), then any ``unassigned`` scanner detections
+    that Gemini did not match to a label. This ensures every decoded
+    barcode value is reported even when Gemini's label count differs from
+    the scanner's detection count.
+    """
+    found = result.get("found", [])
+    unassigned = result.get("unassigned", [])
+    total = len(found) + len(unassigned)
+
+    lines = [f"Found {total} barcodes:"]
     for item in found:
         label_index = item.get("label_index", "?")
         value = item.get("barcode_value", "")
         fmt = item.get("barcode_format", "")
         lines.append(f"{label_index}. {value} ({fmt})")
+    for item in unassigned:
+        value = item.get("barcode_value", "")
+        fmt = item.get("barcode_format", "")
+        lines.append(f"-. {value} ({fmt})")
 
     body = "\n".join(lines)
-    logger.info("Sending complete reply to=%s barcodes=%s", sender, found_count)
+    logger.info(
+        "Sending complete reply to=%s barcodes=%d (found=%d unassigned=%d)",
+        sender,
+        total,
+        len(found),
+        len(unassigned),
+    )
     reply_run = ls.get_current_run_tree()
     if reply_run is not None:
         reply_run.metadata.update(
-            {"found_count": found_count, "reply_length": len(body)}
+            {
+                "total_barcodes": total,
+                "found_count": len(found),
+                "unassigned_count": len(unassigned),
+                "reply_length": len(body),
+            }
         )
     await _safe_send_text(sender, body)
 
