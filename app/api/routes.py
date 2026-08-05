@@ -1,3 +1,5 @@
+import logging
+import time
 from io import BytesIO as _BytesIO
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -6,6 +8,8 @@ from PIL import Image, UnidentifiedImageError
 from app.core.config import Settings, get_settings
 from app.models.barcode import ScanResponse, ScanStatus
 from app.services.barcode_scanner import BarcodeScanner
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -41,6 +45,8 @@ async def scan_barcode(
             },
         )
 
+    filename = file.filename or "unknown"
+
     image_bytes = await file.read(settings.max_upload_bytes + 1)
     await file.close()
 
@@ -53,8 +59,12 @@ async def scan_barcode(
             },
         )
 
+    upload_bytes = len(image_bytes)
+
     try:
+        t0 = time.perf_counter()
         barcodes = scanner.scan_bytes(image_bytes)
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
     except (UnidentifiedImageError, OSError, ValueError) as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -66,10 +76,23 @@ async def scan_barcode(
     with Image.open(_BytesIO(image_bytes)) as img:
         image_width, image_height = img.size
 
+    logger.info(
+        "scan filename=%s upload_bytes=%d dims=%dx%d count=%d elapsed_ms=%d",
+        filename,
+        upload_bytes,
+        image_width,
+        image_height,
+        len(barcodes),
+        elapsed_ms,
+    )
+
     return ScanResponse(
         status=ScanStatus.FOUND if barcodes else ScanStatus.NOT_FOUND,
         count=len(barcodes),
         image_width=image_width,
         image_height=image_height,
+        filename=filename,
+        upload_bytes=upload_bytes,
+        elapsed_ms=elapsed_ms,
         barcodes=barcodes,
     )

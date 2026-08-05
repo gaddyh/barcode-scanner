@@ -32,7 +32,9 @@ from typing import Any
 
 import langsmith as ls
 from fastapi import BackgroundTasks, FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from PIL import Image
 
 from app.api.routes import router
@@ -87,7 +89,26 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+# Experiment-only CORS: allow any origin so the local Vite dev server and
+# ngrok tunnels can call the API from the browser. Safe because this app
+# uses no credentials/cookies. Tighten before any real deployment.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(router)
+
+# Serve the built React frontend from web/dist/ when it exists (Docker/prod).
+# In local dev, Vite serves the frontend separately on :5173 and this dir is
+# absent, so we skip the mount.
+_static_dir = Path(__file__).resolve().parent.parent / "web" / "dist"
+if _static_dir.is_dir():
+    app.mount("/", StaticFiles(directory=str(_static_dir), html=True), name="frontend")
 
 
 def sanitize_process_message_inputs(inputs: dict[str, Any]) -> dict[str, Any]:

@@ -1,3 +1,15 @@
+# --- Stage 1: Build the React frontend --------------------------------------
+FROM node:20-slim AS frontend
+
+WORKDIR /web
+
+COPY web/package.json web/package-lock.json* ./
+RUN npm ci --silent || npm install --silent
+
+COPY web/ ./
+RUN npm run build
+
+# --- Stage 2: Python backend ------------------------------------------------
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -10,6 +22,9 @@ COPY pyproject.toml README.md ./
 COPY app ./app
 
 RUN pip install --upgrade pip && pip install .
+
+# Copy the built frontend so FastAPI can serve it at /
+COPY --from=frontend /web/dist ./web/dist
 
 EXPOSE 8000
 

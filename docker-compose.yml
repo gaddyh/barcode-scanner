@@ -6,3 +6,10 @@ services:
     environment:
       APP_ENV: development
       MAX_UPLOAD_BYTES: 15728640
+      # Required to boot (config.py raises without it) even though the scanner
+      # endpoint doesn't use WhatsApp. Set to a dummy value for scanner-only
+      # testing. Set the real key when WhatsApp webhooks are needed.
+      D360_API_KEY: dummy
+      # The lifespan creates a transcriber on boot. It's only used for WhatsApp
+      # audio, never for the scanner. Dummy key lets the app start.
+      OPENAI_API_KEY: dummy

@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: barcode-scanner
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: D360_API_KEY
+        value: dummy
+      - key: OPENAI_API_KEY
+        value: dummy
+      - key: APP_ENV
+        value: production
+      - key: MAX_UPLOAD_BYTES
+        value: "15728640"
+      - key: ALLOWED_IMAGE_TYPES
+        value: "image/jpeg,image/png,image/webp"
+      # Set these if you use WhatsApp webhooks later:
+      # - key: GEMINI_API_KEY
+      #   sync: false
+      # - key: LANGSMITH_API_KEY
+      #   sync: false
+      # - key: LANGSMITH_TRACING
+      #   value: "false"

@@ -17,4 +17,7 @@ class ScanResponse(BaseModel):
     count: int
     image_width: int
     image_height: int
+    filename: str
+    upload_bytes: int
+    elapsed_ms: int
     barcodes: list[DetectedBarcode]
