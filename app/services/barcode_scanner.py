@@ -511,6 +511,76 @@ class BarcodeScanner:
 
         return self._deduplicate(collected)
 
+    def scan_crop_with_recovery(
+        self,
+        crop: Image.Image,
+        *,
+        offset_x: int = 0,
+        offset_y: int = 0,
+    ) -> list[DetectedBarcode]:
+        """Aggressive recovery scan for a single crop, including 90° rotation.
+
+        Runs the standard ``_decode_crop_variants`` preprocessing pipeline
+        (CLAHE, Otsu, adaptive, aggressive sharpen, invert) on the crop as-is,
+        then repeats the same variants on a 90°-rotated copy. This catches
+        barcodes that are oriented perpendicular to the image axis and were
+        not decoded by the full-image scan (which uses ``try_rotate=True``
+        but at a coarser resolution).
+
+        Decoded positions from the rotated pass are mapped back to the
+        original (unrotated) coordinate frame so they align with the
+        full-image detections.
+
+        Only used on the Gemini-guided recovery path — never on the happy path.
+        """
+        # --- Normal orientation ---
+        collected = self._decode_crop_variants(
+            crop,
+            offset_x=offset_x,
+            offset_y=offset_y,
+        )
+
+        if self._contains_primary_barcode(collected):
+            return self._deduplicate(collected)
+
+        # --- 90° rotation ---
+        rotated = crop.rotate(90, expand=True)
+        rotated_offset_x = offset_x
+        rotated_offset_y = offset_y
+
+        rotated_detections = self._decode_crop_variants(
+            rotated,
+            offset_x=rotated_offset_x,
+            offset_y=rotated_offset_y,
+        )
+
+        # Map rotated-frame positions back to the original coordinate frame.
+        # A 90° CCW rotation maps (rx, ry) in the rotated image to:
+        #   x = ry
+        #   y = crop_width - rx
+        # (where rx, ry are relative to the rotated image's origin).
+        crop_w, crop_h = crop.size
+        for det in rotated_detections:
+            mapped_position = tuple(
+                Point(
+                    x=offset_x + (p.y - rotated_offset_y),
+                    y=offset_y + crop_w - (p.x - rotated_offset_x),
+                )
+                for p in det.position
+            )
+            collected.append(
+                DetectedBarcode(
+                    value=det.value,
+                    format=det.format,
+                    content_type=det.content_type,
+                    orientation=det.orientation,
+                    position=mapped_position,
+                    bounding_box=self._bounding_box(mapped_position),
+                )
+            )
+
+        return self._deduplicate(collected)
+
     @classmethod
     def _candidate_already_has_primary(
         cls,

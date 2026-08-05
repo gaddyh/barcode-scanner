@@ -114,6 +114,9 @@ def _mock_scan(detections: list[DetectedBarcode]) -> object:
     class _FakeScanner:
         def scan_bytes(self, image_bytes: bytes) -> list[DetectedBarcode]:
             return detections
+
+        def scan_crop_with_recovery(self, crop, *, offset_x=0, offset_y=0):
+            return []
     return _FakeScanner()
 
 
@@ -233,6 +236,9 @@ def test_retryable_error_on_scan_error(tmp_path: Path) -> None:
 
     class _BrokenScanner:
         def scan_bytes(self, image_bytes: bytes):
+            raise ValueError("bad image")
+
+        def scan_crop_with_recovery(self, crop, *, offset_x=0, offset_y=0):
             raise ValueError("bad image")
 
     spatial = _spatial([_label_pixels(1, label_box=(50, 50, 250, 350))])

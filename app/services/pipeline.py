@@ -37,7 +37,7 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
-from PIL import UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from app.services.barcode_scanner import BarcodeScanner
 from app.services.gemini_box_audit import (
@@ -246,6 +246,46 @@ def pipeline_path(
             image_width=image_width,
             image_height=image_height,
         )
+
+        # --- Gemini-guided recovery ---------------------------------------
+        # When labels remain unmatched after reconciliation, crop each
+        # missing label's barcode region from the full-resolution image and
+        # scan it aggressively (including a 90° rotation attempt). Any newly
+        # decoded barcodes are merged into the scanner detections and
+        # reconciliation is re-run.
+        if reconciliation.unmatched_labels:
+            recovery_detections = _gemini_guided_recovery(
+                path,
+                scanner,
+                reconciliation.unmatched_labels,
+                image_width,
+                image_height,
+            )
+            if recovery_detections:
+                logger.info(
+                    "Recovery decoded %d additional barcode(s)",
+                    len(recovery_detections),
+                )
+                barcodes.extend(recovery_detections)
+                summary["scanner_detections"] = barcodes
+                summary["decoded_count"] = len(barcodes)
+                values = [b["value"] for b in barcodes]  # type: ignore[index]
+                summary["unique_values"] = sorted(set(values))
+                summary["unique_value_count"] = len(set(values))
+
+                # Re-run reconciliation with the augmented detections.
+                reconciliation = match_scanner_to_labels(
+                    barcodes,
+                    labels,
+                    image_width=image_width,
+                    image_height=image_height,
+                )
+                logger.info(
+                    "Reconciliation after recovery: %d matched, %d unmatched",
+                    len(reconciliation.matches),
+                    len(reconciliation.unmatched_labels),
+                )
+
         summary["reconciliation"] = reconciliation.model_dump(mode="json")
 
         matches = reconciliation.matches
@@ -288,3 +328,105 @@ def pipeline_path(
 
     summary["ok"] = scan_ok and audit_ok
     return summary
+
+
+# ---------------------------------------------------------------------------
+# Gemini-guided recovery
+# ---------------------------------------------------------------------------
+
+# Padding ratio for recovery crops — wider than the label fallback (0.12) to
+# give the scanner more context around the barcode region.
+_RECOVERY_PADDING_RATIO = 0.20
+
+
+def _gemini_guided_recovery(
+    image_path: Path,
+    scanner: BarcodeScanner,
+    unmatched_labels: list,
+    image_width: int,
+    image_height: int,
+) -> list[dict]:
+    """Crop and scan unmatched label regions from the full-resolution image.
+
+    For each unmatched Gemini label, extracts the ``barcode_bbox`` (or
+    ``label_bbox`` as fallback) region with increased padding, and runs the
+    aggressive crop-variant scanner including a 90° rotation attempt.
+
+    Returns a list of detection dicts (same shape as ``scanner_detections``)
+    suitable for merging into the existing detections list and re-running
+    reconciliation.
+    """
+    try:
+        source = Image.open(image_path)
+        source = ImageOps.exif_transpose(source).convert("RGB")
+    except Exception as exc:
+        logger.warning("Recovery: could not open image %s: %s", image_path, exc)
+        return []
+
+    recovery_detections: list[dict] = []
+
+    for ul in unmatched_labels:
+        # Prefer barcode_bbox, fall back to label_bbox.
+        bbox = ul.barcode_bbox or ul.label_bbox
+        if bbox is None:
+            continue
+
+        x1, y1, x2, y2 = bbox["x1"], bbox["y1"], bbox["x2"], bbox["y2"]
+        w = x2 - x1
+        h = y2 - y1
+        if w <= 0 or h <= 0:
+            continue
+
+        pad_x = max(20, round(w * _RECOVERY_PADDING_RATIO))
+        pad_y = max(20, round(h * _RECOVERY_PADDING_RATIO))
+
+        cx1 = max(0, x1 - pad_x)
+        cy1 = max(0, y1 - pad_y)
+        cx2 = min(image_width, x2 + pad_x)
+        cy2 = min(image_height, y2 + pad_y)
+
+        crop = source.crop((cx1, cy1, cx2, cy2))
+
+        logger.info(
+            "Recovery: cropping label=%s bbox=(%d,%d,%d,%d) padded=(%d,%d,%d,%d) "
+            "crop_size=%dx%d",
+            ul.label_index,
+            x1, y1, x2, y2,
+            cx1, cy1, cx2, cy2,
+            crop.width, crop.height,
+        )
+
+        detections = scanner.scan_crop_with_recovery(
+            crop,
+            offset_x=cx1,
+            offset_y=cy1,
+        )
+
+        for det in detections:
+            recovery_detections.append(
+                {
+                    "value": det.value,
+                    "format": det.format,
+                    "content_type": det.content_type,
+                    "orientation": det.orientation,
+                    "position": [
+                        {"x": p.x, "y": p.y} for p in det.position
+                    ],
+                    "bounding_box": {
+                        "x1": det.bounding_box.x1,
+                        "y1": det.bounding_box.y1,
+                        "x2": det.bounding_box.x2,
+                        "y2": det.bounding_box.y2,
+                    },
+                }
+            )
+
+        if detections:
+            logger.info(
+                "Recovery: label=%s decoded %d barcode(s): %s",
+                ul.label_index,
+                len(detections),
+                [d.value for d in detections],
+            )
+
+    return recovery_detections

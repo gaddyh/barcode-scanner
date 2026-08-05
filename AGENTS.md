@@ -32,8 +32,15 @@ parallel on one image, then a single containment match joins them:
 
 `pipeline.py` runs both in a `ThreadPoolExecutor(max_workers=2)`, then
 `spatial_reconciliation.match_scanner_to_labels()` assigns each scanner
-detection to the Gemini label whose barcode region contains it. No dual-audit,
-no recovery, no crop retries.
+detection to the Gemini label whose barcode region contains it.
+
+When labels remain unmatched after reconciliation, a **Gemini-guided
+recovery** step crops each missing label's `barcode_bbox` from the
+full-resolution image with 20% padding and scans it aggressively
+(`scan_crop_with_recovery` — CLAHE, Otsu, adaptive, aggressive sharpen,
+invert, plus an explicit 90° rotation attempt). Any newly decoded barcodes
+are merged back and reconciliation is re-run. This only runs on the failure
+path — the happy path is unaffected.
 
 `analyze.py` reshapes the pipeline summary into the product response
 (`complete` / `needs_better_photo` / `retryable_error`).
