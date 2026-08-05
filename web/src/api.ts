@@ -18,8 +18,10 @@ export interface ScanResponse {
   barcodes: DetectedBarcode[];
 }
 
-const apiBaseUrl =
-  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+// When VITE_API_BASE_URL is set (local dev with separate Vite server, or
+// ngrok), use it. Otherwise use same-origin (empty string) — this is the
+// Docker/Render case where the frontend and API are served from one origin.
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
 
 export async function scanBarcode(file: File): Promise<ScanResponse> {
   const form = new FormData();
