@@ -106,6 +106,30 @@ export async function analyzeImage(file: File): Promise<AnalyzeResponse> {
   return (await res.json()) as AnalyzeResponse;
 }
 
+// --- Feedback (/feedback) ---
+
+export interface FeedbackResponse {
+  status: string;
+  trace_id: string;
+  score: number;
+}
+
+export async function submitFeedback(
+  traceId: string,
+  correct: boolean,
+  comment: string | null = null,
+): Promise<FeedbackResponse> {
+  const res = await fetch(`${apiBaseUrl}/feedback`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ trace_id: traceId, correct, comment }),
+  });
+  if (!res.ok) {
+    throw new Error(await extractError(res));
+  }
+  return (await res.json()) as FeedbackResponse;
+}
+
 async function extractError(res: Response): Promise<string> {
   try {
     const body = await res.json();

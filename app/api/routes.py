@@ -6,13 +6,16 @@ from uuid import uuid4
 
 import langsmith as ls
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from langsmith.utils import LangSmithError
 from PIL import Image, UnidentifiedImageError
 
 from app.core.config import Settings, get_settings
 from app.models.barcode import ScanResponse, ScanStatus
+from app.models.feedback import FeedbackRequest, FeedbackResponse
 from app.models.upload import generate_upload_id
 from app.services.analyze import analyze_image
 from app.services.barcode_scanner import BarcodeScanner
+from app.services.feedback import submit_upload_feedback
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +38,32 @@ def _sanitize_scan_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
 @router.get("/health", tags=["system"])
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@router.post(
+    "/feedback",
+    response_model=FeedbackResponse,
+    tags=["feedback"],
+    summary="Record Correct/Incorrect feedback on a LangSmith trace",
+)
+def create_feedback(payload: FeedbackRequest) -> FeedbackResponse:
+    try:
+        score = submit_upload_feedback(
+            trace_id=payload.trace_id,
+            correct=payload.correct,
+            comment=payload.comment,
+        )
+    except LangSmithError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Could not submit feedback to LangSmith",
+        ) from exc
+
+    return FeedbackResponse(
+        status="recorded",
+        trace_id=payload.trace_id,
+        score=score,
+    )
 
 
 # ---------------------------------------------------------------------------

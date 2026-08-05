@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import {
   analyzeImage,
   scanBarcode,
+  submitFeedback,
   type AnalyzeResponse,
   type ScanResponse,
 } from "./api";
@@ -24,6 +25,8 @@ export default function App() {
   const [analyzeResult, setAnalyzeResult] = useState<AnalyzeResponse | null>(null);
   const [totalMs, setTotalMs] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [feedbackSent, setFeedbackSent] = useState(false);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
 
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
@@ -37,6 +40,8 @@ export default function App() {
     setAnalyzeResult(null);
     setTotalMs(null);
     setError(null);
+    setFeedbackSent(false);
+    setFeedbackError(null);
   }
 
   async function onAnalyze() {
@@ -46,6 +51,8 @@ export default function App() {
     setScanResult(null);
     setAnalyzeResult(null);
     setTotalMs(null);
+    setFeedbackSent(false);
+    setFeedbackError(null);
     const t0 = performance.now();
     try {
       if (mode === "scanner") {
@@ -60,6 +67,17 @@ export default function App() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function sendFeedback(correct: boolean) {
+    if (!traceId) return;
+    setFeedbackError(null);
+    try {
+      await submitFeedback(traceId, correct);
+      setFeedbackSent(true);
+    } catch (err) {
+      setFeedbackError(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -182,6 +200,33 @@ export default function App() {
           {/* Full pipeline result */}
           {analyzeResult && (
             <PipelineResult result={analyzeResult} />
+          )}
+
+          {/* Feedback */}
+          {traceId && !feedbackSent && (
+            <div style={styles.feedback}>
+              <p style={styles.feedbackQ}>Did the scanner find all barcodes correctly?</p>
+              <div style={styles.feedbackRow}>
+                <button
+                  onClick={() => sendFeedback(true)}
+                  style={styles.feedbackBtn}
+                >
+                  Correct
+                </button>
+                <button
+                  onClick={() => sendFeedback(false)}
+                  style={styles.feedbackBtn}
+                >
+                  Incorrect
+                </button>
+              </div>
+              {feedbackError && (
+                <p style={styles.error}>Feedback error: {feedbackError}</p>
+              )}
+            </div>
+          )}
+          {feedbackSent && (
+            <p style={styles.feedbackDone}>Feedback recorded.</p>
           )}
         </div>
       )}
@@ -404,5 +449,38 @@ const styles: Record<string, React.CSSProperties> = {
     height: "auto",
     borderRadius: 8,
     display: "block",
+  },
+  feedback: {
+    marginTop: 20,
+    padding: 14,
+    background: "#f5f5f7",
+    border: "1px solid #e0e0e0",
+    borderRadius: 10,
+  },
+  feedbackQ: {
+    margin: "0 0 10px",
+    fontSize: 14,
+    fontWeight: 500,
+    color: "#333",
+  },
+  feedbackRow: {
+    display: "flex",
+    gap: 10,
+  },
+  feedbackBtn: {
+    flex: 1,
+    padding: "10px",
+    border: "1px solid #d0d0d0",
+    borderRadius: 8,
+    background: "#fff",
+    fontSize: 15,
+    fontWeight: 600,
+    cursor: "pointer",
+  },
+  feedbackDone: {
+    marginTop: 16,
+    fontSize: 14,
+    color: "#34c759",
+    fontWeight: 500,
   },
 };
