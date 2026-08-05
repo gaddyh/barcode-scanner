@@ -9,12 +9,10 @@ from pathlib import Path
 
 from app.services.barcode_scanner import BarcodeScanner
 from app.services.gemini_box_audit import (
-    DEFAULT_COUNTS_MODEL,
     DEFAULT_MAX_RETRIES,
     DEFAULT_MODEL,
     DEFAULT_RETRY_DELAY_SECONDS,
     ShoeboxAuditError,
-    audit_shoebox_counts,
     audit_shoebox_image,
     audit_shoebox_labels,
 )
@@ -121,7 +119,6 @@ def audit_path(
     max_retries: int,
     retry_delay_seconds: float,
     full: bool,
-    labels: bool,
 ) -> dict[str, object]:
     try:
         if full:
@@ -131,15 +128,8 @@ def audit_path(
                 max_retries=max_retries,
                 retry_delay_seconds=retry_delay_seconds,
             )
-        elif labels:
-            result = audit_shoebox_labels(
-                path,
-                model=model,
-                max_retries=max_retries,
-                retry_delay_seconds=retry_delay_seconds,
-            )
         else:
-            result = audit_shoebox_counts(
+            result = audit_shoebox_labels(
                 path,
                 model=model,
                 max_retries=max_retries,
@@ -177,7 +167,6 @@ def _run_audit(args: argparse.Namespace) -> int:
             max_retries=args.max_retries,
             retry_delay_seconds=DEFAULT_RETRY_DELAY_SECONDS,
             full=args.full,
-            labels=args.labels,
         )
         elapsed = time.perf_counter() - t0
         results.append(result)
@@ -209,24 +198,22 @@ def _run_audit(args: argparse.Namespace) -> int:
 
 
 def _print_pipeline_table(
-    rows: list[tuple[str, str, str, str, int, float | None]],
+    rows: list[tuple[str, str, str, int, float | None]],
 ) -> None:
     """Print a rich summary table to stderr.
 
-    Each row: (image, initial, final, match, recovered, time).
+    Each row: (image, matched, match, decoded, time).
     """
     header = (
-        f"{'Image':<32} {'Initial':>8} {'Final':>8} {'Match':>6} "
-        f"{'Recovered':>10} {'Time':>7}"
+        f"{'Image':<32} {'Matched':>9} {'Match':>6} {'Decoded':>8} {'Time':>7}"
     )
     print(header, file=sys.stderr)
     print("-" * len(header), file=sys.stderr)
 
-    for image, initial, final, match, recovered, elapsed in rows:
+    for image, matched, match, decoded, elapsed in rows:
         time_str = f"{elapsed:.2f}s" if elapsed is not None else "-"
         print(
-            f"{image:<32} {initial:>8} {final:>8} {match:>6} "
-            f"{recovered:>10} {time_str:>7}",
+            f"{image:<32} {matched:>9} {match:>6} {decoded:>8} {time_str:>7}",
             file=sys.stderr,
         )
 
@@ -237,7 +224,7 @@ def _run_pipeline(args: argparse.Namespace) -> int:
     scanner = BarcodeScanner()
 
     results: list[dict[str, object]] = []
-    table_rows: list[tuple[str, str, str, str, int, float | None]] = []
+    table_rows: list[tuple[str, str, str, int, float | None]] = []
 
     for path in args.images:
         t0 = time.perf_counter()
@@ -247,8 +234,6 @@ def _run_pipeline(args: argparse.Namespace) -> int:
             model=args.model,
             max_retries=args.max_retries,
             retry_delay_seconds=DEFAULT_RETRY_DELAY_SECONDS,
-            recovery_debug_dir=args.recovery_debug,
-            dual_audit=not args.no_dual_audit,
         )
         elapsed = time.perf_counter() - t0
         results.append(result)
@@ -256,10 +241,10 @@ def _run_pipeline(args: argparse.Namespace) -> int:
         if args.time:
             _print_timing(path.name, elapsed)
 
-        # Build table row with initial/final/recovered.
+        # Build table row with matched/visible, match status, decoded count.
         dv = result.get("decoded_vs_visible", {})
         visible = dv.get("visible", "-")
-        final_matched = dv.get("matched_labels", "-")
+        matched = dv.get("matched_labels", "-")
         all_matched = dv.get("all_labels_matched")
         if all_matched is True:
             match_str = "OK"
@@ -268,18 +253,10 @@ def _run_pipeline(args: argparse.Namespace) -> int:
         else:
             match_str = "ERR"
 
-        # Initial matched count from initial_reconciliation (before recovery).
-        initial_recon = result.get("initial_reconciliation", {})
-        initial_matched = initial_recon.get("matched_label_count", final_matched)
-
-        # Recovered count from recovery section.
-        recovery = result.get("recovery", {})
-        recovered_count = recovery.get("recovered_label_count", 0)
-
-        initial_str = f"{initial_matched}/{visible}" if visible != "-" else "-/-"
-        final_str = f"{final_matched}/{visible}" if visible != "-" else "-/-"
+        decoded = result.get("decoded_count", 0)
+        matched_str = f"{matched}/{visible}" if visible != "-" else "-/-"
         table_rows.append(
-            (path.name, initial_str, final_str, match_str, recovered_count,
+            (path.name, matched_str, match_str, decoded,
              elapsed if args.time else None)
         )
 
@@ -298,7 +275,10 @@ def _run_pipeline(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="barcode-scan",
-        description="Scan barcodes and audit shoebox images directly from image files (no HTTP server).",
+        description=(
+            "Scan barcodes and audit shoebox images directly from image files "
+            "(no HTTP server)."
+        ),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -351,7 +331,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Gemini model name. Defaults to GEMINI_MODEL, then "
-            f"{DEFAULT_COUNTS_MODEL!r} (fast) or {DEFAULT_MODEL!r} (--full)."
+            f"{DEFAULT_MODEL!r}."
         ),
     )
     audit_parser.add_argument(
@@ -365,16 +345,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Run the full detailed audit (bounding boxes, OCR text, per-box "
-            "observations). Much slower; default is the fast counts-only audit."
-        ),
-    )
-    audit_parser.add_argument(
-        "--labels",
-        action="store_true",
-        help=(
-            "Run the spatial label audit: locate every product label and its "
-            "barcode region in pixel coordinates. Middle ground between the "
-            "fast counts audit and the full detailed audit."
+            "observations). Much slower; default is the spatial label audit "
+            "used by the pipeline."
         ),
     )
     audit_parser.set_defaults(func=_run_audit)
@@ -382,7 +354,7 @@ def build_parser() -> argparse.ArgumentParser:
     # pipeline -----------------------------------------------------------
     pipeline_parser = subparsers.add_parser(
         "pipeline",
-        help="Run scan + audit in parallel and return a combined summary.",
+        help="Run scan + Gemini audit in parallel and return a combined summary.",
     )
     pipeline_parser.add_argument(
         "images",
@@ -405,7 +377,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Gemini model for the audit step. Defaults to GEMINI_MODEL or "
-            f"{DEFAULT_COUNTS_MODEL!r}."
+            f"{DEFAULT_MODEL!r}."
         ),
     )
     pipeline_parser.add_argument(
@@ -413,25 +385,6 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=DEFAULT_MAX_RETRIES,
         help=f"Retries after the first request. Default: {DEFAULT_MAX_RETRIES}.",
-    )
-    pipeline_parser.add_argument(
-        "--recovery-debug",
-        type=Path,
-        default=None,
-        help=(
-            "Save recovery crops and preprocessing variants as PNGs to this "
-            "directory for debugging. Only fires when recovery is triggered "
-            "(unmatched labels exist)."
-        ),
-    )
-    pipeline_parser.add_argument(
-        "--no-dual-audit",
-        action="store_true",
-        help=(
-            "Disable the dual Gemini audit. By default two audits run in "
-            "parallel and the result with more scanner-label matches is used, "
-            "countering Gemini's non-deterministic barcode_bbox placement."
-        ),
     )
     pipeline_parser.set_defaults(func=_run_pipeline)
 

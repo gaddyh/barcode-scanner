@@ -102,42 +102,6 @@ class SpatialReconciliation(BaseModel):
     all_labels_matched: bool
 
 
-class RecoveredLabel(BaseModel):
-    """A label confirmed as recovered by the final reconciliation."""
-
-    label_index: int
-    barcode_value: str
-    scanner_detection_index: int = Field(
-        description="Index into the merged detection list used for final reconciliation."
-    )
-    crop_basis: MatchBasis
-    crop_box: dict = Field(description="The padded crop box that produced the detection.")
-
-
-class RecoveryResult(BaseModel):
-    """Result of Gemini-guided targeted crop recovery.
-
-    A label is only counted as recovered when the final reconciliation assigns
-    a recovered detection to that attempted label.  This prevents false
-    recovery counts when a crop accidentally finds a nearby barcode belonging
-    to a different label.
-    """
-
-    attempted_label_count: int
-    attempted_label_indexes: list[int]
-    recovered_labels: list[RecoveredLabel]
-    recovered_label_count: int = Field(
-        description="Distinct labels confirmed by final reconciliation."
-    )
-    recovered_detection_count: int = Field(
-        description=(
-            "Total detections that originated from recovery crops.  One label "
-            "may produce multiple barcode symbols."
-        )
-    )
-    still_unmatched_labels: list[UnmatchedLabel]
-
-
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------

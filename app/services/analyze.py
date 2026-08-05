@@ -1,14 +1,19 @@
 """
 analyze.py
 
-Product API for the barcode-scanning pipeline.
+Product API for the barcode-scanning pipeline — the clean happy path.
 
-``analyze_image()`` runs the full pipeline (deterministic scan + dual Gemini
-audit + reconciliation + Gemini-guided recovery) on one image and returns a
-clean product-shaped JSON dict with an explicit ``outcome`` and three arrays:
+``analyze_image()`` runs two branches in parallel on one image:
 
-- ``found``    — barcodes matched to a Gemini product label.
-- ``missing``  — Gemini product labels with no decoded barcode, each with pixel
+1. **Deterministic scanner** — decodes barcode values with pixel bounding boxes.
+2. **Gemini Flash spatial audit** — locates every visible product label and its
+   barcode region.
+
+The two are joined with containment-based reconciliation and returned as a
+product-shaped JSON dict with an explicit ``outcome`` and three arrays:
+
+- ``found``      — barcodes matched to a Gemini product label.
+- ``missing``    — Gemini product labels with no decoded barcode, each with pixel
   locations (``label_bbox`` / ``barcode_bbox``) so the client can ask the user
   to re-photograph those specific regions.
 - ``unassigned`` — barcodes the scanner decoded but Gemini did not match to any
@@ -26,10 +31,6 @@ The client switches on ``outcome``:
         # and ``message`` is a human-readable prompt.
     else:  # "retryable_error"
         # retry the service (Gemini failure, not the user's fault)
-
-This is the hot path: a user uploads an image and either gets all barcodes
-back, is asked to re-photograph specific missing locations, or the client
-retries the service.
 """
 
 from __future__ import annotations
@@ -77,7 +78,6 @@ def analyze_image(
     model: str | None = None,
     max_retries: int = DEFAULT_MAX_RETRIES,
     retry_delay_seconds: float = DEFAULT_RETRY_DELAY_SECONDS,
-    dual_audit: bool = True,
 ) -> dict[str, object]:
     """Run the pipeline on one image and return a product-shaped result.
 
@@ -89,7 +89,6 @@ def analyze_image(
             module default.
         max_retries: Gemini retry count after the first attempt.
         retry_delay_seconds: Base delay between retries (exponential backoff).
-        dual_audit: Run two Gemini audits in parallel and pick the better one.
 
     Returns:
         A JSON-serializable dict with ``outcome``, ``found``, ``missing``,
@@ -127,8 +126,6 @@ def analyze_image(
             model=model,
             max_retries=max_retries,
             retry_delay_seconds=retry_delay_seconds,
-            recovery_debug_dir=None,
-            dual_audit=dual_audit,
         )
         result = _reshape(summary, image_width, image_height, image_path=path)
         logger.info(

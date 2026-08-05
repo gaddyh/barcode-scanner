@@ -53,7 +53,6 @@ from app.services.spatial_geometry import (
     normalized_to_pixels,
 )
 
-
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
 DEFAULT_COUNTS_MODEL = "gemini-3.5-flash-lite"
 DEFAULT_MAX_RETRIES = 2
@@ -153,7 +152,7 @@ class NormalizedBoundingBox(BaseModel):
     right: NormalizedCoordinate
 
     @model_validator(mode="after")
-    def validate_order(self) -> "NormalizedBoundingBox":
+    def validate_order(self) -> NormalizedBoundingBox:
         if self.bottom <= self.top:
             raise ValueError("bottom must be greater than top")
         if self.right <= self.left:
@@ -385,7 +384,7 @@ class ShoeboxImageAudit(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def validate_internal_consistency(self) -> "ShoeboxImageAudit":
+    def validate_internal_consistency(self) -> ShoeboxImageAudit:
         if self.visible_product_barcode_label_count > self.physical_box_count:
             # More than one label may occasionally be visible on a box, but the
             # requested metric is one product-label presence per physical box.

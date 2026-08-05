@@ -1,4 +1,4 @@
-.PHONY: install run scan test bench bench-spatial bench-warehouse lint docker-build docker-run
+.PHONY: install run scan test eval lint docker-build docker-run
 
 install:
 	python -m pip install -e ".[dev]"
@@ -12,14 +12,11 @@ scan:
 test:
 	pytest
 
-bench:
-	python -m tests.benchmark.runner
+eval:
+	python -m tests.eval.runner
 
-bench-spatial:
-	python -m tests.benchmark_spatial.runner
-
-bench-warehouse:
-	python -m tests.benchmark_warehouse.runner
+eval-scanner-only:
+	python -m tests.eval.runner --scanner-only
 
 lint:
 	ruff check .

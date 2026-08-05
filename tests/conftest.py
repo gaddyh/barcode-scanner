@@ -1,3 +1,11 @@
+"""Shared pytest fixtures for the barcode-scanner test suite.
+
+Tests mock ``zxingcpp.read_barcodes`` and ``genai.Client`` so no real barcode
+images or Gemini API calls are required.
+"""
+
+from __future__ import annotations
+
 from collections.abc import Iterator
 
 import pytest
