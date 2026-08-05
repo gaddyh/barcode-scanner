@@ -2,9 +2,16 @@ fastapi<1.0,>=0.115
 uvicorn[standard]<1.0,>=0.34
 python-multipart<1.0,>=0.0.20
 pillow<13.0,>=11.0
+opencv-python-headless<5.0,>=4.10
 pydantic-settings<3.0,>=2.7
 zxing-cpp<4.0,>=3.0
 numpy<2.0,>=1.26
+google-genai<3.0,>=2.16
+pydantic<3.0,>=2.13
+python-dotenv<2.0,>=1.0
+langsmith<1.0,>=0.10
+openai<3.0,>=1.0
+python-ulid<5.0,>=3.0
 
 [dev]
 httpx<1.0,>=0.28

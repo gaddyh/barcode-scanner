@@ -10,6 +10,8 @@ export interface DetectedBarcode {
 }
 
 export interface ScanResponse {
+  upload_id: string;
+  source: string;
   status: "found" | "not_found";
   count: number;
   image_width: number;
@@ -58,6 +60,8 @@ export interface AnalyzeResponse {
   audit_available: boolean;
   image_width: number;
   image_height: number;
+  upload_id: string;
+  source: string;
   filename: string;
   upload_bytes: number;
   elapsed_ms: number;

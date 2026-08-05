@@ -7,9 +7,16 @@ Requires-Dist: fastapi<1.0,>=0.115
 Requires-Dist: uvicorn[standard]<1.0,>=0.34
 Requires-Dist: python-multipart<1.0,>=0.0.20
 Requires-Dist: pillow<13.0,>=11.0
+Requires-Dist: opencv-python-headless<5.0,>=4.10
 Requires-Dist: pydantic-settings<3.0,>=2.7
 Requires-Dist: zxing-cpp<4.0,>=3.0
 Requires-Dist: numpy<2.0,>=1.26
+Requires-Dist: google-genai<3.0,>=2.16
+Requires-Dist: pydantic<3.0,>=2.13
+Requires-Dist: python-dotenv<2.0,>=1.0
+Requires-Dist: langsmith<1.0,>=0.10
+Requires-Dist: openai<3.0,>=1.0
+Requires-Dist: python-ulid<5.0,>=3.0
 Provides-Extra: dev
 Requires-Dist: httpx<1.0,>=0.28; extra == "dev"
 Requires-Dist: pytest<10.0,>=8.3; extra == "dev"

@@ -39,6 +39,7 @@ from PIL import Image
 
 from app.api.routes import router
 from app.config import settings
+from app.models.upload import generate_upload_id
 from app.services.analyze import analyze_image
 from app.services.dialog360 import Dialog360Client, iter_incoming_messages
 from app.services.transcribe import (
@@ -292,14 +293,21 @@ async def process_image_message(
             return
 
         # --- Analyze -----------------------------------------------------
+        upload_id = generate_upload_id()
         result: dict[str, Any]
         try:
-            logger.info("Starting analyze_image for %s from=%s", temp_path, sender)
+            logger.info(
+                "Starting analyze_image upload_id=%s for %s from=%s",
+                upload_id, temp_path, sender,
+            )
             result = await asyncio.to_thread(analyze_image, temp_path)
+            result["upload_id"] = upload_id
+            result["source"] = "whatsapp"
             outcome = result.get("outcome", "retryable_error")
             summary = result.get("summary", {})
             logger.info(
-                "analyze_image complete outcome=%s found=%s missing=%s from=%s",
+                "analyze_image complete upload_id=%s outcome=%s found=%s missing=%s from=%s",
+                upload_id,
                 outcome,
                 summary.get("found_count", 0),
                 summary.get("missing_count", 0),
@@ -308,6 +316,8 @@ async def process_image_message(
             if sub_run is not None:
                 sub_run.metadata.update(
                     {
+                        "upload_id": upload_id,
+                        "source": "whatsapp",
                         "outcome": outcome,
                         "found_count": summary.get("found_count", 0),
                         "missing_count": summary.get("missing_count", 0),
@@ -318,7 +328,8 @@ async def process_image_message(
                 )
         except Exception as exc:
             logger.exception(
-                "image analyze failed msg_id=%s sender=%s media_id=%s",
+                "image analyze failed upload_id=%s msg_id=%s sender=%s media_id=%s",
+                upload_id,
                 msg_id,
                 sender,
                 media_id,
@@ -340,6 +351,8 @@ async def process_image_message(
         if run is not None:
             run.metadata.update(
                 {
+                    "upload_id": upload_id,
+                    "source": "whatsapp",
                     "outcome": outcome,
                     "found_count": summary.get("found_count", 0),
                     "missing_count": summary.get("missing_count", 0),
@@ -475,6 +488,7 @@ async def _send_complete_reply(sender: str, result: dict[str, Any]) -> None:
     found = result.get("found", [])
     unassigned = result.get("unassigned", [])
     total = len(found) + len(unassigned)
+    upload_id = result.get("upload_id", "")
 
     lines = [f"Found {total} barcodes:"]
     for item in found:
@@ -486,10 +500,13 @@ async def _send_complete_reply(sender: str, result: dict[str, Any]) -> None:
         value = item.get("barcode_value", "")
         fmt = item.get("barcode_format", "")
         lines.append(f"-. {value} ({fmt})")
+    if upload_id:
+        lines.append(f"\nID: {upload_id}")
 
     body = "\n".join(lines)
     logger.info(
-        "Sending complete reply to=%s barcodes=%d (found=%d unassigned=%d)",
+        "Sending complete reply upload_id=%s to=%s barcodes=%d (found=%d unassigned=%d)",
+        upload_id,
         sender,
         total,
         len(found),
@@ -529,11 +546,14 @@ async def _send_needs_better_photo_reply(
     summary = result.get("summary", {})
     found_count = summary.get("found_count", 0)
     visible_label_count = summary.get("visible_label_count", 0)
+    upload_id = result.get("upload_id", "")
 
     caption = (
         f"I read {found_count} of {visible_label_count} labels. "
         "Please take a closer photo of the marked barcode."
     )
+    if upload_id:
+        caption = f"{caption}\nID: {upload_id}"
 
     if not b64:
         # Render failure in analyze.py — fall back to text.

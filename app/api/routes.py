@@ -9,6 +9,7 @@ from PIL import Image, UnidentifiedImageError
 
 from app.core.config import Settings, get_settings
 from app.models.barcode import ScanResponse, ScanStatus
+from app.models.upload import generate_upload_id
 from app.services.analyze import analyze_image
 from app.services.barcode_scanner import BarcodeScanner
 
@@ -83,6 +84,7 @@ async def scan_barcode(
         )
 
     upload_bytes = len(image_bytes)
+    upload_id = generate_upload_id()
 
     try:
         t0 = time.perf_counter()
@@ -100,7 +102,8 @@ async def scan_barcode(
         image_width, image_height = img.size
 
     logger.info(
-        "scan filename=%s upload_bytes=%d dims=%dx%d count=%d elapsed_ms=%d",
+        "scan upload_id=%s filename=%s upload_bytes=%d dims=%dx%d count=%d elapsed_ms=%d",
+        upload_id,
         filename,
         upload_bytes,
         image_width,
@@ -113,6 +116,8 @@ async def scan_barcode(
     if run is not None:
         run.metadata.update(
             {
+                "upload_id": upload_id,
+                "source": "web",
                 "filename": filename,
                 "upload_bytes": upload_bytes,
                 "image_width": image_width,
@@ -125,6 +130,8 @@ async def scan_barcode(
         )
 
     return ScanResponse(
+        upload_id=upload_id,
+        source="web",
         status=ScanStatus.FOUND if barcodes else ScanStatus.NOT_FOUND,
         count=len(barcodes),
         image_width=image_width,
@@ -190,19 +197,23 @@ async def analyze_barcode(
         )
 
     upload_bytes = len(image_bytes)
+    upload_id = generate_upload_id()
 
     t0 = time.perf_counter()
     result = analyze_image(image_bytes)
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
     # Merge upload metadata into the result.
+    result["upload_id"] = upload_id
+    result["source"] = "web"
     result["filename"] = filename
     result["upload_bytes"] = upload_bytes
     result["elapsed_ms"] = elapsed_ms
 
     logger.info(
-        "analyze filename=%s upload_bytes=%d dims=%dx%d outcome=%s "
+        "analyze upload_id=%s filename=%s upload_bytes=%d dims=%dx%d outcome=%s "
         "found=%d missing=%d unassigned=%d elapsed_ms=%d",
+        upload_id,
         filename,
         upload_bytes,
         result.get("image_width", 0),
@@ -219,6 +230,8 @@ async def analyze_barcode(
     if run is not None:
         run.metadata.update(
             {
+                "upload_id": upload_id,
+                "source": "web",
                 "filename": filename,
                 "upload_bytes": upload_bytes,
                 "image_width": result.get("image_width", 0),

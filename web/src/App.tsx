@@ -72,6 +72,10 @@ export default function App() {
   const uploadBytes =
     scanResult?.upload_bytes ?? analyzeResult?.upload_bytes ?? null;
   const filename = scanResult?.filename ?? analyzeResult?.filename ?? null;
+  const uploadId =
+    scanResult?.upload_id ?? analyzeResult?.upload_id ?? null;
+  const resultSource =
+    scanResult?.source ?? analyzeResult?.source ?? null;
 
   return (
     <div style={styles.container}>
@@ -152,6 +156,8 @@ export default function App() {
       {elapsedMs !== null && (
         <div style={styles.results}>
           <h2 style={styles.h2}>Result</h2>
+          <Row label="Upload ID" value={uploadId ?? "—"} />
+          <Row label="Source" value={resultSource ?? "—"} />
           <Row label="Filename" value={filename ?? "—"} />
           <Row label="Source" value={source ?? "—"} />
           <Row

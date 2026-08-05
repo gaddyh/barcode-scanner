@@ -13,6 +13,8 @@ class ScanStatus(StrEnum):
 class ScanResponse(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    upload_id: str
+    source: str
     status: ScanStatus
     count: int
     image_width: int
