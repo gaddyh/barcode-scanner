@@ -7,6 +7,7 @@ from PIL import Image, UnidentifiedImageError
 
 from app.core.config import Settings, get_settings
 from app.models.barcode import ScanResponse, ScanStatus
+from app.services.analyze import analyze_image
 from app.services.barcode_scanner import BarcodeScanner
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,7 @@ def health() -> dict[str, str]:
     "/barcode/scan",
     response_model=ScanResponse,
     tags=["barcode"],
-    summary="Scan all barcodes visible in one product photo",
+    summary="Scan all barcodes visible in one product photo (scanner only)",
 )
 async def scan_barcode(
     file: UploadFile = File(..., description="JPEG, PNG, or WebP product photo"),
@@ -96,3 +97,73 @@ async def scan_barcode(
         elapsed_ms=elapsed_ms,
         barcodes=barcodes,
     )
+
+
+@router.post(
+    "/barcode/analyze",
+    tags=["barcode"],
+    summary="Full pipeline: scanner + Gemini audit + annotated image on missing",
+)
+async def analyze_barcode(
+    file: UploadFile = File(..., description="JPEG, PNG, or WebP product photo"),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    """Run the full analyze_image() pipeline (scanner + Gemini spatial audit).
+
+    Returns the product-shaped result with ``outcome`` (complete /
+    needs_better_photo / retryable_error), ``found``, ``missing``,
+    ``unassigned``, and — on needs_better_photo — ``annotated_image_b64``
+    (base64 PNG with red circles around missing regions) plus ``message``.
+
+    Requires ``GEMINI_API_KEY`` in the environment.
+    """
+    content_type = (file.content_type or "").lower()
+    if content_type not in settings.allowed_content_types:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail={
+                "code": "unsupported_image_type",
+                "message": f"Unsupported content type: {content_type or 'unknown'}",
+                "allowed": sorted(settings.allowed_content_types),
+            },
+        )
+
+    filename = file.filename or "unknown"
+    image_bytes = await file.read(settings.max_upload_bytes + 1)
+    await file.close()
+
+    if len(image_bytes) > settings.max_upload_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail={
+                "code": "image_too_large",
+                "message": f"Maximum upload size is {settings.max_upload_bytes} bytes.",
+            },
+        )
+
+    upload_bytes = len(image_bytes)
+
+    t0 = time.perf_counter()
+    result = analyze_image(image_bytes)
+    elapsed_ms = int((time.perf_counter() - t0) * 1000)
+
+    # Merge upload metadata into the result.
+    result["filename"] = filename
+    result["upload_bytes"] = upload_bytes
+    result["elapsed_ms"] = elapsed_ms
+
+    logger.info(
+        "analyze filename=%s upload_bytes=%d dims=%dx%d outcome=%s "
+        "found=%d missing=%d unassigned=%d elapsed_ms=%d",
+        filename,
+        upload_bytes,
+        result.get("image_width", 0),
+        result.get("image_height", 0),
+        result.get("outcome"),
+        result.get("summary", {}).get("found_count", 0),
+        result.get("summary", {}).get("missing_count", 0),
+        result.get("summary", {}).get("unassigned_count", 0),
+        elapsed_ms,
+    )
+
+    return result

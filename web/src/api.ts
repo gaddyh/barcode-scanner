@@ -1,3 +1,5 @@
+// --- Scanner-only response (/barcode/scan) ---
+
 export interface DetectedBarcode {
   value: string;
   format: string;
@@ -18,30 +20,91 @@ export interface ScanResponse {
   barcodes: DetectedBarcode[];
 }
 
-// When VITE_API_BASE_URL is set (local dev with separate Vite server, or
-// ngrok), use it. Otherwise use same-origin (empty string) — this is the
-// Docker/Render case where the frontend and API are served from one origin.
+// --- Full pipeline response (/barcode/analyze) ---
+
+export interface FoundItem {
+  label_index: number;
+  barcode_value: string;
+  barcode_format: string;
+  barcode_bbox: { x1: number; y1: number; x2: number; y2: number };
+  label_bbox: { x1: number; y1: number; x2: number; y2: number };
+  match_basis: string;
+}
+
+export interface MissingItem {
+  label_index: number;
+  status: string;
+  label_bbox: { x1: number; y1: number; x2: number; y2: number } | null;
+  barcode_bbox: { x1: number; y1: number; x2: number; y2: number } | null;
+}
+
+export interface UnassignedItem {
+  barcode_value: string;
+  barcode_format: string;
+  barcode_bbox: { x1: number; y1: number; x2: number; y2: number };
+}
+
+export interface AnalyzeSummary {
+  visible_label_count: number;
+  found_count: number;
+  missing_count: number;
+  unassigned_count: number;
+  all_found: boolean;
+}
+
+export interface AnalyzeResponse {
+  ok: boolean;
+  outcome: "complete" | "needs_better_photo" | "retryable_error";
+  audit_available: boolean;
+  image_width: number;
+  image_height: number;
+  filename: string;
+  upload_bytes: number;
+  elapsed_ms: number;
+  found: FoundItem[];
+  missing: MissingItem[];
+  unassigned: UnassignedItem[];
+  summary: AnalyzeSummary;
+  error?: { code: string; message: string };
+  annotated_image_b64?: string;
+  annotated_image_width?: number;
+  annotated_image_height?: number;
+  message?: string;
+}
+
+// Same-origin by default (Docker/Render). Set VITE_API_BASE_URL for local dev.
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
 
-export async function scanBarcode(file: File): Promise<ScanResponse> {
+async function postFile(path: string, file: File): Promise<Response> {
   const form = new FormData();
   form.append("file", file);
-
-  const res = await fetch(`${apiBaseUrl}/barcode/scan`, {
+  return fetch(`${apiBaseUrl}${path}`, {
     method: "POST",
     body: form,
   });
+}
 
+export async function scanBarcode(file: File): Promise<ScanResponse> {
+  const res = await postFile("/barcode/scan", file);
   if (!res.ok) {
-    let detail: string;
-    try {
-      const body = await res.json();
-      detail = JSON.stringify(body);
-    } catch {
-      detail = await res.text();
-    }
-    throw new Error(`HTTP ${res.status}: ${detail}`);
+    throw new Error(await extractError(res));
   }
-
   return (await res.json()) as ScanResponse;
+}
+
+export async function analyzeImage(file: File): Promise<AnalyzeResponse> {
+  const res = await postFile("/barcode/analyze", file);
+  if (!res.ok) {
+    throw new Error(await extractError(res));
+  }
+  return (await res.json()) as AnalyzeResponse;
+}
+
+async function extractError(res: Response): Promise<string> {
+  try {
+    const body = await res.json();
+    return `HTTP ${res.status}: ${JSON.stringify(body)}`;
+  } catch {
+    return `HTTP ${res.status}: ${await res.text()}`;
+  }
 }
