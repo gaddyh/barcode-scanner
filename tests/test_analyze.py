@@ -3,6 +3,10 @@
 These tests mock the pipeline the same way tests/test_cli.py does:
 - Patch ``BarcodeScanner`` so no real zxing calls happen.
 - Patch ``app.services.pipeline._traced_audit`` so no real Gemini calls happen.
+
+The integration test (``test_recovery_does_not_double_count_barcode``) is
+different: it uses a REAL ``BarcodeScanner`` with mocked zxing so the
+recovery + merge_detections path is actually exercised end-to-end.
 """
 
 from __future__ import annotations
@@ -10,6 +14,7 @@ from __future__ import annotations
 import base64
 import io
 from pathlib import Path
+from types import SimpleNamespace
 
 from PIL import Image, UnidentifiedImageError
 
@@ -392,3 +397,186 @@ def test_analyze_bytes_input(tmp_path, monkeypatch) -> None:
     assert leftover == [] or not any(
         f.stat().st_size == len(png_bytes) for f in leftover
     )
+
+
+# ---------------------------------------------------------------------------
+# Integration test: real scanner + recovery + merge_detections
+# ---------------------------------------------------------------------------
+
+
+def _fake_zxing_position(x1: int, y1: int, x2: int, y2: int) -> SimpleNamespace:
+    """A zxing-style position with four named corners."""
+    return SimpleNamespace(
+        top_left=SimpleNamespace(x=x1, y=y1),
+        top_right=SimpleNamespace(x=x2, y=y1),
+        bottom_right=SimpleNamespace(x=x2, y=y2),
+        bottom_left=SimpleNamespace(x=x1, y=y2),
+    )
+
+
+def _fake_zxing_result(
+    value: str,
+    fmt: str = "Code 128",
+    position: object | None = None,
+) -> SimpleNamespace:
+    if position is None:
+        position = _fake_zxing_position(10, 5, 90, 40)
+    return SimpleNamespace(
+        text=value,
+        format=fmt,
+        content_type="Text",
+        orientation=0,
+        position=position,
+    )
+
+
+def test_recovery_does_not_double_count_barcode(tmp_path, monkeypatch) -> None:
+    """Integration test: real BarcodeScanner + recovery + merge_detections.
+
+    Regression for the one-to-one invariant bug:
+    - Scanner finds 1 barcode in the full-image pass.
+    - Gemini sees 2 labels; only label 1 matches the barcode.
+    - Label 2 is unmatched → recovery crops label 2's barcode_bbox.
+    - The recovery crop re-finds the SAME barcode (same value, slightly
+      different position due to crop coordinate mapping).
+    - merge_detections must NOT keep the duplicate.
+    - Final reconciliation must have 1 match, 1 unmatched — NOT 2 matches.
+
+    This test uses a REAL BarcodeScanner (not _FakeScanner) with mocked
+    zxingcpp.read_barcodes so the recovery + merge path is exercised
+    end-to-end. The _FakeScanner stubs out scan_label_crops/merge_detections,
+    which hid this bug for the entire test suite.
+    """
+    barcode_value = "7297500243423"
+
+    # --- Mock zxingcpp.read_barcodes -------------------------------------
+    # The scanner calls read_barcodes many times (full image + tiles +
+    # preprocessing variants + recovery crops). We need:
+    #   Call 0 (full image scan): find the barcode once.
+    #   All subsequent calls (tiles, variants): find nothing.
+    #   Recovery crop calls: find the same barcode again.
+    #
+    # The scanner's _contains_primary_barcode check stops variant attempts
+    # early when a primary barcode (12+ digits) is found, so call 0 finding
+    # the barcode means few follow-up calls. Recovery crops happen later
+    # via scan_label_crops → _decode_crop_variants.
+    call_index = {"i": 0}
+
+    # The barcode position in full-image coordinates.
+    # Label 1's barcode_bbox is at (200, 150, 380, 280) in a 1000x1000 image.
+    # The detection should be inside that region.
+    full_image_pos = _fake_zxing_position(240, 200, 360, 210)
+
+    # Recovery crop: label 2's barcode_bbox is at (220, 720, 380, 880).
+    # The crop origin is the padded barcode_crop. The scanner maps local
+    # coordinates back to full-image coordinates via offset_x/offset_y.
+    # We return a result at local coordinates that map to a position INSIDE
+    # label 2's barcode region — but with the SAME value. This simulates
+    # the bug: recovery finds the same barcode value in a different crop.
+    recovery_local_pos = _fake_zxing_position(10, 10, 50, 40)
+
+    def fake_read_barcodes(image, **kwargs):
+        i = call_index["i"]
+        call_index["i"] += 1
+
+        # First call: full-image scan finds the barcode.
+        if i == 0:
+            return [_fake_zxing_result(barcode_value, "Code128", full_image_pos)]
+
+        # Recovery crop calls: these come from _decode_crop_variants which
+        # runs multiple preprocessing attempts. The first recovery attempt
+        # finds the same barcode value (at local coordinates that get mapped
+        # back to full-image coordinates by the scanner).
+        # We detect recovery calls by checking if the image is small (a crop).
+        # The image passed to zxing is a numpy array (shape=[h, w, channels])
+        # or a PIL Image (size=(w, h)).
+        try:
+            if hasattr(image, "shape"):
+                h, w = image.shape[:2]
+            elif hasattr(image, "size"):
+                size = image.size
+                if isinstance(size, (tuple, list)):
+                    w, h = size[:2]
+                else:
+                    w = h = 0
+            else:
+                w = h = 0
+        except Exception:
+            w = h = 0
+
+        # Recovery crops are small (~200x200). The full image is 1000x1000,
+        # and tiles are ~400x300. Use 300 as the threshold.
+        if 0 < w <= 300 and 0 < h <= 300:
+            return [_fake_zxing_result(barcode_value, "Code128", recovery_local_pos)]
+
+        return []
+
+    monkeypatch.setattr(
+        "app.services.barcode_scanner.zxingcpp.read_barcodes", fake_read_barcodes
+    )
+
+    # --- Mock Gemini audit (spatial labels) ------------------------------
+    # 2 labels: label 1's barcode_bbox contains the detection; label 2's
+    # barcode_bbox is elsewhere but recovery will re-find the same barcode.
+    spatial_result = {
+        "image_width": 1000,
+        "image_height": 1000,
+        "labels": [
+            {
+                "label_index": 1,
+                "label_bbox": {"x1": 100, "y1": 100, "x2": 400, "y2": 300},
+                "barcode_bbox": {"x1": 200, "y1": 150, "x2": 380, "y2": 280},
+                "status": "clear",
+                "confidence": "high",
+            },
+            {
+                "label_index": 2,
+                "label_bbox": {"x1": 100, "y1": 700, "x2": 400, "y2": 900},
+                "barcode_bbox": {"x1": 200, "y1": 720, "x2": 380, "y2": 880},
+                "status": "clear",
+                "confidence": "high",
+            },
+        ],
+    }
+
+    def fake_traced_audit(path, *, model, max_retries, retry_delay_seconds):
+        return {"status": "ok", "spatial": spatial_result}
+
+    monkeypatch.setattr(pipeline_mod, "_traced_audit", fake_traced_audit)
+
+    # Don't patch BarcodeScanner — use the real one so recovery + merge fire.
+    # But we DO need to prevent analyze_image from constructing its own
+    # scanner (which would not have our zxing mock). So we pass a real
+    # scanner instance explicitly.
+    real_scanner = BarcodeScanner()
+    monkeypatch.setattr(analyze_mod, "BarcodeScanner", lambda: real_scanner)
+
+    # --- Run analyze_image -----------------------------------------------
+    image_path = tmp_path / "box.png"
+    Image.new("RGB", (1000, 1000), "white").save(image_path, format="PNG")
+
+    result = analyze_mod.analyze_image(image_path)
+
+    # --- Assertions ------------------------------------------------------
+    # The barcode was found once. Label 2 is unmatched (no barcode there).
+    # Recovery may re-find the same barcode in label 2's crop, but
+    # merge_detections must drop the duplicate.
+    assert result["ok"] is True
+    assert result["outcome"] == "needs_better_photo"
+    assert result["summary"]["found_count"] == 1, (
+        f"Expected 1 found, got {result['summary']['found_count']} — "
+        f"recovery duplicate was not filtered by merge_detections"
+    )
+    assert result["summary"]["missing_count"] == 1, (
+        f"Expected 1 missing, got {result['summary']['missing_count']} — "
+        f"label 2 was falsely matched to a duplicate detection"
+    )
+
+    # The one-to-one invariant: no detection index appears twice.
+    found = result.get("found", [])
+    assert len(found) == 1
+    assert found[0]["barcode_value"] == barcode_value
+
+    # Unassigned should be 0 — the duplicate was filtered, not left as
+    # an extra unassigned detection.
+    assert result["summary"]["unassigned_count"] == 0
