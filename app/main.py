@@ -36,6 +36,7 @@ from fastapi import BackgroundTasks, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from langsmith.schemas import Attachment
 from PIL import Image
 
 from app.api.routes import router
@@ -332,6 +333,20 @@ async def process_image_message(
                 sub_run.metadata.update(
                     {"downloaded_bytes": file_size, "temp_path": str(temp_path)}
                 )
+                # Attach the downloaded image to the LangSmith trace.
+                try:
+                    image_data = temp_path.read_bytes()
+                    sub_run.attachments = {
+                        "uploaded_image": Attachment(
+                            mime_type=mime_type or "image/jpeg",
+                            data=image_data,
+                        )
+                    }
+                except Exception:
+                    logger.warning(
+                        "Failed to attach image to LangSmith trace from=%s",
+                        sender,
+                    )
         except Exception:
             logger.exception(
                 "image media_download failed msg_id=%s sender=%s media_id=%s",

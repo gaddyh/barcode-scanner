@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import langsmith as ls
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from langsmith.schemas import Attachment
 from langsmith.utils import LangSmithError
 from PIL import Image, UnidentifiedImageError
 
@@ -33,6 +34,15 @@ def _sanitize_scan_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
         "filename": getattr(file, "filename", None),
         "content_type": getattr(file, "content_type", None),
     }
+
+
+def _attach_image_to_run(image_bytes: bytes, mime_type: str) -> None:
+    """Attach the uploaded image to the current LangSmith run as a viewable attachment."""
+    run = ls.get_current_run_tree()
+    if run is not None:
+        run.attachments = {
+            "uploaded_image": Attachment(mime_type=mime_type, data=image_bytes)
+        }
 
 
 @router.get("/health", tags=["system"])
@@ -96,6 +106,9 @@ async def _traced_scan(
     """Traced scanner-only path. Called with langsmith_extra to set run_id."""
     filename = file.filename or "unknown"
     upload_bytes = len(image_bytes)
+
+    # Attach the uploaded image to the LangSmith trace so it's viewable in the UI.
+    _attach_image_to_run(image_bytes, (file.content_type or "image/jpeg"))
 
     try:
         t0 = time.perf_counter()
@@ -171,6 +184,9 @@ async def _traced_analyze(
     """Traced full-pipeline path. Called with langsmith_extra to set run_id."""
     filename = file.filename or "unknown"
     upload_bytes = len(image_bytes)
+
+    # Attach the uploaded image to the LangSmith trace so it's viewable in the UI.
+    _attach_image_to_run(image_bytes, (file.content_type or "image/jpeg"))
 
     t0 = time.perf_counter()
     result = analyze_image(image_bytes)
