@@ -1,4 +1,19 @@
 {
+  "summary": {
+    "description": "Barcode scanner evaluation set: five positive Teva Naot/product-photo examples, including one recovery case and one WhatsApp image.",
+    "image_count": 5,
+    "expected_barcode_symbol_count": 27,
+    "expected_decoded_count": 27,
+    "expected_unreadable_count": 0,
+    "expected_outcome": "complete",
+    "images": [
+      "marny_brown_42.jpeg",
+      "multi_clear_6_boxes.jpeg",
+      "multi_12_clean.jpeg",
+      "stacked_6_labels.jpeg",
+      "WhatsApp Image 2026-08-03 at 17.06.21 (2).jpeg"
+    ]
+  },
   "images": [
     {
       "image": "marny_brown_42.jpeg",
@@ -131,10 +146,10 @@
           "bounding_box": {"x1": 1398, "y1": 1476, "x2": 1399, "y2": 1608}
         },
         {
-          "status": "unreadable",
-          "value": null,
+          "status": "decoded",
+          "value": "7297501195257",
           "format": "Code128",
-          "bounding_box": {"x1": 120, "y1": 1370, "x2": 470, "y2": 1690},
+          "bounding_box": {"x1": 345, "y1": 1445, "x2": 415, "y2": 1645},
           "location": {"row": 4, "column": 1, "description": "bottom-left box"},
           "visible_metadata": {
             "size": "42",
@@ -142,7 +157,61 @@
             "top_code": "11030010",
             "color_code": "617"
           },
-          "reason": "barcode not reliably decodable from the available image"
+          "verification": "OCR read 729750119525; matching label in topdown_12_labels_a_result.json identifies 7297501195257"
+        }
+      ]
+    },
+    {
+      "image": "stacked_6_labels.jpeg",
+      "expected_barcode_symbol_count": 6,
+      "boxes": [
+        {
+          "status": "decoded",
+          "value": "7297500243423",
+          "format": "Code128",
+          "bounding_box": {"x1": 476, "y1": 1114, "x2": 506, "y2": 1274}
+        },
+        {
+          "status": "decoded",
+          "value": "7297500243416",
+          "format": "Code128",
+          "bounding_box": {"x1": 1119, "y1": 1566, "x2": 1147, "y2": 1732}
+        },
+        {
+          "status": "decoded",
+          "value": "7297500243447",
+          "format": "Code128",
+          "bounding_box": {"x1": 1123, "y1": 691, "x2": 1159, "y2": 860}
+        },
+        {
+          "status": "decoded",
+          "value": "7297500243430",
+          "format": "Code128",
+          "bounding_box": {"x1": 1127, "y1": 1128, "x2": 1159, "y2": 1296}
+        },
+        {
+          "status": "decoded",
+          "value": "7297500243423",
+          "format": "Code128",
+          "bounding_box": {"x1": 1104, "y1": 277, "x2": 1139, "y2": 449}
+        },
+        {
+          "status": "decoded",
+          "value": "7297500243416",
+          "format": "Code128",
+          "bounding_box": {"x1": 492, "y1": 1537, "x2": 500, "y2": 1697}
+        }
+      ]
+    },
+    {
+      "image": "WhatsApp Image 2026-08-03 at 17.06.21 (2).jpeg",
+      "expected_barcode_symbol_count": 1,
+      "boxes": [
+        {
+          "status": "decoded",
+          "value": "7297501098442",
+          "format": "Code128",
+          "bounding_box": {"x1": 559, "y1": 415, "x2": 619, "y2": 878}
         }
       ]
     }

@@ -271,4 +271,40 @@ The deployed URL serves the upload page at `/` and the API at
 `/barcode/scan`. Open the Render URL on your phone — it's HTTPS, no
 ngrok needed.
 
+## LangSmith monitoring dashboard
+
+The repository includes an idempotent provisioning script for the first
+scanner health dashboard. It uses the LangSmith REST API directly because the
+installed Python SDK does not expose custom dashboard helpers.
+
+Required environment variables:
+
+```bash
+LANGSMITH_API_KEY=...
+LANGSMITH_PROJECT_ID=<tracing-project-uuid>
+```
+
+Optional variables:
+
+```bash
+LANGSMITH_ENDPOINT=https://api.smith.langchain.com
+LANGSMITH_TENANT_ID=<langsmith-tenant-uuid>
+```
+
+Run from the repository root:
+
+```bash
+source .venv/bin/activate
+python scripts/provision_langsmith_dashboard.py --dry-run
+python scripts/provision_langsmith_dashboard.py
+python scripts/provision_langsmith_dashboard.py --check
+```
+
+The dashboard is named `Barcode Scanner Production Health` and currently
+contains upload volume by source, outcome distribution, recovery attempts,
+user-confirmed correctness, completed analyses, P50 analysis latency, and
+recovery labels resolved. The script creates or updates resources by
+stable dashboard/chart metadata and does not run as part of application
+startup.
+
 
