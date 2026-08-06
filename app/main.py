@@ -400,6 +400,18 @@ async def process_image_message(
                         "unassigned_count": summary.get("unassigned_count", 0),
                         "visible_label_count": summary.get("visible_label_count", 0),
                         "audit_available": result.get("audit_available", False),
+                        "recovery_attempted": summary.get("recovery", {}).get(
+                            "attempted", False
+                        ),
+                        "recovery_labels_tried": summary.get("recovery", {}).get(
+                            "labels_tried", 0
+                        ),
+                        "recovery_barcodes_found": summary.get("recovery", {}).get(
+                            "barcodes_found", 0
+                        ),
+                        "recovery_labels_resolved": summary.get("recovery", {}).get(
+                            "labels_resolved", 0
+                        ),
                     }
                 )
         except Exception as exc:
@@ -438,6 +450,18 @@ async def process_image_message(
                     "missing_count": summary.get("missing_count", 0),
                     "unassigned_count": summary.get("unassigned_count", 0),
                     "input_source": "image",
+                    "recovery_attempted": summary.get("recovery", {}).get(
+                        "attempted", False
+                    ),
+                    "recovery_labels_tried": summary.get("recovery", {}).get(
+                        "labels_tried", 0
+                    ),
+                    "recovery_barcodes_found": summary.get("recovery", {}).get(
+                        "barcodes_found", 0
+                    ),
+                    "recovery_labels_resolved": summary.get("recovery", {}).get(
+                        "labels_resolved", 0
+                    ),
                 }
             )
 
