@@ -1,4 +1,4 @@
-"""Evals package — datasets, evaluators, and offline eval runner."""
+"""Evals package — datasets, evaluators, offline runner, and online feedback."""
 
 from src.evals.datasets import DATASET_PATH, SAMPLES_DIR, load_dataset
 from src.evals.evaluators import (
@@ -11,6 +11,8 @@ from src.evals.evaluators import (
     value_precision,
     value_recall,
 )
+from src.evals.online import LATENCY_THRESHOLD_MS as ONLINE_LATENCY_THRESHOLD_MS
+from src.evals.online import evaluate_production_run
 from src.evals.runner import run_eval
 
 __all__ = [
@@ -26,4 +28,6 @@ __all__ = [
     "aggregate_thresholds",
     "LATENCY_THRESHOLD_MS",
     "run_eval",
+    "evaluate_production_run",
+    "ONLINE_LATENCY_THRESHOLD_MS",
 ]

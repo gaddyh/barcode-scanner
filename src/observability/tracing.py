@@ -153,3 +153,26 @@ def attach_image_to_run(image_bytes: bytes, mime_type: str) -> None:
 def is_tracing() -> bool:
     """Return True if LangSmith tracing is enabled."""
     return _TRACING
+
+
+def push_feedback(feedback: list[dict[str, Any]]) -> None:
+    """Push feedback scores to the current LangSmith run.
+
+    Each feedback dict must have ``key``, ``score``, and optionally
+    ``comment``. No-op when tracing is disabled.
+
+    Args:
+        feedback: List of feedback dicts from ``evaluate_production_run()``.
+    """
+    run = get_current_run_tree()
+    if run is None:
+        return
+    from langsmith import Client
+    client = Client()
+    for fb in feedback:
+        client.create_feedback(
+            run_id=run.id,
+            key=fb["key"],
+            score=fb["score"],
+            comment=fb.get("comment"),
+        )

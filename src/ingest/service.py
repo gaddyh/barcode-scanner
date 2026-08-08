@@ -43,7 +43,7 @@ from src.ingest.models import (
     Issue,
     RunMetrics,
 )
-from src.observability.tracing import emit_event, emit_metadata
+from src.observability.tracing import emit_event, emit_metadata, push_feedback
 from src.runtime.context import RunContext
 from src.runtime.events import DomainEvent
 
@@ -129,6 +129,10 @@ def ingest_one(
             "elapsed_ms": elapsed_ms,
         },
     ))
+
+    # Online eval — push deterministic feedback to the LangSmith trace.
+    from src.evals.online import evaluate_production_run
+    push_feedback(evaluate_production_run(result))
 
     return result
 
