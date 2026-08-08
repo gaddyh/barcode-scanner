@@ -1,6 +1,6 @@
 """Deterministic tests for the eval harness — no LangSmith or Gemini calls.
 
-Exercises the dataset loader and the four evaluators with stub predictions so
+Exercises the dataset loader and the evaluators with stub predictions so
 the scoring logic is covered without network access.
 """
 
@@ -10,11 +10,13 @@ from pathlib import Path
 
 import pytest
 
-from tests.eval.runner import (
+from src.evals.datasets import load_dataset
+from src.evals.evaluators import (
     aggregate_thresholds,
     count_exact,
-    load_dataset,
+    latency,
     outcome_correct,
+    recovery_gain,
     value_precision,
     value_recall,
 )
@@ -41,8 +43,8 @@ def test_load_dataset_returns_examples() -> None:
 
 def test_load_dataset_skips_missing_images(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Point SAMPLES_DIR at an empty dir so every image is skipped.
-    import tests.eval.runner as runner_mod
-    monkeypatch.setattr(runner_mod, "SAMPLES_DIR", tmp_path)
+    import src.evals.datasets as datasets_mod
+    monkeypatch.setattr(datasets_mod, "SAMPLES_DIR", tmp_path)
     examples = load_dataset()
     assert examples == []
 
@@ -65,12 +67,23 @@ def _example(expected_values=None, expected_decoded_count=0, expected_outcome="c
     })
 
 
-def _run(found_values=None, outcome="complete", found_count=0):
+def _run(found_values=None, status="complete", found_count=None,
+         elapsed_ms=1000, recovery_attempted=False, recovery_labels_resolved=0):
+    """Build a stub IngestResult-shaped dict for evaluator tests."""
+    items = [{"barcode_value": v} for v in (found_values or [])]
     return {
         "outputs": {
-            "outcome": outcome,
-            "found": [{"barcode_value": v} for v in (found_values or [])],
-            "summary": {"found_count": found_count},
+            "status": status,
+            "items": items,
+            "metrics": {
+                "elapsed_ms": elapsed_ms,
+                "scanner_count": len(items),
+                "vision_count": len(items),
+                "recovery_attempted": recovery_attempted,
+                "recovery_labels_tried": 1 if recovery_attempted else 0,
+                "recovery_barcodes_found": 0,
+                "recovery_labels_resolved": recovery_labels_resolved,
+            },
         }
     }
 
@@ -118,27 +131,62 @@ def test_value_precision_no_found() -> None:
 
 
 def test_outcome_correct_match() -> None:
-    run = _run(outcome="complete")
+    run = _run(status="complete")
     ex = _example(expected_outcome="complete")
     assert outcome_correct(run, ex)["score"] == 1.0
 
 
 def test_outcome_correct_mismatch() -> None:
-    run = _run(outcome="needs_better_photo")
+    run = _run(status="needs_user_input")
     ex = _example(expected_outcome="complete")
     assert outcome_correct(run, ex)["score"] == 0.0
 
 
 def test_count_exact_match() -> None:
-    run = _run(found_count=6)
+    run = _run(found_values=["1", "2", "3", "4", "5", "6"])
     ex = _example(expected_decoded_count=6)
     assert count_exact(run, ex)["score"] == 1.0
 
 
 def test_count_exact_mismatch() -> None:
-    run = _run(found_count=5)
+    run = _run(found_values=["1", "2", "3", "4", "5"])
     ex = _example(expected_decoded_count=6)
     assert count_exact(run, ex)["score"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# New evaluators — recovery_gain and latency
+# ---------------------------------------------------------------------------
+
+
+def test_recovery_gain_not_needed() -> None:
+    run = _run(recovery_attempted=False)
+    ex = _example()
+    assert recovery_gain(run, ex)["score"] == 1.0
+
+
+def test_recovery_gain_succeeded() -> None:
+    run = _run(recovery_attempted=True, recovery_labels_resolved=2)
+    ex = _example()
+    assert recovery_gain(run, ex)["score"] == 1.0
+
+
+def test_recovery_gain_failed() -> None:
+    run = _run(recovery_attempted=True, recovery_labels_resolved=0)
+    ex = _example()
+    assert recovery_gain(run, ex)["score"] == 0.0
+
+
+def test_latency_under_threshold() -> None:
+    run = _run(elapsed_ms=3000)
+    ex = _example()
+    assert latency(run, ex)["score"] == 1.0
+
+
+def test_latency_over_threshold() -> None:
+    run = _run(elapsed_ms=20_000)
+    ex = _example()
+    assert latency(run, ex)["score"] == 0.0
 
 
 # ---------------------------------------------------------------------------
