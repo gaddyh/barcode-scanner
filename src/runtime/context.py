@@ -13,9 +13,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-@dataclass(frozen=True)
+@dataclass
 class RunContext:
-    """Immutable execution context carried through every runtime operation.
+    """Execution context carried through every runtime operation.
 
     Attributes:
         run_id: Application correlation ID (UUID4). Not the LangSmith run ID.

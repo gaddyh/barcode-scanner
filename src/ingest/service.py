@@ -43,7 +43,9 @@ from src.ingest.models import (
     Issue,
     RunMetrics,
 )
+from src.observability.tracing import emit_event, emit_metadata
 from src.runtime.context import RunContext
+from src.runtime.events import DomainEvent
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +82,14 @@ def ingest_one(
     """
     t0 = time.perf_counter()
 
+    # Emit IMAGE_RECEIVED event — always logged, appended to trace when tracing.
+    emit_event(DomainEvent(
+        type="IMAGE_RECEIVED",
+        run_id=context.run_id,
+        session_id=context.session_id,
+        payload={"source": context.source, "image_type": type(image).__name__},
+    ))
+
     raw: dict[str, Any] = analyze_image(
         image,
         scanner=scanner,
@@ -89,7 +99,38 @@ def ingest_one(
     )
 
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
-    return _dict_to_ingest_result(raw, elapsed_ms, context)
+    result = _dict_to_ingest_result(raw, elapsed_ms, context)
+
+    # Emit result metadata to the current LangSmith trace.
+    emit_metadata(
+        context,
+        final_status=result.status.value,
+        scanner_count=result.metrics.scanner_count,
+        vision_count=result.metrics.vision_count,
+        found_count=len(result.items),
+        missing_count=len(result.missing),
+        unassigned_count=len(result.unassigned),
+        recovery_attempted=result.metrics.recovery_attempted,
+        recovery_labels_tried=result.metrics.recovery_labels_tried,
+        recovery_barcodes_found=result.metrics.recovery_barcodes_found,
+        recovery_labels_resolved=result.metrics.recovery_labels_resolved,
+        latency_ms=elapsed_ms,
+    )
+
+    # Emit INGEST_COMPLETED event.
+    emit_event(DomainEvent(
+        type="INGEST_COMPLETED",
+        run_id=context.run_id,
+        session_id=context.session_id,
+        payload={
+            "status": result.status.value,
+            "found_count": len(result.items),
+            "missing_count": len(result.missing),
+            "elapsed_ms": elapsed_ms,
+        },
+    ))
+
+    return result
 
 
 # ---------------------------------------------------------------------------

@@ -379,6 +379,7 @@ def pipeline_path(
 _RECOVERY_PADDING_RATIO = 0.20
 
 
+@traceable(run_type="chain", name="recovery")
 def _gemini_guided_recovery(
     image_path: Path,
     scanner: BarcodeScanner,
