@@ -111,6 +111,14 @@ def ingest_one(
     # Emit result metadata to the current LangSmith trace.
     from src.observability.versions import collect_versions
     versions = collect_versions(model)
+
+    # Derived fields for dashboard grouping.
+    _severity_rank = {"error": 3, "warning": 2, "info": 1}
+    primary_issue = (
+        max(result.issues, key=lambda i: _severity_rank.get(i.severity, 0)).code
+        if result.issues else "none"
+    )
+
     emit_metadata(
         context,
         final_status=result.status.value,
@@ -129,6 +137,10 @@ def ingest_one(
         vision_prompt_version=versions.vision_prompt_version,
         vision_model=versions.vision_model,
         recovery_version=versions.recovery_version,
+        scanner_vision_match=result.metrics.scanner_count == result.metrics.vision_count,
+        count_delta=result.metrics.vision_count - result.metrics.scanner_count,
+        recovery_succeeded=result.metrics.recovery_labels_resolved > 0,
+        primary_issue=primary_issue,
     )
 
     # Emit USER_RETRY_REQUESTED if the user needs to provide a better photo.

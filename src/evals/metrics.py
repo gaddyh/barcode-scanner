@@ -11,6 +11,8 @@ The endpoint in ``app/api/admin.py`` is a thin wrapper:
 from __future__ import annotations
 
 import math
+from collections import Counter
+from collections.abc import Callable
 from typing import Any, Protocol
 
 from pydantic import BaseModel
@@ -22,12 +24,22 @@ class RunLike(Protocol):
     metadata: dict[str, Any]
 
 
+class VersionRate(BaseModel):
+    """One version's rate for a specific metric."""
+
+    version: str
+    total: int
+    rate_pct: float
+
+
 class MetricsResponse(BaseModel):
-    """8 operational metrics + metadata about the query."""
+    """Operational, quality, and recovery metrics + query metadata."""
 
     time_window_hours: int
     source: str = "langsmith"  # "langsmith" or "unavailable"
     truncated: bool = False
+
+    # Operations
     images_processed: int = 0
     boxes_processed: int = 0
     first_pass_complete_pct: float = 0.0
@@ -37,12 +49,39 @@ class MetricsResponse(BaseModel):
     user_retry_required_pct: float = 0.0
     p95_latency_ms: float = 0.0
 
+    # Quality
+    scanner_vision_match_pct: float = 0.0
+    avg_count_delta: float = 0.0
+    avg_missing_count: float = 0.0
+    avg_unassigned_count: float = 0.0
+    recovered_complete_pct: float = 0.0
+    still_incomplete_pct: float = 0.0
+
+    # Recovery detail
+    avg_labels_tried: float = 0.0
+    avg_labels_resolved: float = 0.0
+
+    # Issues
+    primary_issue_counts: dict[str, int] = {}
+
+    # Version breakdowns (true rates, not counts)
+    completion_by_pipeline_version: list[VersionRate] = []
+    mismatch_by_scanner_version: list[VersionRate] = []
+    recovery_success_by_recovery_version: list[VersionRate] = []
+    retry_by_vision_model: list[VersionRate] = []
+
 
 def _pct(numerator: int, denominator: int) -> float:
     """Safe percentage — 0.0 if denominator is 0."""
     if denominator == 0:
         return 0.0
     return round(100.0 * numerator / denominator, 1)
+
+
+def _avg(values: list[int]) -> float:
+    if not values:
+        return 0.0
+    return round(sum(values) / len(values), 1)
 
 
 def _p95(values: list[int]) -> float:
@@ -61,18 +100,16 @@ def compute_metrics(
     time_window_hours: int = 24,
     truncated: bool = False,
 ) -> MetricsResponse:
-    """Aggregate operational metrics from a list of LangSmith runs.
+    """Aggregate operational, quality, and recovery metrics from LangSmith runs.
 
     Args:
         runs: List of run-like objects (real LangSmith Runs or test stubs).
-            Each must have a ``.metadata`` dict with keys like
-            ``final_status``, ``source``, ``found_count``,
-            ``recovery_attempted``, ``recovery_labels_resolved``, ``latency_ms``.
+            Each must have a ``.metadata`` dict.
         time_window_hours: The query window (for the response).
-        truncated: True if the query hit its limit (len(runs) == 1000).
+        truncated: True if the query hit its limit.
 
     Returns:
-        ``MetricsResponse`` with 8 metrics.
+        ``MetricsResponse`` with all metrics.
     """
     total = len(runs)
     if total == 0:
@@ -82,14 +119,12 @@ def compute_metrics(
             truncated=truncated,
         )
 
+    # --- Operations ---
     images_processed = total
-    boxes_processed = sum(
-        _meta_int(r.metadata, "found_count") for r in runs
-    )
+    boxes_processed = sum(_meta_int(r.metadata, "found_count") for r in runs)
 
     final_complete = sum(
-        1 for r in runs
-        if r.metadata.get("final_status") == "complete"
+        1 for r in runs if r.metadata.get("final_status") == "complete"
     )
     first_pass_complete = sum(
         1 for r in runs
@@ -115,10 +150,62 @@ def compute_metrics(
         if _meta_int(r.metadata, "latency_ms") > 0
     ]
 
+    # --- Quality ---
+    scanner_vision_match = sum(
+        1 for r in runs if _meta_bool(r.metadata, "scanner_vision_match")
+    )
+    count_deltas = [_meta_int(r.metadata, "count_delta") for r in runs]
+    missing_counts = [_meta_int(r.metadata, "missing_count") for r in runs]
+    unassigned_counts = [_meta_int(r.metadata, "unassigned_count") for r in runs]
+    recovered_complete = sum(
+        1 for r in runs
+        if r.metadata.get("final_status") == "complete"
+        and _meta_bool(r.metadata, "recovery_attempted")
+    )
+    still_incomplete = sum(
+        1 for r in runs
+        if r.metadata.get("final_status") == "needs_user_input"
+    )
+
+    # --- Recovery detail ---
+    labels_tried = [
+        _meta_int(r.metadata, "recovery_labels_tried")
+        for r in runs if _meta_bool(r.metadata, "recovery_attempted")
+    ]
+    labels_resolved = [
+        _meta_int(r.metadata, "recovery_labels_resolved")
+        for r in runs if _meta_bool(r.metadata, "recovery_attempted")
+    ]
+
+    # --- Issues ---
+    primary_issue_counts = dict(
+        Counter(r.metadata.get("primary_issue", "none") for r in runs)
+    )
+
+    # --- Version breakdowns (true rates) ---
+    completion_by_pipeline = _version_rates(
+        runs, "pipeline_version",
+        lambda r: r.metadata.get("final_status") == "complete",
+    )
+    mismatch_by_scanner = _version_rates(
+        runs, "scanner_version",
+        lambda r: not _meta_bool(r.metadata, "scanner_vision_match"),
+    )
+    recovery_success_by_recovery = _version_rates(
+        [r for r in runs if _meta_bool(r.metadata, "recovery_attempted")],
+        "recovery_version",
+        lambda r: _meta_bool(r.metadata, "recovery_succeeded"),
+    )
+    retry_by_vision_model = _version_rates(
+        runs, "vision_model",
+        lambda r: r.metadata.get("final_status") == "needs_user_input",
+    )
+
     return MetricsResponse(
         time_window_hours=time_window_hours,
         source="langsmith",
         truncated=truncated,
+        # Operations
         images_processed=images_processed,
         boxes_processed=boxes_processed,
         first_pass_complete_pct=_pct(first_pass_complete, total),
@@ -127,6 +214,23 @@ def compute_metrics(
         recovery_success_pct=_pct(recovery_succeeded, recovery_attempted),
         user_retry_required_pct=_pct(user_retry, total),
         p95_latency_ms=_p95(latencies),
+        # Quality
+        scanner_vision_match_pct=_pct(scanner_vision_match, total),
+        avg_count_delta=_avg(count_deltas),
+        avg_missing_count=_avg(missing_counts),
+        avg_unassigned_count=_avg(unassigned_counts),
+        recovered_complete_pct=_pct(recovered_complete, total),
+        still_incomplete_pct=_pct(still_incomplete, total),
+        # Recovery detail
+        avg_labels_tried=_avg(labels_tried),
+        avg_labels_resolved=_avg(labels_resolved),
+        # Issues
+        primary_issue_counts=primary_issue_counts,
+        # Version breakdowns
+        completion_by_pipeline_version=completion_by_pipeline,
+        mismatch_by_scanner_version=mismatch_by_scanner,
+        recovery_success_by_recovery_version=recovery_success_by_recovery,
+        retry_by_vision_model=retry_by_vision_model,
     )
 
 
@@ -136,6 +240,41 @@ def unavailable_response(time_window_hours: int = 24) -> MetricsResponse:
         time_window_hours=time_window_hours,
         source="unavailable",
     )
+
+
+def _version_rates(
+    runs: list[RunLike],
+    version_key: str,
+    predicate: Callable[[RunLike], bool],
+) -> list[VersionRate]:
+    """Compute true rate (percentage) per version bucket.
+
+    Args:
+        runs: The runs to bucket.
+        version_key: Metadata key to group by (e.g. "pipeline_version").
+        predicate: Function returning True for runs that match the metric
+            (e.g. final_status == "complete").
+
+    Returns:
+        List of ``VersionRate`` sorted by version, each with total count
+        and rate_pct = matched / total * 100.
+    """
+    buckets: dict[str, list[bool]] = {}
+    for r in runs:
+        version = str(r.metadata.get(version_key, "unknown"))
+        buckets.setdefault(version, []).append(predicate(r))
+
+    result = []
+    for version in sorted(buckets):
+        flags = buckets[version]
+        total = len(flags)
+        matched = sum(1 for f in flags if f)
+        result.append(VersionRate(
+            version=version,
+            total=total,
+            rate_pct=_pct(matched, total),
+        ))
+    return result
 
 
 # ---------------------------------------------------------------------------
