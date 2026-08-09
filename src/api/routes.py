@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from io import BytesIO as _BytesIO
@@ -251,7 +252,9 @@ async def _traced_analyze(
 
     t0 = time.perf_counter()
     try:
-        result = analyze_image(image_bytes)
+        # Run in a thread because analyze_image → pipeline_path → asyncio.run()
+        # needs its own event loop (FastAPI's loop is already running).
+        result = await asyncio.to_thread(analyze_image, image_bytes)
     except Exception as exc:
         elapsed_ms = int((time.perf_counter() - t0) * 1000)
         await persist_fail_run(repo, upload_id, exc)
