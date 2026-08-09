@@ -143,9 +143,9 @@ async def run_session_graph(
     is_new_session = state is None
 
     if is_new_session:
-        await repo.create_session(
-            session_id, source=source, channel=channel, participant_id=participant_id
-        )
+        # Don't create the session row yet — wait until the scan succeeds.
+        # If the first image fails, no session is created, and the next
+        # image starts fresh (find_active_by_participant won't find it).
         image_index = 0
         existing_items: list[SessionItem] = []
         existing_missing: list[MissingItem] = []
@@ -168,7 +168,7 @@ async def run_session_graph(
 
     image_result = _dict_to_image_result(raw, image_index)
 
-    # If this image's audit failed, don't update the session — return the error.
+    # If this image's audit failed, don't create/update the session — return the error.
     if not image_result.audit_available and image_result.status == "retryable_error":
         result = SessionResult(
             session_id=session_id,
@@ -188,9 +188,16 @@ async def run_session_graph(
         )
         return result
 
-    # First image sets the expected count.
+    # Scan succeeded — create the session row if this is the first image.
     if is_new_session:
+        await repo.create_session(
+            session_id, source=source, channel=channel, participant_id=participant_id
+        )
         expected_count = image_result.visible_label_count
+    else:
+        # Update expected_count if it wasn't set yet (e.g. resumed session).
+        if expected_count == 0 and image_result.visible_label_count > 0:
+            expected_count = image_result.visible_label_count
 
     # Merge: add new items, resolve missing items.
     # Label indices are per-image (from each photo's Gemini audit), NOT global
@@ -249,12 +256,10 @@ async def run_session_graph(
     image_count = image_index + 1
 
     # Determine session status.
+    # Complete ONLY when every expected box has a barcode.
+    # found_count < expected_count with 0 missing means the audit saw boxes
+    # we couldn't decode — still active, ask for a better photo.
     if expected_count > 0 and found_count >= expected_count:
-        session_status = SessionStatus.COMPLETE
-        message = None
-    elif missing_count == 0 and found_count > 0:
-        # No missing items but found_count < expected_count — shouldn't happen
-        # normally, but treat as complete if we have items and no missing.
         session_status = SessionStatus.COMPLETE
         message = None
     else:
