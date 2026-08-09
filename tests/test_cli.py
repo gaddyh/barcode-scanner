@@ -15,13 +15,13 @@ import zxingcpp
 from PIL import Image
 
 from app.cli import main
-from app.services.gemini_box_audit import (
+from src.ingest.vision import (
     AuditConfidence,
     SpatialLabelAuditPixels,
     SpatialLabelObservationPixels,
     SpatialLabelStatus,
 )
-from app.services.spatial_geometry import PixelBoundingBox
+from src.ingest.geometry import PixelBoundingBox
 from tests._zxing_fake import make_read_result
 
 
@@ -142,7 +142,7 @@ def test_pipeline_command_complete(
     def _fake_audit(path, *, model, max_retries, retry_delay_seconds):
         return {"status": "ok", "spatial": spatial.model_dump(mode="json")}
 
-    with patch("app.services.pipeline._traced_audit", side_effect=_fake_audit):
+    with patch("src.ingest.pipeline._traced_audit", side_effect=_fake_audit):
         rc = main(["pipeline", str(img), "--pretty"])
 
     assert rc == 0
@@ -167,7 +167,7 @@ def test_pipeline_command_audit_error_returns_nonzero(
     def _fake_audit(path, *, model, max_retries, retry_delay_seconds):
         return {"status": "error", "error": {"type": "ShoeboxAuditError", "message": "boom"}}
 
-    with patch("app.services.pipeline._traced_audit", side_effect=_fake_audit):
+    with patch("src.ingest.pipeline._traced_audit", side_effect=_fake_audit):
         rc = main(["pipeline", str(img)])
 
     assert rc == 1

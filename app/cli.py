@@ -7,8 +7,8 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
-from app.services.barcode_scanner import BarcodeScanner
-from app.services.gemini_box_audit import (
+from src.ingest.scanner import BarcodeScanner
+from src.ingest.vision import (
     DEFAULT_MAX_RETRIES,
     DEFAULT_MODEL,
     DEFAULT_RETRY_DELAY_SECONDS,
@@ -16,7 +16,7 @@ from app.services.gemini_box_audit import (
     audit_shoebox_image,
     audit_shoebox_labels,
 )
-from app.services.pipeline import (
+from src.ingest.pipeline import (
     pipeline_path,
     scan_path,
 )

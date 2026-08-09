@@ -42,8 +42,8 @@ from PIL import Image
 from app.api.admin import router as admin_router
 from app.api.routes import router
 from app.config import settings
-from app.models.upload import generate_upload_id
-from app.services.analyze import analyze_image
+from src.models.upload import generate_upload_id
+from src.ingest.analyze import analyze_image
 from app.services.dialog360 import Dialog360Client, iter_incoming_messages
 from app.services.transcribe import (
     Transcriber,

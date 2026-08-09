@@ -26,7 +26,7 @@ from uuid import uuid4
 
 from langsmith import Client, evaluate
 
-from app.models.upload import generate_upload_id
+from src.models.upload import generate_upload_id
 from src.evals.datasets import load_dataset
 from src.evals.evaluators import (
     aggregate_thresholds,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.spatial_geometry import (
+from src.ingest.geometry import (
     PixelBoundingBox,
     bbox_center,
     clamp_bbox,

@@ -16,7 +16,7 @@ const TABS: { key: Tab; label: string }[] = [
 
 export function AdminApp() {
   const [tab, setTab] = useState<Tab>("overview");
-  const [hours, setHours] = useState(168);
+  const [hours, setHours] = useState(24);
 
   return (
     <div style={styles.container}>

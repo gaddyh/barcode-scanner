@@ -2,7 +2,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict
 
-from app.services.barcode_scanner import DetectedBarcode
+from src.ingest.scanner import DetectedBarcode
 
 
 class ScanStatus(StrEnum):

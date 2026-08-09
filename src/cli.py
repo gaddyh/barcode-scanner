@@ -26,7 +26,7 @@ from uuid import uuid4
 
 from dotenv import load_dotenv
 
-from app.models.upload import generate_upload_id
+from src.models.upload import generate_upload_id
 from src.evals.annotation_sink import register_annotation_sink
 from src.ingest import IngestStatus, ingest_one
 from src.observability import is_tracing

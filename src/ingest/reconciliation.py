@@ -41,7 +41,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.services.spatial_geometry import (
+from src.ingest.geometry import (
     PixelBoundingBox,
     bbox_center,
     clamp_bbox,

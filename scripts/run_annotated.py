@@ -17,7 +17,7 @@ import json
 import sys
 from pathlib import Path
 
-from app.services.analyze import analyze_image
+from src.ingest.analyze import analyze_image
 
 
 def main() -> int:

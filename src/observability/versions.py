@@ -38,9 +38,9 @@ def collect_versions(model: str | None = None) -> RunVersions:
         model: Override Gemini model name. If None, resolves from
             ``GEMINI_MODEL`` env var or ``DEFAULT_MODEL``.
     """
-    from app.services.barcode_scanner import SCANNER_VERSION
-    from app.services.gemini_box_audit import DEFAULT_MODEL, VISION_PROMPT_VERSION
-    from app.services.pipeline import RECOVERY_VERSION
+    from src.ingest.scanner import SCANNER_VERSION
+    from src.ingest.vision import DEFAULT_MODEL, VISION_PROMPT_VERSION
+    from src.ingest.pipeline import RECOVERY_VERSION
     from src.observability.tracing import PIPELINE_VERSION
 
     vision_model = model or os.getenv("GEMINI_MODEL", DEFAULT_MODEL)

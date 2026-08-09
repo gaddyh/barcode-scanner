@@ -13,19 +13,19 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from app.services.analyze import analyze_image
-from app.services.barcode_scanner import (
+from src.ingest.analyze import analyze_image
+from src.ingest.scanner import (
     BoundingBox,
     DetectedBarcode,
     Point,
 )
-from app.services.gemini_box_audit import (
+from src.ingest.vision import (
     AuditConfidence,
     SpatialLabelAuditPixels,
     SpatialLabelObservationPixels,
     SpatialLabelStatus,
 )
-from app.services.spatial_geometry import PixelBoundingBox
+from src.ingest.geometry import PixelBoundingBox
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
@@ -124,13 +124,13 @@ def _patch_audit_ok(spatial: SpatialLabelAuditPixels) -> object:
     """Patch pipeline._traced_audit to return a successful audit result."""
     def _fake(path, *, model, max_retries, retry_delay_seconds):
         return {"status": "ok", "spatial": spatial.model_dump(mode="json")}
-    return patch("app.services.pipeline._traced_audit", side_effect=_fake)
+    return patch("src.ingest.pipeline._traced_audit", side_effect=_fake)
 
 
 def _patch_audit_error(error: dict) -> object:
     def _fake(path, *, model, max_retries, retry_delay_seconds):
         return {"status": "error", "error": error}
-    return patch("app.services.pipeline._traced_audit", side_effect=_fake)
+    return patch("src.ingest.pipeline._traced_audit", side_effect=_fake)
 
 
 # ---------------------------------------------------------------------------

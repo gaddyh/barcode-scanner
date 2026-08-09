@@ -8,7 +8,7 @@ import pytest
 import zxingcpp
 from PIL import Image
 
-from app.services.barcode_scanner import BarcodeScanner
+from src.ingest.scanner import BarcodeScanner
 from tests._zxing_fake import make_read_result
 
 

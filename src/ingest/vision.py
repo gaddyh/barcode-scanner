@@ -47,7 +47,7 @@ from google.genai import types
 from PIL import Image, ImageOps
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.services.spatial_geometry import (
+from src.ingest.geometry import (
     PixelBoundingBox,
     clamp_bbox,
     normalized_to_pixels,

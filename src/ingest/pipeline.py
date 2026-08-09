@@ -39,14 +39,14 @@ from pathlib import Path
 from dotenv import load_dotenv
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from app.services.barcode_scanner import SCANNER_VERSION, BarcodeScanner
-from app.services.gemini_box_audit import (
+from src.ingest.scanner import SCANNER_VERSION, BarcodeScanner
+from src.ingest.vision import (
     DEFAULT_MODEL,
     VISION_PROMPT_VERSION,
     ShoeboxAuditError,
     audit_shoebox_labels,
 )
-from app.services.spatial_reconciliation import match_scanner_to_labels
+from src.ingest.reconciliation import match_scanner_to_labels
 from src.observability.tracing import emit_pipeline_event
 from src.runtime.events import EventType
 

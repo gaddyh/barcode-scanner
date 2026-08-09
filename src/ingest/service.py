@@ -30,9 +30,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-from app.services.analyze import analyze_image
-from app.services.barcode_scanner import BarcodeScanner
-from app.services.gemini_box_audit import (
+from src.ingest.analyze import analyze_image
+from src.ingest.scanner import BarcodeScanner
+from src.ingest.vision import (
     DEFAULT_MAX_RETRIES,
     DEFAULT_RETRY_DELAY_SECONDS,
 )

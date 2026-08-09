@@ -11,11 +11,11 @@ from langsmith.utils import LangSmithError
 from PIL import Image, UnidentifiedImageError
 
 from app.core.config import Settings, get_settings
-from app.models.barcode import ScanResponse, ScanStatus
-from app.models.feedback import FeedbackRequest, FeedbackResponse
-from app.models.upload import generate_upload_id
-from app.services.analyze import analyze_image
-from app.services.barcode_scanner import BarcodeScanner
+from src.models.barcode import ScanResponse, ScanStatus
+from src.models.feedback import FeedbackRequest, FeedbackResponse
+from src.models.upload import generate_upload_id
+from src.ingest.analyze import analyze_image
+from src.ingest.scanner import BarcodeScanner
 from app.services.feedback import submit_upload_feedback
 
 logger = logging.getLogger(__name__)

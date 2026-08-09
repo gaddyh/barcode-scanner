@@ -18,7 +18,7 @@ import pytest
 import zxingcpp
 from PIL import Image, UnidentifiedImageError
 
-from app.services.barcode_scanner import BarcodeScanner
+from src.ingest.scanner import BarcodeScanner
 from tests._zxing_fake import FakeReadResult, make_read_result
 
 
