@@ -148,6 +148,27 @@ ALTER TABLE sessions ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS channel TEXT;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS participant_id TEXT;
 
+-- Drop and recreate the status CHECK constraint to include 'closed'.
+-- The original constraint (from CREATE TABLE) only allowed
+-- active/complete/expired/failed. We need 'closed' for the DELETE endpoint.
+DO $$
+BEGIN
+    -- Drop any existing check constraint on sessions.status
+    EXECUTE (
+        SELECT 'ALTER TABLE sessions DROP CONSTRAINT IF EXISTS ' || conname
+        FROM pg_constraint
+        WHERE conrelid = 'sessions'::regclass
+          AND contype = 'c'
+          AND pg_get_constraintdef(oid) LIKE '%status%'
+        LIMIT 1
+    );
+EXCEPTION WHEN OTHERS THEN
+    NULL;
+END $$;
+
+ALTER TABLE sessions ADD CONSTRAINT sessions_status_check
+    CHECK (status IN ('active', 'complete', 'expired', 'failed', 'closed'));
+
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
 CREATE INDEX IF NOT EXISTS idx_sessions_created ON sessions(created_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_last_activity ON sessions(last_activity_at);
