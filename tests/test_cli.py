@@ -142,7 +142,7 @@ def test_pipeline_command_complete(
     def _fake_audit(path, *, model, max_retries, retry_delay_seconds):
         return {"status": "ok", "spatial": spatial.model_dump(mode="json")}
 
-    with patch("src.ingest.pipeline._traced_audit", side_effect=_fake_audit):
+    with patch("src.ingest.graph._traced_audit", side_effect=_fake_audit):
         rc = main(["pipeline", str(img), "--pretty"])
 
     assert rc == 0
@@ -167,7 +167,7 @@ def test_pipeline_command_audit_error_returns_nonzero(
     def _fake_audit(path, *, model, max_retries, retry_delay_seconds):
         return {"status": "error", "error": {"type": "ShoeboxAuditError", "message": "boom"}}
 
-    with patch("src.ingest.pipeline._traced_audit", side_effect=_fake_audit):
+    with patch("src.ingest.graph._traced_audit", side_effect=_fake_audit):
         rc = main(["pipeline", str(img)])
 
     assert rc == 1

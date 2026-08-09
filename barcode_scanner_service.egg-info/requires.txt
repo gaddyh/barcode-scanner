@@ -12,9 +12,12 @@ python-dotenv<2.0,>=1.0
 langsmith<1.0,>=0.10
 openai<3.0,>=1.0
 python-ulid<5.0,>=3.0
+asyncpg<1.0,>=0.30
+langgraph<2.0,>=1.2.9
 
 [dev]
 httpx<1.0,>=0.28
 pytest<10.0,>=8.3
+pytest-asyncio<1.0,>=0.24
 pytest-cov<8.0,>=6.0
 ruff<1.0,>=0.9

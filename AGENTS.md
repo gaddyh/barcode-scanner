@@ -30,16 +30,20 @@ parallel on one image, then a single containment match joins them:
 2. **Gemini Flash spatial audit** (`src/ingest/vision.py`) — locates every
    visible product label and its barcode region, returns pixel bboxes.
 
-`src/ingest/pipeline.py` runs both in a `ThreadPoolExecutor(max_workers=2)`, then
-`src.ingest.reconciliation.match_scanner_to_labels()` assigns each scanner
-detection to the Gemini label whose barcode region contains it.
+`src/ingest/graph.py` orchestrates the pipeline as a LangGraph `StateGraph`
+(M15A). `scan` and `audit` run in parallel (LangGraph superstep fan-out),
+then `src.ingest.reconciliation.match_scanner_to_labels()` assigns each
+scanner detection to the Gemini label whose barcode region contains it.
+`src/ingest/pipeline.py` is now a thin traced facade that delegates to
+`run_scan_graph()` — the summary dict contract is unchanged.
 
 When labels remain unmatched after reconciliation, a **Gemini-guided
 recovery** step crops each missing label's `barcode_bbox` from the
 full-resolution image with 20% padding and scans it aggressively
 (`scan_crop_with_recovery` — CLAHE, Otsu, adaptive, aggressive sharpen,
 invert, plus an explicit 90° rotation attempt). Any newly decoded barcodes
-are merged back and reconciliation is re-run. This only runs on the failure
+are merged back and reconciliation is re-run via a conditional edge cycle
+(`reconcile → recover → reconcile`). This only runs on the failure
 path — the happy path is unaffected.
 
 `src/ingest/analyze.py` reshapes the pipeline summary into the product response
@@ -50,7 +54,9 @@ path — the happy path is unaffected.
 ```
 vision.py ──→ geometry.py ←── reconciliation.py
                     ↑
-               pipeline.py
+                graph.py
+                    ↑
+               pipeline.py (facade)
                     ↑
                analyze.py
 ```
@@ -121,10 +127,11 @@ pytest tests/test_spatial_reconciliation.py
 pytest tests/test_analyze.py
 pytest tests/test_cli.py
 pytest tests/test_api.py
+pytest tests/test_graph.py          # LangGraph orchestrator (M15A)
 pytest tests/eval/                  # eval harness scoring logic (offline)
 ```
 
-Tests mock `zxingcpp.read_barcodes` and `pipeline._traced_audit` — no real
+Tests mock `zxingcpp.read_barcodes` and `graph._traced_audit` — no real
 barcode images or Gemini API calls are required.
 
 ## Lint

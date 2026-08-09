@@ -124,13 +124,13 @@ def _patch_audit_ok(spatial: SpatialLabelAuditPixels) -> object:
     """Patch pipeline._traced_audit to return a successful audit result."""
     def _fake(path, *, model, max_retries, retry_delay_seconds):
         return {"status": "ok", "spatial": spatial.model_dump(mode="json")}
-    return patch("src.ingest.pipeline._traced_audit", side_effect=_fake)
+    return patch("src.ingest.graph._traced_audit", side_effect=_fake)
 
 
 def _patch_audit_error(error: dict) -> object:
     def _fake(path, *, model, max_retries, retry_delay_seconds):
         return {"status": "error", "error": error}
-    return patch("src.ingest.pipeline._traced_audit", side_effect=_fake)
+    return patch("src.ingest.graph._traced_audit", side_effect=_fake)
 
 
 # ---------------------------------------------------------------------------

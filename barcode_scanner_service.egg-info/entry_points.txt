@@ -1,2 +1,2 @@
 [console_scripts]
-barcode-scan = app.cli:main
+barcode-scan = src.cli_app:main
