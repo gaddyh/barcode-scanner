@@ -39,17 +39,17 @@ from fastapi.staticfiles import StaticFiles
 from langsmith.schemas import Attachment
 from PIL import Image
 
-from app.api.admin import router as admin_router
-from app.api.routes import router
-from app.config import settings
+from src.api.admin import router as admin_router
+from src.api.routes import router
+from src.config import settings
 from src.models.upload import generate_upload_id
 from src.ingest.analyze import analyze_image
-from app.services.dialog360 import Dialog360Client, iter_incoming_messages
-from app.services.transcribe import (
+from src.messaging.dialog360 import Dialog360Client, iter_incoming_messages
+from src.messaging.transcribe import (
     Transcriber,
     handle_360dialog_audio_message,
 )
-from app.services.transcription_factory import get_transcriber
+from src.messaging.transcription_factory import get_transcriber
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(

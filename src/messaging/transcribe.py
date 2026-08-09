@@ -10,8 +10,8 @@ import langsmith as ls
 from langsmith.wrappers import wrap_openai
 from openai import AsyncOpenAI
 
-from app.config import settings
-from app.services.dialog360 import Dialog360Client
+from src.config import settings
+from src.messaging.dialog360 import Dialog360Client
 
 logger = logging.getLogger(__name__)
 

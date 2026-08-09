@@ -13,9 +13,9 @@ pip install -e ".[dev]"
 ## Run
 
 ```bash
-python -m app.cli scan ./samples/multi_clear_6_boxes.jpeg
-python -m app.cli audit ./samples/multi_clear_6_boxes.jpeg --time
-python -m app.cli pipeline ./samples/multi_clear_6_boxes.jpeg --time --pretty
+python -m src.cli_app scan ./samples/multi_clear_6_boxes.jpeg
+python -m src.cli_app audit ./samples/multi_clear_6_boxes.jpeg --time
+python -m src.cli_app pipeline ./samples/multi_clear_6_boxes.jpeg --time --pretty
 ```
 
 Requires `GEMINI_API_KEY` in `.env` or the environment for `audit` and `pipeline`.
@@ -25,13 +25,13 @@ Requires `GEMINI_API_KEY` in `.env` or the environment for `audit` and `pipeline
 The pipeline is a **clean happy path** — two independent branches run in
 parallel on one image, then a single containment match joins them:
 
-1. **Deterministic scanner** (`barcode_scanner.py`) — zxing-cpp + OpenCV
+1. **Deterministic scanner** (`src/ingest/scanner.py`) — zxing-cpp + OpenCV
    label fallback. Decodes barcode values with full-resolution pixel bboxes.
-2. **Gemini Flash spatial audit** (`gemini_box_audit.py`) — locates every
+2. **Gemini Flash spatial audit** (`src/ingest/vision.py`) — locates every
    visible product label and its barcode region, returns pixel bboxes.
 
-`pipeline.py` runs both in a `ThreadPoolExecutor(max_workers=2)`, then
-`spatial_reconciliation.match_scanner_to_labels()` assigns each scanner
+`src/ingest/pipeline.py` runs both in a `ThreadPoolExecutor(max_workers=2)`, then
+`src.ingest.reconciliation.match_scanner_to_labels()` assigns each scanner
 detection to the Gemini label whose barcode region contains it.
 
 When labels remain unmatched after reconciliation, a **Gemini-guided
@@ -42,21 +42,21 @@ invert, plus an explicit 90° rotation attempt). Any newly decoded barcodes
 are merged back and reconciliation is re-run. This only runs on the failure
 path — the happy path is unaffected.
 
-`analyze.py` reshapes the pipeline summary into the product response
+`src/ingest/analyze.py` reshapes the pipeline summary into the product response
 (`complete` / `needs_better_photo` / `retryable_error`).
 
 ### Dependency direction
 
 ```
-gemini_box_audit.py ──→ spatial_geometry.py ←── spatial_reconciliation.py
-                              ↑
-                         pipeline.py
-                              ↑
-                         analyze.py
+vision.py ──→ geometry.py ←── reconciliation.py
+                    ↑
+               pipeline.py
+                    ↑
+               analyze.py
 ```
 
-- `spatial_geometry.py` — generic coordinate math only (no Gemini/scanner imports).
-- `spatial_reconciliation.py` — imports only `spatial_geometry`. Receives
+- `src/ingest/geometry.py` — generic coordinate math only (no Gemini/scanner imports).
+- `src/ingest/reconciliation.py` — imports only `src.ingest.geometry`. Receives
   scanner detections and Gemini labels as plain dicts.
 - All Gemini audit functions consume EXIF-normalized RGB JPEG bytes via
   `load_normalized_image()`. If the original exceeds 1600px on either side,
@@ -70,10 +70,10 @@ gemini_box_audit.py ──→ spatial_geometry.py ←── spatial_reconciliati
 
 ## Product API
 
-`app/services/analyze.py` exposes `analyze_image()` — the product hot path.
+`src/ingest/analyze.py` exposes `analyze_image()` — the product hot path.
 
 ```python
-from app.services.analyze import analyze_image
+from src.ingest.analyze import analyze_image
 
 result = analyze_image(image_bytes_or_path)
 
@@ -133,11 +133,11 @@ barcode images or Gemini API calls are required.
 ruff check .
 ```
 
-Pre-existing warnings in `app/api/routes.py` (B008),
-`app/services/barcode_scanner.py` (B905),
-`app/services/gemini_box_audit.py` (UP042),
-`app/services/modal_transcriber.py` (E501), and
-`app/services/transcribe.py` (UP022) are intentionally left to preserve
+Pre-existing warnings in `src/api/routes.py` (B008),
+`src/ingest/scanner.py` (B905),
+`src/ingest/vision.py` (UP042),
+`src/messaging/modal_transcriber.py` (E501), and
+`src/messaging/transcribe.py` (UP022) are intentionally left to preserve
 existing style consistency.
 
 ## Offline evaluation (LangSmith)
@@ -178,7 +178,7 @@ Backend (exposes `/health` and `/barcode/scan`):
 
 ```bash
 source .venv/bin/activate
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 Frontend:

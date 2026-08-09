@@ -14,8 +14,8 @@ It consolidates configuration for:
 - Conversation / review tuning (used by the agent layer, kept for
   forward compatibility)
 
-``app.core.config`` re-exports ``Settings`` / ``get_settings`` /
-``settings`` from here so the FastAPI routes in ``app/api/routes.py``
+``src.config`` re-exports ``Settings`` / ``get_settings`` /
+``settings`` from here so the FastAPI routes in ``src/api/routes.py``
 keep working through one source of truth.
 """
 
@@ -199,6 +199,6 @@ settings = Settings.from_env()
 def get_settings() -> Settings:
     """Return the process-wide settings instance.
 
-    Re-exported by ``app.core.config`` for FastAPI ``Depends`` consumers.
+    Re-exported by ``src.config`` for FastAPI ``Depends`` consumers.
     """
     return settings

@@ -14,7 +14,7 @@ import pytest
 import zxingcpp
 from PIL import Image
 
-from app.cli import main
+from src.cli_app import main
 from src.ingest.vision import (
     AuditConfidence,
     SpatialLabelAuditPixels,

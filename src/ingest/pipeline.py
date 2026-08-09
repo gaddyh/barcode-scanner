@@ -20,8 +20,8 @@ produce the product-shaped response (``complete`` / ``needs_better_photo`` /
 ``retryable_error``).
 
 Service layer used by:
-- ``app.cli`` (CLI presentation)
-- ``app.services.analyze`` (product API)
+- ``src.cli_app`` (CLI presentation)
+- ``src.ingest.analyze`` (product API)
 - ``tests.eval.runner`` (LangSmith offline evaluation)
 
 No argument parsing or CLI presentation code lives here.

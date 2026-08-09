@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from app.config import Settings
+from src.config import Settings
 
 logger = logging.getLogger(__name__)
 

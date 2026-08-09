@@ -29,7 +29,7 @@ import sys
 
 from dotenv import load_dotenv
 
-from app.services.langsmith_dashboard import (
+from src.observability.dashboard import (
     DASHBOARDS,
     DashboardApiError,
     DashboardConfig,

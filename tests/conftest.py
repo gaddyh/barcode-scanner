@@ -11,8 +11,8 @@ from collections.abc import Iterator
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.routes import get_scanner
-from app.main import app
+from src.api.routes import get_scanner
+from src.main import app
 
 
 @pytest.fixture

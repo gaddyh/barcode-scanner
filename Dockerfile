@@ -19,7 +19,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY pyproject.toml README.md ./
-COPY app ./app
 COPY src ./src
 
 RUN pip install --upgrade pip && pip install .
@@ -30,4 +29,4 @@ COPY --from=frontend /web/dist ./web/dist
 EXPOSE 8000
 
 # Render assigns the port via $PORT; fall back to 8000 for local/docker-compose.
-CMD sh -c "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+CMD sh -c "uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8000}"

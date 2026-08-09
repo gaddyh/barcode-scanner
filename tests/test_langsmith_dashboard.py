@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.langsmith_dashboard import (
+from src.observability.dashboard import (
     DASHBOARDS,
     OPS_KEY,
     QUALITY_KEY,

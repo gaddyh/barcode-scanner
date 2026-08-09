@@ -4,7 +4,7 @@
 object with ``.metadata`` dict) and returns a ``MetricsResponse``. This
 makes all aggregation logic testable without LangSmith.
 
-The endpoint in ``app/api/admin.py`` is a thin wrapper:
+The endpoint in ``src/api/admin.py`` is a thin wrapper:
     query LangSmith → compute_metrics() → return
 """
 

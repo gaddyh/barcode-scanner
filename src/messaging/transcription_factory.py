@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from app.config import Settings
-from app.services.transcribe import OpenAITranscriber, Transcriber
+from src.config import Settings
+from src.messaging.transcribe import OpenAITranscriber, Transcriber
 
 
 def get_transcriber(settings: Settings) -> Transcriber:
@@ -36,7 +36,7 @@ def get_transcriber(settings: Settings) -> Transcriber:
             )
 
         # Lazy import so that the Modal client is only loaded when needed.
-        from app.services.modal_transcriber import ModalWhisperTranscriber
+        from src.messaging.modal_transcriber import ModalWhisperTranscriber
 
         return ModalWhisperTranscriber(
             endpoint_url=settings.modal_transcription_url,

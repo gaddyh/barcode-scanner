@@ -33,10 +33,10 @@ dev = [
 ]
 
 [project.scripts]
-barcode-scan = "app.cli:main"
+barcode-scan = "src.cli_app:main"
 
 [tool.setuptools.packages.find]
-include = ["app*", "src*"]
+include = ["src*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

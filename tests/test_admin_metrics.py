@@ -62,7 +62,7 @@ class FakeClient:
 
 @pytest.fixture
 def client():
-    from app.main import app
+    from src.main import app
     return TestClient(app)
 
 

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import logging
 
-from app.services.modal_client import (
+from src.messaging.modal_client import (
     ModalTranscriptionClient,
     ModalTranscriptionTransportError,
 )
-from app.services.transcribe import (
+from src.messaging.transcribe import (
     TranscriptionError,
     TranscriptionResult,
 )

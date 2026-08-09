@@ -43,7 +43,7 @@ python3 -m venv .venv
 source .venv/bin/activate       # Windows: .venv\Scripts\activate
 python -m pip install --upgrade pip
 pip install -e ".[dev]"
-uvicorn app.main:app --reload
+uvicorn src.main:app --reload
 ```
 
 Open Swagger UI:
@@ -468,10 +468,10 @@ or the downstream coordinate system.
 You can also run any subcommand without installing the entry point:
 
 ```bash
-python -m app.cli scan ./product.jpg
-python -m app.cli audit ./product.jpg --time
-python -m app.cli audit ./product.jpg --labels --time
-python -m app.cli pipeline ./product.jpg --time --pretty
+python -m src.cli_app scan ./product.jpg
+python -m src.cli_app audit ./product.jpg --time
+python -m src.cli_app audit ./product.jpg --labels --time
+python -m src.cli_app pipeline ./product.jpg --time --pretty
 ```
 
 ## LangSmith tracing
@@ -672,18 +672,22 @@ docker compose up --build
 ## Project layout
 
 ```text
-app/
+src/
   api/routes.py                 HTTP validation and endpoint
-  cli.py                        CLI with scan / audit / pipeline subcommands
-  core/config.py                Environment configuration
+  cli_app.py                    CLI with scan / audit / pipeline subcommands
+  config.py                     Environment configuration
   models/barcode.py             API response contract (ScanResponse)
-  services/
-    barcode_scanner.py          BarcodeScanner — tiling, preprocessing, dedup,
+  ingest/
+    scanner.py                  BarcodeScanner — tiling, preprocessing, dedup,
                                 Gemini-guided crop recovery (scan_label_crops)
-    gemini_box_audit.py         Gemini visual audit (counts + spatial labels + full)
-    spatial_geometry.py         Pixel bounding boxes, normalized→pixel conversion
-    spatial_reconciliation.py   Match scanner detections to Gemini product labels;
+    vision.py                   Gemini visual audit (counts + spatial labels + full)
+    geometry.py                 Pixel bounding boxes, normalized→pixel conversion
+    reconciliation.py           Match scanner detections to Gemini product labels;
                                 RecoveryResult / RecoveredLabel models
+    pipeline.py                 pipeline_path() — parallel scanner + vision + recovery
+    analyze.py                  Response shaping (complete / needs_better_photo / retry)
+    service.py                  ingest_one() — canonical domain boundary
+    models.py                   IngestResult, IngestStatus, Issue, RunMetrics
   main.py                       FastAPI application
 samples/
   marny_brown_42.jpeg           Sample photo with 2 barcodes
