@@ -192,6 +192,38 @@ async def _traced_analyze(
     result = analyze_image(image_bytes)
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
+    return await _build_web_response(
+        result=result,
+        elapsed_ms=elapsed_ms,
+        upload_id=upload_id,
+        trace_id=trace_id,
+        source=source,
+        filename=filename,
+        upload_bytes=upload_bytes,
+    )
+
+
+@ls.traceable(
+    name="build_web_response",
+    run_type="chain",
+    tags=["barcode-scanner", "web", "response"],
+)
+async def _build_web_response(
+    *,
+    result: dict,
+    elapsed_ms: int,
+    upload_id: str,
+    trace_id: str,
+    source: str,
+    filename: str,
+    upload_bytes: int,
+) -> dict:
+    """Shape the analyze_image() result into the web API response.
+
+    Traced as a child span so the response-building step (metadata stamping,
+    outcome logging, annotated image check) is visible in the trace tree,
+    mirroring the WhatsApp path's ``send_needs_better_photo_reply``.
+    """
     result["upload_id"] = upload_id
     result["trace_id"] = trace_id
     result["source"] = source
