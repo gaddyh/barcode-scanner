@@ -88,7 +88,7 @@ async def run_session_graph(
     Returns:
         ``SessionResult`` with accumulated items, missing items, and status.
     """
-    from src.ingest.analyze import analyze_image
+    from src.ingest.analyze import analyze_image_async
 
     if scanner is None:
         scanner = BarcodeScanner()
@@ -110,8 +110,8 @@ async def run_session_graph(
         existing_missing = [m for m in state["missing"] if not m.resolved]
         expected_count = s.get("expected_count", 0)
 
-    # Run ScanGraph on this image.
-    raw = analyze_image(
+    # Run ScanGraph on this image (async — stays in the caller's event loop).
+    raw = await analyze_image_async(
         image,
         scanner=scanner,
         model=model,

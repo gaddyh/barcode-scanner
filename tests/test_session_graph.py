@@ -7,7 +7,7 @@ Uses NoOpSessionRepository for in-memory session state.
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -35,7 +35,7 @@ async def test_session_complete_on_first_image(tmp_path: Path) -> None:
         "summary": {"visible_label_count": 2, "found_count": 2, "missing_count": 0},
     }
 
-    with patch("src.ingest.analyze.analyze_image", return_value=mock_result):
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock_result)):
         result = await run_session_graph("S1", img, repo=repo)
 
     assert result.status == SessionStatus.COMPLETE
@@ -68,7 +68,7 @@ async def test_session_needs_more_images(tmp_path: Path) -> None:
         "summary": {"visible_label_count": 3, "found_count": 2, "missing_count": 1},
     }
 
-    with patch("src.ingest.analyze.analyze_image", return_value=mock_result):
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock_result)):
         result = await run_session_graph("S1", img, repo=repo)
 
     assert result.status == SessionStatus.ACTIVE
@@ -116,14 +116,14 @@ async def test_session_second_image_resolves_missing(tmp_path: Path) -> None:
         "summary": {"visible_label_count": 1, "found_count": 1, "missing_count": 0},
     }
 
-    with patch("src.ingest.analyze.analyze_image", return_value=mock1):
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
         result1 = await run_session_graph("S1", img, repo=repo)
 
     assert result1.status == SessionStatus.ACTIVE
     assert result1.found_count == 2
     assert result1.missing_count == 1
 
-    with patch("src.ingest.analyze.analyze_image", return_value=mock2):
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock2)):
         result2 = await run_session_graph("S1", img, repo=repo)
 
     assert result2.status == SessionStatus.COMPLETE
@@ -167,10 +167,10 @@ async def test_session_dedup_across_images(tmp_path: Path) -> None:
         "summary": {"visible_label_count": 2, "found_count": 2, "missing_count": 0},
     }
 
-    with patch("src.ingest.analyze.analyze_image", return_value=mock1):
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
         await run_session_graph("S1", img, repo=repo)
 
-    with patch("src.ingest.analyze.analyze_image", return_value=mock2):
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock2)):
         result2 = await run_session_graph("S1", img, repo=repo)
 
     assert result2.found_count == 2  # not 4
@@ -215,13 +215,13 @@ async def test_session_multi_box_photo_resolves_partial(tmp_path: Path) -> None:
         "summary": {"visible_label_count": 3, "found_count": 3, "missing_count": 0},
     }
 
-    with patch("src.ingest.analyze.analyze_image", return_value=mock1):
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
         result1 = await run_session_graph("S1", img, repo=repo)
 
     assert result1.status == SessionStatus.ACTIVE
     assert result1.found_count == 3
 
-    with patch("src.ingest.analyze.analyze_image", return_value=mock2):
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock2)):
         result2 = await run_session_graph("S1", img, repo=repo)
 
     assert result2.status == SessionStatus.COMPLETE
@@ -247,7 +247,7 @@ async def test_session_audit_failure(tmp_path: Path) -> None:
         "error": {"code": "audit_failed", "message": "Gemini error"},
     }
 
-    with patch("src.ingest.analyze.analyze_image", return_value=mock_result):
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock_result)):
         result = await run_session_graph("S1", img, repo=repo)
 
     assert result.status == SessionStatus.FAILED
@@ -285,13 +285,13 @@ async def test_session_resume_after_failure(tmp_path: Path) -> None:
         "summary": {"visible_label_count": 2, "found_count": 2, "missing_count": 0},
     }
 
-    with patch("src.ingest.analyze.analyze_image", return_value=mock_fail):
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock_fail)):
         result1 = await run_session_graph("S1", img, repo=repo)
 
     assert result1.status == SessionStatus.FAILED
 
     # Second image — session was never created (failed), so this is a new session.
-    with patch("src.ingest.analyze.analyze_image", return_value=mock_ok):
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock_ok)):
         result2 = await run_session_graph("S1", img, repo=repo)
 
     assert result2.status == SessionStatus.COMPLETE
