@@ -45,7 +45,7 @@ from src.ingest.models import (
 )
 from src.observability.tracing import emit_event, emit_metadata, push_feedback
 from src.runtime.context import RunContext
-from src.runtime.events import DomainEvent
+from src.runtime.events import DomainEvent, EventType
 
 logger = logging.getLogger(__name__)
 
@@ -82,9 +82,13 @@ def ingest_one(
     """
     t0 = time.perf_counter()
 
+    # Stamp run_id/session_id on the current trace early so that
+    # emit_pipeline_event() inside pipeline.py can read them.
+    emit_metadata(context)
+
     # Emit IMAGE_RECEIVED event — always logged, appended to trace when tracing.
     emit_event(DomainEvent(
-        type="IMAGE_RECEIVED",
+        type=EventType.IMAGE_RECEIVED,
         run_id=context.run_id,
         session_id=context.session_id,
         payload={"source": context.source, "image_type": type(image).__name__},
@@ -102,6 +106,8 @@ def ingest_one(
     result = _dict_to_ingest_result(raw, elapsed_ms, context)
 
     # Emit result metadata to the current LangSmith trace.
+    from src.observability.versions import collect_versions
+    versions = collect_versions(model)
     emit_metadata(
         context,
         final_status=result.status.value,
@@ -115,11 +121,30 @@ def ingest_one(
         recovery_barcodes_found=result.metrics.recovery_barcodes_found,
         recovery_labels_resolved=result.metrics.recovery_labels_resolved,
         latency_ms=elapsed_ms,
+        pipeline_version=versions.pipeline_version,
+        scanner_version=versions.scanner_version,
+        vision_prompt_version=versions.vision_prompt_version,
+        vision_model=versions.vision_model,
+        recovery_version=versions.recovery_version,
     )
+
+    # Emit USER_RETRY_REQUESTED if the user needs to provide a better photo.
+    if result.status == IngestStatus.NEEDS_USER_INPUT:
+        emit_event(DomainEvent(
+            type=EventType.USER_RETRY_REQUESTED,
+            run_id=context.run_id,
+            session_id=context.session_id,
+            payload={
+                "missing_count": len(result.missing),
+                "missing_labels": [
+                    m.get("label_index") for m in result.missing
+                ],
+            },
+        ))
 
     # Emit INGEST_COMPLETED event.
     emit_event(DomainEvent(
-        type="INGEST_COMPLETED",
+        type=EventType.INGEST_COMPLETED,
         run_id=context.run_id,
         session_id=context.session_id,
         payload={

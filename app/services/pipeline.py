@@ -39,12 +39,16 @@ from pathlib import Path
 from dotenv import load_dotenv
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from app.services.barcode_scanner import BarcodeScanner
+from app.services.barcode_scanner import SCANNER_VERSION, BarcodeScanner
 from app.services.gemini_box_audit import (
+    DEFAULT_MODEL,
+    VISION_PROMPT_VERSION,
     ShoeboxAuditError,
     audit_shoebox_labels,
 )
 from app.services.spatial_reconciliation import match_scanner_to_labels
+from src.observability.tracing import emit_pipeline_event
+from src.runtime.events import EventType
 
 # Load .env early so LANGSMITH_* vars are set before langsmith is imported.
 load_dotenv()
@@ -176,6 +180,17 @@ def pipeline_path(
     reconciliation. The summary is reshaped by ``analyze_image`` into the
     product response.
     """
+    # Stamp component versions on the pipeline span.
+    _run = ls.get_current_run_tree() if _TRACING else None
+    if _run is not None:
+        _run.metadata.update(
+            {
+                "scanner_version": SCANNER_VERSION,
+                "vision_prompt_version": VISION_PROMPT_VERSION,
+                "vision_model": model or os.getenv("GEMINI_MODEL", DEFAULT_MODEL),
+                "recovery_version": RECOVERY_VERSION,
+            }
+        )
 
     def _do_scan() -> dict[str, object]:
         return scan_path(path, scanner)
@@ -217,6 +232,18 @@ def pipeline_path(
     scan_ok = scan_result.get("status") in ("found", "not_found")
     audit_ok = audit_result.get("status") == "ok"
 
+    # Emit structured events for each completed phase.
+    emit_pipeline_event(
+        EventType.SCAN_COMPLETED,
+        scanner_count=scan_result.get("count", 0),
+        scanner_status=scan_result.get("status"),
+    )
+    emit_pipeline_event(
+        EventType.AUDIT_COMPLETED,
+        vision_count=len(audit_result.get("spatial", {}).get("labels", [])) if audit_ok else 0,
+        audit_status=audit_result.get("status"),
+    )
+
     summary: dict[str, object] = {
         "path": str(path),
         "scan_status": scan_result.get("status"),
@@ -254,6 +281,12 @@ def pipeline_path(
             image_height=image_height,
         )
 
+        emit_pipeline_event(
+            EventType.RECONCILIATION_COMPLETED,
+            matched_count=reconciliation.matched_label_count,
+            unmatched_count=len(reconciliation.unmatched_labels),
+        )
+
         # --- Gemini-guided recovery ---------------------------------------
         # When labels remain unmatched after reconciliation, crop each
         # missing label's barcode region from the full-resolution image and
@@ -269,6 +302,11 @@ def pipeline_path(
             recovery_attempted = True
             recovery_labels_tried = len(reconciliation.unmatched_labels)
             matched_before = reconciliation.matched_label_count
+
+            emit_pipeline_event(
+                EventType.RECOVERY_STARTED,
+                labels_to_try=recovery_labels_tried,
+            )
 
             recovery_detections = _gemini_guided_recovery(
                 path,
@@ -317,6 +355,13 @@ def pipeline_path(
                     "recovery_barcodes_found": recovery_barcodes_found,
                     "recovery_labels_resolved": recovery_labels_resolved,
                 }
+            )
+
+        if recovery_attempted:
+            emit_pipeline_event(
+                EventType.RECOVERY_COMPLETED,
+                barcodes_found=recovery_barcodes_found,
+                labels_resolved=recovery_labels_resolved,
             )
 
         summary["recovery"] = {
@@ -373,6 +418,10 @@ def pipeline_path(
 # ---------------------------------------------------------------------------
 # Gemini-guided recovery
 # ---------------------------------------------------------------------------
+
+# Version of the recovery logic (crop padding, scan_crop_with_recovery
+# variants, rotation attempt). Bumped when the recovery algorithm changes.
+RECOVERY_VERSION = "recovery-v1"
 
 # Padding ratio for recovery crops — wider than the label fallback (0.12) to
 # give the scanner more context around the barcode region.

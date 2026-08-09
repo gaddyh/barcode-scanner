@@ -19,6 +19,7 @@ Key design decisions:
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import os
 from collections.abc import Callable
@@ -28,13 +29,21 @@ from dotenv import load_dotenv
 
 if TYPE_CHECKING:
     from src.runtime.context import RunContext
-    from src.runtime.events import DomainEvent
+    from src.runtime.events import DomainEvent, EventType
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+# Context vars for correlation IDs — propagate to child spans and worker
+# threads via copy_context(). Set by emit_metadata() so that
+# emit_pipeline_event() can read them inside pipeline.py's child spans,
+# where get_current_run_tree() returns a child that doesn't inherit the
+# parent's metadata.
+_run_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("_run_id_var", default="")
+_session_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("_session_id_var", default="")
 
 # langsmith is optional — tracing is enabled when LANGSMITH_TRACING=true.
 _TRACING = os.getenv("LANGSMITH_TRACING", "").lower() in ("true", "1", "yes")
@@ -104,8 +113,17 @@ def emit_metadata(context: RunContext, **kwargs: Any) -> None:
     context (if not already present in kwargs), plus any caller-provided
     key-value pairs.
 
-    No-op when tracing is disabled.
+    Also sets context vars for ``run_id`` and ``session_id`` so that
+    ``emit_pipeline_event()`` can read them inside child spans and worker
+    threads (where ``get_current_run_tree()`` returns a child run that
+    doesn't inherit the parent's metadata).
+
+    No-op for the run tree update when tracing is disabled, but context
+    vars are always set (they're cheap and useful even without tracing).
     """
+    _run_id_var.set(context.run_id)
+    _session_id_var.set(context.session_id)
+
     run = get_current_run_tree()
     if run is None:
         return
@@ -119,22 +137,50 @@ def emit_metadata(context: RunContext, **kwargs: Any) -> None:
 
 
 def emit_event(event: DomainEvent) -> None:
-    """Emit a domain event to structured log and LangSmith trace metadata.
+    """Emit a domain event to all registered sinks.
 
-    Always logs (even when tracing is disabled). When tracing is enabled,
-    also appends the event to the current run's metadata under ``events``.
+    Delegates to ``emit_to_sinks()`` in ``event_sink.py``. The default
+    ``TraceEventSink`` logs the event and appends it to the LangSmith
+    trace metadata. Custom sinks (annotation, metrics) can be registered
+    via ``register_sink()``.
     """
-    logger.info(
-        "DomainEvent type=%s run_id=%s session_id=%s payload_keys=%s",
-        event.type,
-        event.run_id,
-        event.session_id,
-        list(event.payload.keys()),
-    )
+    from src.observability.event_sink import emit_to_sinks
+
+    emit_to_sinks(event)
+
+
+def emit_pipeline_event(event_type: EventType, **payload: Any) -> None:
+    """Emit a pipeline event using run_id/session_id from the current run tree.
+
+    This avoids passing ``RunContext`` through ``pipeline_path()`` — the
+    correlation IDs are read from the current LangSmith run's metadata,
+    which was stamped by ``execute()`` before the pipeline started. Works
+    in worker threads because ``copy_context()`` propagates the run tree.
+
+    Args:
+        event_type: An ``EventType`` enum value (not a raw string).
+        **payload: Event-specific key-value data.
+    """
     run = get_current_run_tree()
+    # Prefer run tree metadata (set by emit_metadata on the parent span),
+    # fall back to context vars (propagated to child spans and threads).
+    run_id = ""
+    session_id = ""
     if run is not None:
-        events: list = run.metadata.setdefault("events", [])
-        events.append(event.model_dump(mode="json"))
+        run_id = run.metadata.get("run_id", "")
+        session_id = run.metadata.get("session_id", "")
+    if not run_id:
+        run_id = _run_id_var.get("")
+    if not session_id:
+        session_id = _session_id_var.get("")
+    from src.runtime.events import DomainEvent as _DomainEvent
+
+    emit_event(_DomainEvent(
+        type=event_type.value,
+        run_id=run_id,
+        session_id=session_id,
+        payload=payload,
+    ))
 
 
 def attach_image_to_run(image_bytes: bytes, mime_type: str) -> None:

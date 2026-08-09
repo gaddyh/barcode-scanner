@@ -19,9 +19,23 @@ Example event types::
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+
+class EventType(StrEnum):
+    """Stable event type identifiers — use these instead of raw strings."""
+
+    IMAGE_RECEIVED = "IMAGE_RECEIVED"
+    SCAN_COMPLETED = "SCAN_COMPLETED"
+    AUDIT_COMPLETED = "AUDIT_COMPLETED"
+    RECONCILIATION_COMPLETED = "RECONCILIATION_COMPLETED"
+    RECOVERY_STARTED = "RECOVERY_STARTED"
+    RECOVERY_COMPLETED = "RECOVERY_COMPLETED"
+    INGEST_COMPLETED = "INGEST_COMPLETED"
+    USER_RETRY_REQUESTED = "USER_RETRY_REQUESTED"
 
 
 class DomainEvent(BaseModel):

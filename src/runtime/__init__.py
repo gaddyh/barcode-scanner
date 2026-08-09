@@ -2,7 +2,7 @@
 
 from src.runtime.context import RunContext
 from src.runtime.errors import InvalidInputError, RetryableError, RuntimeError
-from src.runtime.events import DomainEvent
+from src.runtime.events import DomainEvent, EventType
 from src.runtime.executor import execute
 
 __all__ = [
@@ -12,4 +12,5 @@ __all__ = [
     "InvalidInputError",
     "RuntimeError",
     "DomainEvent",
+    "EventType",
 ]

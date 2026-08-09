@@ -58,6 +58,10 @@ DEFAULT_COUNTS_MODEL = "gemini-3.5-flash-lite"
 DEFAULT_MAX_RETRIES = 2
 DEFAULT_RETRY_DELAY_SECONDS = 1.0
 
+# Version of the vision prompt/schema logic. Bumped when the prompt text,
+# response schema, or label-audit extraction logic changes.
+VISION_PROMPT_VERSION = "label-audit-v1"
+
 SUPPORTED_MIME_TYPES = {
     "image/jpeg",
     "image/png",

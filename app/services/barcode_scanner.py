@@ -11,6 +11,10 @@ import numpy as np
 import zxingcpp
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
+# Version of the scanner logic (tile grid, label fallback, crop variants).
+# Bumped when the scanning algorithm or preprocessing changes.
+SCANNER_VERSION = "scanner-0.8"
+
 
 @dataclass(frozen=True)
 class Point:
