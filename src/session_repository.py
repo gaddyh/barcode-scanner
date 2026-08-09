@@ -304,7 +304,7 @@ class NoOpSessionRepository:
         return True
 
     async def get_items(self, session_id: str) -> list[SessionItem]:
-        return self._sessions.get(session_id, {}).get("_items", [])
+        return list(self._sessions.get(session_id, {}).get("_items", []))
 
     async def add_missing(self, session_id: str, item: MissingItem) -> None:
         s = self._sessions.setdefault(session_id, {"id": session_id})
@@ -329,8 +329,8 @@ class NoOpSessionRepository:
             return None
         return {
             "session": {k: v for k, v in s.items() if not k.startswith("_")},
-            "items": s.get("_items", []),
-            "missing": s.get("_missing", []),
+            "items": list(s.get("_items", [])),
+            "missing": list(s.get("_missing", [])),
         }
 
     async def to_result(self, session_id: str) -> SessionResult | None:

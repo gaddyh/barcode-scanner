@@ -424,9 +424,7 @@ async def process_image_message(
                 "Starting analyze_image upload_id=%s trace_id=%s for %s from=%s",
                 upload_id, trace_id, temp_path, sender,
             )
-            result = await asyncio.to_thread(
-                analyze_image, temp_path, thread_id=upload_id
-            )
+            result = await asyncio.to_thread(analyze_image, temp_path)
             result["upload_id"] = upload_id
             result["trace_id"] = trace_id
             result["source"] = "whatsapp"

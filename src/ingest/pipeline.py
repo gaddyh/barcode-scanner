@@ -73,8 +73,13 @@ def pipeline_path(
 
     Stamps component versions on the pipeline span for LangSmith tracing.
 
-    Args:
-        thread_id: Optional unique ID for checkpoint persistence (M15C).
+    Note: ``thread_id`` is accepted for API compatibility but NOT forwarded
+    to ``run_scan_graph()`` when called through this sync bridge. The
+    ``asyncio.run()`` call creates a new event loop, but the Postgres
+    checkpointer's ``asyncio.Lock`` is bound to the FastAPI event loop —
+    using it from a different loop raises ``RuntimeError``. Checkpointing
+    only works when ``run_scan_graph()`` is called directly from the FastAPI
+    async context (e.g. from an async route handler).
     """
     # Stamp component versions on the pipeline span.
     _run = ls.get_current_run_tree() if _TRACING else None
@@ -88,6 +93,7 @@ def pipeline_path(
             }
         )
 
+    # thread_id is intentionally NOT passed here — see docstring above.
     return asyncio.run(
         run_scan_graph(
             path,
@@ -95,7 +101,6 @@ def pipeline_path(
             model=model,
             max_retries=max_retries,
             retry_delay_seconds=retry_delay_seconds,
-            thread_id=thread_id,
         )
     )
 
