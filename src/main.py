@@ -722,6 +722,22 @@ async def process_image_message(
                 if run is not None:
                     run.metadata["processing_status"] = "session_closed"
 
+        elif session_status == "needs_user_selection":
+            # Ambiguous — send interactive list with candidates.
+            # Check this BEFORE outcome == "complete" because the per-image
+            # outcome can be "complete" (all boxes in photo 2 scanned) while
+            # the session still needs the user to pick which barcodes to add.
+            candidates = result.get("session_candidates", [])
+            if not candidates:
+                candidates = session_result.candidates if session_result else []
+            candidate_dicts = [
+                c.model_dump(mode="json") if hasattr(c, "model_dump") else c
+                for c in candidates
+            ]
+            await _send_candidate_list(sender, candidate_dicts)
+            if run is not None:
+                run.metadata["processing_status"] = "needs_user_selection"
+
         elif outcome == "complete":
             # Single-image complete — session is also complete.
             await _send_session_complete_reply(sender, result)
@@ -733,20 +749,6 @@ async def process_image_message(
             await _send_session_needs_more_reply(sender, result)
             if run is not None:
                 run.metadata["processing_status"] = "needs_better_photo"
-
-        elif session_status == "needs_user_selection":
-            # Ambiguous — send interactive list with candidates.
-            candidates = result.get("session_candidates", [])
-            if not candidates:
-                # Read from session result if not in result dict.
-                candidates = session_result.candidates if session_result else []
-            candidate_dicts = [
-                c.model_dump(mode="json") if hasattr(c, "model_dump") else c
-                for c in candidates
-            ]
-            await _send_candidate_list(sender, candidate_dicts)
-            if run is not None:
-                run.metadata["processing_status"] = "needs_user_selection"
 
         else:  # retryable_error
             error = result.get("error", {})

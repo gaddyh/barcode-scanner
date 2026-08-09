@@ -291,6 +291,136 @@ async def test_session_ambiguous_more_new_than_missing(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_session_9_of_12_then_6_new_boxes_should_ask(tmp_path: Path) -> None:
+    """Photo 1: 9/12 (3 missing). Photo 2: 6 boxes, 4 new → should ask, not complete."""
+    repo = NoOpSessionRepository()
+    img = tmp_path / "img.png"
+    img.write_bytes(b"fake")
+
+    mock1 = {
+        "outcome": "needs_better_photo",
+        "audit_available": True,
+        "found": [
+            {"barcode_value": "111", "label_index": 1},
+            {"barcode_value": "222", "label_index": 2},
+            {"barcode_value": "333", "label_index": 3},
+            {"barcode_value": "444", "label_index": 4},
+            {"barcode_value": "555", "label_index": 5},
+            {"barcode_value": "666", "label_index": 6},
+            {"barcode_value": "777", "label_index": 7},
+            {"barcode_value": "888", "label_index": 8},
+            {"barcode_value": "999", "label_index": 9},
+        ],
+        "missing": [
+            {"label_index": 10, "status": "not_visible", "label_bbox": {}, "barcode_bbox": {}},
+            {"label_index": 11, "status": "not_visible", "label_bbox": {}, "barcode_bbox": {}},
+            {"label_index": 12, "status": "not_visible", "label_bbox": {}, "barcode_bbox": {}},
+        ],
+        "unassigned": [],
+        "summary": {"visible_label_count": 12, "found_count": 9, "missing_count": 3},
+    }
+
+    # Photo 2: 6 boxes. 2 already known + 4 new. 4 > 3 missing → ambiguous.
+    mock2 = {
+        "outcome": "complete",
+        "audit_available": True,
+        "found": [
+            {"barcode_value": "111", "label_index": 1},  # already known
+            {"barcode_value": "222", "label_index": 2},  # already known
+            {"barcode_value": "AAA", "label_index": 3},  # new
+            {"barcode_value": "BBB", "label_index": 4},  # new
+            {"barcode_value": "CCC", "label_index": 5},  # new
+            {"barcode_value": "DDD", "label_index": 6},  # new
+        ],
+        "missing": [],
+        "unassigned": [],
+        "summary": {"visible_label_count": 6, "found_count": 6, "missing_count": 0},
+    }
+
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
+        result1 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
+    assert result1.status == SessionStatus.ACTIVE
+    assert result1.found_count == 9
+    assert result1.missing_count == 3
+
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock2)):
+        result2 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
+
+    # 4 new > 3 missing → should ask, not complete
+    assert result2.status == SessionStatus.NEEDS_USER_SELECTION
+    assert result2.found_count == 9  # unchanged
+    assert result2.missing_count == 3  # still missing
+    assert len(result2.candidates) == 4
+    candidate_barcodes = {c.barcode_value for c in result2.candidates}
+    assert candidate_barcodes == {"AAA", "BBB", "CCC", "DDD"}
+
+
+@pytest.mark.asyncio
+async def test_session_9_of_12_then_6_boxes_3_new_3_known(tmp_path: Path) -> None:
+    """Photo 1: 9/12 (3 missing). Photo 2: 6 boxes, 3 known + 3 new → accept, complete.
+
+    3 new == 3 missing → exact match → accept all, resolve all → complete.
+    This is correct: the 3 new barcodes resolve the 3 missing labels.
+    """
+    repo = NoOpSessionRepository()
+    img = tmp_path / "img.png"
+    img.write_bytes(b"fake")
+
+    mock1 = {
+        "outcome": "needs_better_photo",
+        "audit_available": True,
+        "found": [
+            {"barcode_value": "111", "label_index": 1},
+            {"barcode_value": "222", "label_index": 2},
+            {"barcode_value": "333", "label_index": 3},
+            {"barcode_value": "444", "label_index": 4},
+            {"barcode_value": "555", "label_index": 5},
+            {"barcode_value": "666", "label_index": 6},
+            {"barcode_value": "777", "label_index": 7},
+            {"barcode_value": "888", "label_index": 8},
+            {"barcode_value": "999", "label_index": 9},
+        ],
+        "missing": [
+            {"label_index": 10, "status": "not_visible", "label_bbox": {}, "barcode_bbox": {}},
+            {"label_index": 11, "status": "not_visible", "label_bbox": {}, "barcode_bbox": {}},
+            {"label_index": 12, "status": "not_visible", "label_bbox": {}, "barcode_bbox": {}},
+        ],
+        "unassigned": [],
+        "summary": {"visible_label_count": 12, "found_count": 9, "missing_count": 3},
+    }
+
+    # Photo 2: 6 boxes. 3 already known + 3 new. 3 == 3 missing → accept.
+    mock2 = {
+        "outcome": "complete",
+        "audit_available": True,
+        "found": [
+            {"barcode_value": "111", "label_index": 1},  # already known
+            {"barcode_value": "222", "label_index": 2},  # already known
+            {"barcode_value": "333", "label_index": 3},  # already known
+            {"barcode_value": "AAA", "label_index": 4},  # new
+            {"barcode_value": "BBB", "label_index": 5},  # new
+            {"barcode_value": "CCC", "label_index": 6},  # new
+        ],
+        "missing": [],
+        "unassigned": [],
+        "summary": {"visible_label_count": 6, "found_count": 6, "missing_count": 0},
+    }
+
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
+        result1 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
+    assert result1.status == SessionStatus.ACTIVE
+    assert result1.found_count == 9
+
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock2)):
+        result2 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
+
+    # 3 new == 3 missing → exact match → accept all → complete
+    assert result2.status == SessionStatus.COMPLETE
+    assert result2.found_count == 12  # 9 + 3
+    assert result2.missing_count == 0
+
+
+@pytest.mark.asyncio
 async def test_session_dedup_same_barcode_not_ambiguous(tmp_path: Path) -> None:
     """Missing 1, photo has 2 new but same value (same product, 2 boxes) → accept, don't ask."""
     repo = NoOpSessionRepository()
