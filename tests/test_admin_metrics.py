@@ -23,14 +23,27 @@ def _run(
     recovery_attempted: bool = False,
     recovery_labels_resolved: int = 0,
     latency_ms: int = 3000,
+    source: str = "cli",
+    pipeline_version: str = "ingest-v1",
+    scanner_version: str = "scanner-0.8",
+    recovery_version: str = "recovery-v1",
+    vision_model: str = "gemini-3.5-flash-lite",
+    vision_prompt_version: str = "label-audit-v1",
+    scanner_vision_match: bool = True,
 ) -> StubRun:
     return StubRun(metadata={
         "final_status": final_status,
-        "source": "cli",
+        "source": source,
         "found_count": found_count,
         "recovery_attempted": recovery_attempted,
         "recovery_labels_resolved": recovery_labels_resolved,
         "latency_ms": latency_ms,
+        "pipeline_version": pipeline_version,
+        "scanner_version": scanner_version,
+        "recovery_version": recovery_version,
+        "vision_model": vision_model,
+        "vision_prompt_version": vision_prompt_version,
+        "scanner_vision_match": scanner_vision_match,
     })
 
 
@@ -109,3 +122,115 @@ def test_metrics_truncation(client: TestClient, monkeypatch: pytest.MonkeyPatch)
     data = resp.json()
     assert data["truncated"] is True
     assert data["images_processed"] == 100
+
+
+# ---------------------------------------------------------------------------
+# group_by — version comparisons as true rates
+# ---------------------------------------------------------------------------
+
+
+def test_group_by_pipeline_version(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """group_by=pipeline_version → one MetricsResponse per version."""
+    runs = [
+        _run(final_status="complete", pipeline_version="ingest-v1"),
+        _run(final_status="complete", pipeline_version="ingest-v1"),
+        _run(final_status="needs_user_input", pipeline_version="ingest-v1"),
+        _run(final_status="complete", pipeline_version="ingest-v2"),
+        _run(final_status="needs_user_input", pipeline_version="ingest-v2"),
+    ]
+    _patch_client(monkeypatch, FakeClient(runs=runs))
+
+    resp = client.get("/admin/metrics?group_by=pipeline_version")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["group_by"] == "pipeline_version"
+    assert data["source"] == "langsmith"
+    groups = data["groups"]
+    assert set(groups.keys()) == {"ingest-v1", "ingest-v2"}
+    assert groups["ingest-v1"]["images_processed"] == 3
+    assert groups["ingest-v1"]["final_complete_pct"] == 66.7
+    assert groups["ingest-v2"]["images_processed"] == 2
+    assert groups["ingest-v2"]["final_complete_pct"] == 50.0
+
+
+def test_group_by_scanner_version(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """group_by=scanner_version → mismatch rate per scanner version."""
+    runs = [
+        _run(scanner_vision_match=True, scanner_version="scanner-0.8"),
+        _run(scanner_vision_match=False, scanner_version="scanner-0.8"),
+        _run(scanner_vision_match=True, scanner_version="scanner-0.9"),
+        _run(scanner_vision_match=True, scanner_version="scanner-0.9"),
+    ]
+    _patch_client(monkeypatch, FakeClient(runs=runs))
+
+    resp = client.get("/admin/metrics?group_by=scanner_version")
+    assert resp.status_code == 200
+    groups = resp.json()["groups"]
+    assert groups["scanner-0.8"]["scanner_vision_match_pct"] == 50.0
+    assert groups["scanner-0.9"]["scanner_vision_match_pct"] == 100.0
+
+
+def test_group_by_source(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """group_by=source → metrics per source (cli, web, whatsapp)."""
+    runs = [
+        _run(final_status="complete", source="cli"),
+        _run(final_status="needs_user_input", source="web"),
+    ]
+    _patch_client(monkeypatch, FakeClient(runs=runs))
+
+    resp = client.get("/admin/metrics?group_by=source")
+    assert resp.status_code == 200
+    groups = resp.json()["groups"]
+    assert set(groups.keys()) == {"cli", "web"}
+    assert groups["cli"]["final_complete_pct"] == 100.0
+    assert groups["web"]["user_retry_required_pct"] == 100.0
+
+
+def test_group_by_invalid_returns_400(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Invalid group_by value → 400 with valid options."""
+    _patch_client(monkeypatch, FakeClient(runs=[]))
+
+    resp = client.get("/admin/metrics?group_by=nonexistent")
+    assert resp.status_code == 400
+    assert "nonexistent" in resp.json()["detail"]
+
+
+def test_group_by_empty_runs(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Empty runs with group_by → empty groups dict."""
+    _patch_client(monkeypatch, FakeClient(runs=[]))
+
+    resp = client.get("/admin/metrics?group_by=pipeline_version")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["groups"] == {}
+    assert data["source"] == "langsmith"
+
+
+def test_group_by_langsmith_unavailable(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LangSmith down + group_by → source=unavailable, empty groups."""
+    _patch_client(monkeypatch, FakeClient(exc=Exception("API down")))
+
+    resp = client.get("/admin/metrics?group_by=pipeline_version")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["source"] == "unavailable"
+    assert data["groups"] == {}
+
+
+def test_group_by_missing_version_defaults_to_unknown(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Runs without the version key → grouped under 'unknown'."""
+    runs = [
+        StubRun(metadata={"final_status": "complete", "source": "cli"}),
+        _run(final_status="complete", pipeline_version="ingest-v1"),
+    ]
+    _patch_client(monkeypatch, FakeClient(runs=runs))
+
+    resp = client.get("/admin/metrics?group_by=pipeline_version")
+    assert resp.status_code == 200
+    groups = resp.json()["groups"]
+    assert set(groups.keys()) == {"ingest-v1", "unknown"}
+    assert groups["unknown"]["images_processed"] == 1

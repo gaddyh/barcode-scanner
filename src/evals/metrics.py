@@ -242,6 +242,84 @@ def unavailable_response(time_window_hours: int = 24) -> MetricsResponse:
     )
 
 
+# ---------------------------------------------------------------------------
+# Grouped metrics — partition runs by a metadata field
+# ---------------------------------------------------------------------------
+
+
+VALID_GROUP_BY = frozenset({
+    "pipeline_version",
+    "scanner_version",
+    "recovery_version",
+    "vision_prompt_version",
+    "vision_model",
+    "source",
+})
+
+
+class GroupedMetricsResponse(BaseModel):
+    """Metrics partitioned by a metadata field (e.g. pipeline_version)."""
+
+    time_window_hours: int
+    source: str = "langsmith"
+    truncated: bool = False
+    group_by: str
+    groups: dict[str, MetricsResponse] = {}
+
+
+def compute_grouped_metrics(
+    runs: list[RunLike],
+    *,
+    group_by: str,
+    time_window_hours: int = 24,
+    truncated: bool = False,
+) -> GroupedMetricsResponse:
+    """Partition runs by a metadata field and compute metrics per group.
+
+    Args:
+        runs: List of run-like objects.
+        group_by: Metadata key to partition by (e.g. "pipeline_version").
+        time_window_hours: The query window.
+        truncated: Whether the query hit its limit.
+
+    Returns:
+        ``GroupedMetricsResponse`` with one ``MetricsResponse`` per group.
+    """
+    buckets: dict[str, list[RunLike]] = {}
+    for r in runs:
+        key = str(r.metadata.get(group_by, "unknown"))
+        buckets.setdefault(key, []).append(r)
+
+    groups = {}
+    for key in sorted(buckets):
+        groups[key] = compute_metrics(
+            buckets[key],
+            time_window_hours=time_window_hours,
+            truncated=truncated,
+        )
+
+    return GroupedMetricsResponse(
+        time_window_hours=time_window_hours,
+        source="langsmith",
+        truncated=truncated,
+        group_by=group_by,
+        groups=groups,
+    )
+
+
+def unavailable_grouped_response(
+    *,
+    group_by: str,
+    time_window_hours: int = 24,
+) -> GroupedMetricsResponse:
+    """Return a zeroed grouped response with source='unavailable'."""
+    return GroupedMetricsResponse(
+        time_window_hours=time_window_hours,
+        source="unavailable",
+        group_by=group_by,
+    )
+
+
 def _version_rates(
     runs: list[RunLike],
     version_key: str,

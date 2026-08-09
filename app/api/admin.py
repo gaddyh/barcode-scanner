@@ -26,8 +26,12 @@ from src.evals.annotation_store import (
     submit_review,
 )
 from src.evals.metrics import (
+    VALID_GROUP_BY,
+    GroupedMetricsResponse,
     MetricsResponse,
+    compute_grouped_metrics,
     compute_metrics,
+    unavailable_grouped_response,
     unavailable_response,
 )
 
@@ -160,14 +164,28 @@ _METRICS_LIMIT = 100
 
 
 @router.get("/metrics")
-def get_metrics(hours: int = 24) -> MetricsResponse:
-    """Return 8 operational metrics from LangSmith ingest_one traces.
+def get_metrics(
+    hours: int = 24,
+    group_by: str | None = None,
+) -> MetricsResponse | GroupedMetricsResponse:
+    """Return operational metrics from LangSmith ingest_one traces.
 
     Queries LangSmith for root ``ingest_one`` traces in the time window
     and aggregates in Python. Distinguishes empty data (source=langsmith)
     from API failure (source=unavailable). Returns ``truncated=true`` if
     the 100-run limit was hit (LangSmith's max page size).
+
+    If ``group_by`` is set (e.g. ``pipeline_version``, ``scanner_version``,
+    ``recovery_version``, ``vision_prompt_version``, ``vision_model``,
+    ``source``), returns a ``GroupedMetricsResponse`` with one
+    ``MetricsResponse`` per group — true rates per version, not raw counts.
     """
+    if group_by is not None and group_by not in VALID_GROUP_BY:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid group_by '{group_by}'. Valid values: {sorted(VALID_GROUP_BY)}",
+        )
+
     start = datetime.now(UTC) - timedelta(hours=hours)
     project = os.getenv("LANGSMITH_PROJECT", "default")
 
@@ -186,9 +204,20 @@ def get_metrics(hours: int = 24) -> MetricsResponse:
         )
     except Exception:
         logger.exception("admin_metrics_query_failed")
+        if group_by is not None:
+            return unavailable_grouped_response(group_by=group_by, time_window_hours=hours)
         return unavailable_response(time_window_hours=hours)
 
     truncated = len(runs) >= _METRICS_LIMIT
+
+    if group_by is not None:
+        return compute_grouped_metrics(
+            runs,
+            group_by=group_by,
+            time_window_hours=hours,
+            truncated=truncated,
+        )
+
     return compute_metrics(
         runs,
         time_window_hours=hours,

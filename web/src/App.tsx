@@ -6,6 +6,8 @@ import {
   type AnalyzeResponse,
   type ScanResponse,
 } from "./api";
+import { useHashRoute } from "./router";
+import { AdminApp } from "./admin/AdminApp";
 
 type Source = "camera" | "gallery";
 type Mode = "scanner" | "pipeline";
@@ -17,6 +19,7 @@ function formatBytes(n: number): string {
 }
 
 export default function App() {
+  const route = useHashRoute();
   const [file, setFile] = useState<File | null>(null);
   const [source, setSource] = useState<Source | null>(null);
   const [mode, setMode] = useState<Mode>("pipeline");
@@ -30,6 +33,8 @@ export default function App() {
 
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
+
+  if (route === "#/admin") return <AdminApp />;
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>, src: Source) {
     const f = e.target.files?.[0] ?? null;
@@ -230,6 +235,12 @@ export default function App() {
           )}
         </div>
       )}
+
+      <div style={{ marginTop: 32, paddingTop: 16, borderTop: "1px solid #e2e8f0" }}>
+        <a href="#/admin" style={{ color: "#3b82f6", textDecoration: "none", fontSize: 14, fontWeight: 500 }}>
+          Admin dashboard →
+        </a>
+      </div>
     </div>
   );
 }

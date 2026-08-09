@@ -138,3 +138,28 @@ async function extractError(res: Response): Promise<string> {
     return `HTTP ${res.status}: ${await res.text()}`;
   }
 }
+
+// --- Admin metrics (/admin/metrics) ---
+
+import type { MetricsResponse, GroupedMetricsResponse } from "./admin/types";
+
+export async function fetchMetrics(hours: number): Promise<MetricsResponse> {
+  const res = await fetch(`${apiBaseUrl}/admin/metrics?hours=${hours}`);
+  if (!res.ok) {
+    throw new Error(await extractError(res));
+  }
+  return (await res.json()) as MetricsResponse;
+}
+
+export async function fetchGroupedMetrics(
+  hours: number,
+  groupBy: string,
+): Promise<GroupedMetricsResponse> {
+  const res = await fetch(
+    `${apiBaseUrl}/admin/metrics?hours=${hours}&group_by=${groupBy}`,
+  );
+  if (!res.ok) {
+    throw new Error(await extractError(res));
+  }
+  return (await res.json()) as GroupedMetricsResponse;
+}
