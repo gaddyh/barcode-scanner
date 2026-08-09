@@ -340,7 +340,7 @@ async def test_parallel_join_barrier_reconcile_needs_both(tmp_path: Path) -> Non
 
     with _patch_audit_ok(spatial):
         with patch("src.ingest.graph._reconcile_node", _tracking_reconcile):
-            _graph_module._compiled_graph = None  # reset cache to pick up patch
+            _graph_module._invalidate_graph_cache()  # reset cache to pick up patch
             summary = await run_scan_graph(
                 img, scanner, model=None, max_retries=0, retry_delay_seconds=0.0,
             )
@@ -385,7 +385,7 @@ async def test_parallel_join_barrier_recovery_cycle(tmp_path: Path) -> None:
 
     with _patch_audit_ok(spatial):
         with patch("src.ingest.graph._reconcile_node", _tracking_reconcile):
-            _graph_module._compiled_graph = None  # reset cache to pick up patch
+            _graph_module._invalidate_graph_cache()  # reset cache to pick up patch
             summary = await run_scan_graph(
                 img, scanner, model=None, max_retries=0, retry_delay_seconds=0.0,
             )

@@ -639,11 +639,16 @@ def _route_after_reconcile(state: ScanState) -> str:
 # ---------------------------------------------------------------------------
 
 
-def build_scan_graph():
+def build_scan_graph(checkpointer=None):
     """Build and compile the barcode scan StateGraph.
 
-    Returns a ``CompiledGraph`` ready for ``.invoke()``. No checkpointer is
-    attached in M15A — durability is M15C.
+    Args:
+        checkpointer: Optional ``BaseCheckpointSaver`` for persistence.
+            When provided, the graph can be interrupted and resumed via
+            ``thread_id`` in the config. When ``None`` (default), the graph
+            runs without persistence.
+
+    Returns a ``CompiledGraph`` ready for ``.ainvoke()``.
     """
     builder = StateGraph(ScanState)
     builder.add_node("scan", _scan_node)
@@ -673,22 +678,56 @@ def build_scan_graph():
     # Finalize → END.
     builder.add_edge("finalize", END)
 
-    return builder.compile()
+    compile_kwargs: dict[str, object] = {}
+    if checkpointer is not None:
+        compile_kwargs["checkpointer"] = checkpointer
+    return builder.compile(**compile_kwargs)
 
 
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
-# Cache the compiled graph — it is stateless and reusable.
-_compiled_graph = None
+# Cache the compiled graphs — stateless and reusable.
+# Two variants: with and without checkpointer.
+_compiled_graph_no_checkpoint = None
+_compiled_graph_with_checkpoint = None
 
 
-def _get_graph():
-    global _compiled_graph
-    if _compiled_graph is None:
-        _compiled_graph = build_scan_graph()
-    return _compiled_graph
+def _get_graph(use_checkpoint: bool = False):
+    """Return a cached compiled graph.
+
+    Args:
+        use_checkpoint: If ``True``, return a graph with the Postgres
+            checkpointer attached (for resume/interrupt support). If the
+            checkpointer is not initialized, falls back to no-checkpoint.
+    """
+    global _compiled_graph_no_checkpoint, _compiled_graph_with_checkpoint
+
+    if use_checkpoint:
+        from src.ingest.checkpoint import get_checkpointer
+
+        checkpointer = get_checkpointer()
+        if checkpointer is None:
+            # No checkpointer configured — fall back to plain graph.
+            use_checkpoint = False
+        else:
+            if _compiled_graph_with_checkpoint is None:
+                _compiled_graph_with_checkpoint = build_scan_graph(
+                    checkpointer=checkpointer
+                )
+            return _compiled_graph_with_checkpoint
+
+    if _compiled_graph_no_checkpoint is None:
+        _compiled_graph_no_checkpoint = build_scan_graph()
+    return _compiled_graph_no_checkpoint
+
+
+def _invalidate_graph_cache() -> None:
+    """Clear cached compiled graphs. Used by tests that patch nodes."""
+    global _compiled_graph_no_checkpoint, _compiled_graph_with_checkpoint
+    _compiled_graph_no_checkpoint = None
+    _compiled_graph_with_checkpoint = None
 
 
 async def run_scan_graph(
@@ -698,6 +737,7 @@ async def run_scan_graph(
     model: str | None,
     max_retries: int,
     retry_delay_seconds: float,
+    thread_id: str | None = None,
 ) -> dict[str, object]:
     """Run the LangGraph scan pipeline (async) and return the summary dict.
 
@@ -705,6 +745,13 @@ async def run_scan_graph(
     return value. This is the canonical async entry point;
     ``pipeline_path()`` is a thin traced facade that bridges via
     ``asyncio.run()`` for sync callers.
+
+    Args:
+        thread_id: Optional unique ID for checkpoint persistence. When
+            provided and a checkpointer is configured, the graph state is
+            saved to Postgres after every superstep. This enables resume
+            after interruption (M15D HITL). When ``None`` or when no
+            checkpointer is configured, the graph runs without persistence.
     """
     initial_state: ScanState = {  # type: ignore[misc]
         "path": str(path),
@@ -714,6 +761,12 @@ async def run_scan_graph(
         "retry_delay_seconds": retry_delay_seconds,
     }
 
-    graph = _get_graph()
-    final_state = await graph.ainvoke(initial_state)
+    use_checkpoint = thread_id is not None
+    graph = _get_graph(use_checkpoint=use_checkpoint)
+
+    config: dict[str, object] = {}
+    if use_checkpoint and thread_id is not None:
+        config["configurable"] = {"thread_id": thread_id}
+
+    final_state = await graph.ainvoke(initial_state, config=config)
     return final_state["summary"]

@@ -108,6 +108,13 @@ async def lifespan(app: FastAPI):
         run_repo = PostgresRunRepository(_db_pool)
         annotation_repo = PostgresAnnotationRepository(_db_pool)
         logger.info("Postgres operational DB ready")
+
+        # Initialize LangGraph checkpointer (M15C) — uses a separate psycopg
+        # pool for the checkpoint tables in the same Postgres instance.
+        from src.ingest.checkpoint import close_checkpointer, init_checkpointer
+
+        await init_checkpointer(settings.database_url)
+        logger.info("LangGraph checkpointer ready")
     else:
         logger.info("No DATABASE_URL — using NoOp repository (no persistence)")
 
@@ -115,6 +122,8 @@ async def lifespan(app: FastAPI):
 
     if _db_pool is not None:
         await _db_pool.close()
+    if settings.database_url:
+        await close_checkpointer()
     if transcriber is not None:
         await transcriber.close()
 
@@ -411,7 +420,9 @@ async def process_image_message(
                 "Starting analyze_image upload_id=%s trace_id=%s for %s from=%s",
                 upload_id, trace_id, temp_path, sender,
             )
-            result = await asyncio.to_thread(analyze_image, temp_path)
+            result = await asyncio.to_thread(
+                analyze_image, temp_path, thread_id=upload_id
+            )
             result["upload_id"] = upload_id
             result["trace_id"] = trace_id
             result["source"] = "whatsapp"

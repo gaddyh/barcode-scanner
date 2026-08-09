@@ -63,6 +63,7 @@ def pipeline_path(
     model: str | None,
     max_retries: int,
     retry_delay_seconds: float,
+    thread_id: str | None = None,
 ) -> dict[str, object]:
     """Run deterministic scan and Gemini audit in parallel, return combined summary.
 
@@ -71,6 +72,9 @@ def pipeline_path(
     is reshaped by ``analyze_image`` into the product response.
 
     Stamps component versions on the pipeline span for LangSmith tracing.
+
+    Args:
+        thread_id: Optional unique ID for checkpoint persistence (M15C).
     """
     # Stamp component versions on the pipeline span.
     _run = ls.get_current_run_tree() if _TRACING else None
@@ -91,6 +95,7 @@ def pipeline_path(
             model=model,
             max_retries=max_retries,
             retry_delay_seconds=retry_delay_seconds,
+            thread_id=thread_id,
         )
     )
 

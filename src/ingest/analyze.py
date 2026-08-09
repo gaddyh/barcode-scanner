@@ -78,6 +78,7 @@ def analyze_image(
     model: str | None = None,
     max_retries: int = DEFAULT_MAX_RETRIES,
     retry_delay_seconds: float = DEFAULT_RETRY_DELAY_SECONDS,
+    thread_id: str | None = None,
 ) -> dict[str, object]:
     """Run the pipeline on one image and return a product-shaped result.
 
@@ -89,6 +90,9 @@ def analyze_image(
             module default.
         max_retries: Gemini retry count after the first attempt.
         retry_delay_seconds: Base delay between retries (exponential backoff).
+        thread_id: Optional unique ID for LangGraph checkpoint persistence
+            (M15C). When provided and a checkpointer is configured, the graph
+            state is saved to Postgres after every superstep.
 
     Returns:
         A JSON-serializable dict with ``outcome``, ``found``, ``missing``,
@@ -126,6 +130,7 @@ def analyze_image(
             model=model,
             max_retries=max_retries,
             retry_delay_seconds=retry_delay_seconds,
+            thread_id=thread_id,
         )
         result = _reshape(summary, image_width, image_height, image_path=path)
         logger.info(

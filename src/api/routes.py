@@ -254,7 +254,10 @@ async def _traced_analyze(
     try:
         # Run in a thread because analyze_image → pipeline_path → asyncio.run()
         # needs its own event loop (FastAPI's loop is already running).
-        result = await asyncio.to_thread(analyze_image, image_bytes)
+        # Pass upload_id as thread_id for LangGraph checkpoint persistence (M15C).
+        result = await asyncio.to_thread(
+            analyze_image, image_bytes, thread_id=upload_id
+        )
     except Exception as exc:
         elapsed_ms = int((time.perf_counter() - t0) * 1000)
         await persist_fail_run(repo, upload_id, exc)
