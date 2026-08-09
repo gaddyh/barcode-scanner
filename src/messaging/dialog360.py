@@ -71,6 +71,75 @@ class Dialog360Client:
 
         return response_body
 
+    async def send_interactive(
+        self,
+        to: str,
+        body_text: str,
+        sections: list[dict[str, Any]],
+        button_text: str = "Select",
+        header_text: str | None = None,
+    ) -> dict[str, Any]:
+        """Send a WhatsApp interactive list message.
+
+        ``sections`` is a list of dicts with ``title`` and ``rows`` keys.
+        Each row is a dict with ``id``, ``title``, and optional ``description``.
+
+        Example::
+
+            await client.send_interactive(
+                to=sender,
+                body_text="Found 4 new barcodes but only 1 missing. Pick one:",
+                sections=[{
+                    "title": "Candidates",
+                    "rows": [
+                        {"id": "7297500243423", "title": "7297500243423"},
+                        {"id": "7297500243430", "title": "7297500243430"},
+                    ],
+                }],
+            )
+        """
+        payload: dict[str, Any] = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": normalize_phone(to),
+            "type": "interactive",
+            "interactive": {
+                "type": "list",
+                "body": {"text": body_text},
+                "action": {
+                    "button": button_text,
+                    "sections": sections,
+                },
+            },
+        }
+        if header_text:
+            payload["interactive"]["header"] = {
+                "type": "text",
+                "text": header_text,
+            }
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(
+                self.messages_url,
+                headers=self.json_headers,
+                json=payload,
+            )
+
+        try:
+            response_body: Any = response.json()
+        except Exception:
+            response_body = response.text
+
+        if response.status_code not in {200, 201}:
+            logger.error(
+                "360dialog send_interactive failed: status=%s body=%s",
+                response.status_code,
+                response_body,
+            )
+            response.raise_for_status()
+
+        return response_body
+
     async def send_typing_indicator(self, incoming_message_id: str) -> dict[str, Any]:
         """
         Show WhatsApp typing indicator.
@@ -300,6 +369,22 @@ def iter_incoming_messages(payload: dict[str, Any]) -> Iterable[dict[str, Any]]:
                     normalized["mime_type"] = doc.get("mime_type", "")
                     normalized["filename"] = doc.get("filename", "")
                     normalized["caption"] = doc.get("caption", "")
+                    yield normalized
+
+                elif msg_type == "interactive":
+                    interactive = message.get("interactive", {}) or {}
+                    # List reply: interactive.list_reply.id
+                    list_reply = interactive.get("list_reply", {})
+                    if list_reply:
+                        normalized["interactive_id"] = list_reply.get("id", "")
+                        normalized["interactive_title"] = list_reply.get("title", "")
+                        normalized["text"] = list_reply.get("id", "")
+                    # Button reply: interactive.button_reply.id
+                    button_reply = interactive.get("button_reply", {})
+                    if button_reply:
+                        normalized["interactive_id"] = button_reply.get("id", "")
+                        normalized["interactive_title"] = button_reply.get("title", "")
+                        normalized["text"] = button_reply.get("id", "")
                     yield normalized
 
                 else:

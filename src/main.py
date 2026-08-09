@@ -41,21 +41,21 @@ from PIL import Image
 from src.api.admin import router as admin_router
 from src.api.routes import router
 from src.config import settings
-from src.models.upload import generate_upload_id
+from src.db import create_pool, init_db
 from src.messaging.dialog360 import Dialog360Client, iter_incoming_messages
 from src.messaging.transcribe import (
     Transcriber,
     handle_360dialog_audio_message,
 )
 from src.messaging.transcription_factory import get_transcriber
-from src.db import create_pool, init_db
+from src.models.upload import generate_upload_id
 from src.repository import (
-    NoOpRunRepository,
-    NoOpAnnotationRepository,
-    PostgresRunRepository,
-    PostgresAnnotationRepository,
-    RunRepository,
     AnnotationRepository,
+    NoOpAnnotationRepository,
+    NoOpRunRepository,
+    PostgresAnnotationRepository,
+    PostgresRunRepository,
+    RunRepository,
 )
 
 logger = logging.getLogger(__name__)
@@ -246,10 +246,14 @@ async def _traced_process_message(
                     run.metadata["processing_status"] = "unsupported_document_type"
         elif msg_type == "audio":
             await process_audio_message(msg, sender, run)
-        elif msg_type == "text":
-            await send_photo_instruction(sender)
-            if run is not None:
-                run.metadata["processing_status"] = "completed"
+        elif msg_type in ("text", "interactive"):
+            # Check if the sender has a session awaiting user selection.
+            handled = await _maybe_handle_selection(msg, sender, run)
+            if not handled:
+                # No selection pending — ask for a photo.
+                await send_photo_instruction(sender)
+                if run is not None:
+                    run.metadata["processing_status"] = "completed"
         else:
             if run is not None:
                 run.metadata["processing_status"] = "unsupported_message_type"
@@ -298,6 +302,122 @@ async def process_message(msg: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 # Per-type handlers
 # ---------------------------------------------------------------------------
+
+
+async def _maybe_handle_selection(
+    msg: dict[str, Any], sender: str, run: Any
+) -> bool:
+    """Check if the sender has a session awaiting user selection.
+
+    If the sender's session is in ``needs_user_selection`` status:
+    - If the message is an interactive reply (or text matching a candidate
+      barcode value), resolve the selection and reply with the result.
+    - If the text doesn't match any candidate, re-send the candidate list.
+
+    Returns True if handled (session was in selection mode), False otherwise.
+    """
+    from src.session_repository import (
+        NoOpSessionRepository as _NoOpSess,
+    )
+    from src.session_repository import (
+        SessionRepository as _SessRepo,
+    )
+
+    if _db_pool is not None:
+        repo = _SessRepo(_db_pool)
+    else:
+        repo = _NoOpSess()
+
+    session = await repo.find_active_by_participant("whatsapp", sender)
+    if session is None or session.get("status") != "needs_user_selection":
+        return False
+
+    session_id = session["id"]
+    raw_candidates = session.get("candidates") or []
+    if isinstance(raw_candidates, str):
+        import json as _json
+        raw_candidates = _json.loads(raw_candidates)
+
+    candidate_values = {c.get("barcode_value") for c in raw_candidates}
+    if not candidate_values:
+        # No candidates stored — reset to active and ask for photo.
+        from src.ingest.session_models import SessionStatus
+        await repo.update_session(session_id, status=SessionStatus.ACTIVE, candidates=[])
+        await _safe_send_text(sender, "Please send a clear photo of the box labels.")
+        return True
+
+    # The user's reply — interactive replies put the id in "text", text
+    # messages have the body in "text".
+    user_text = (msg.get("text") or "").strip()
+
+    if user_text in candidate_values:
+        # Valid selection — resolve it.
+        from src.ingest.session_graph import select_candidate
+        try:
+            result = await select_candidate(session_id, user_text, repo=repo)
+        except ValueError as exc:
+            logger.warning("Selection failed for session=%s: %s", session_id, exc)
+            await _send_candidate_list(sender, raw_candidates)
+            return True
+
+        if result.status.value == "complete":
+            await _safe_send_text(
+                sender,
+                f"✅ סריקה הושלמה! נמצאו {result.found_count} מתוך {result.expected_count} ברקודים.\n"
+                f"כל הקופסאות זוהו בהצלחה.",
+            )
+        else:
+            msg_text = result.message or "Send another photo."
+            await _safe_send_text(sender, msg_text)
+
+        if run is not None:
+            run.metadata["processing_status"] = "selection_resolved"
+        return True
+    else:
+        # Doesn't match any candidate — re-send the list.
+        await _send_candidate_list(sender, raw_candidates)
+        if run is not None:
+            run.metadata["processing_status"] = "selection_invalid_reply"
+        return True
+
+
+async def _send_candidate_list(
+    sender: str, candidates: list[dict[str, Any]]
+) -> None:
+    """Send the candidate barcodes as a WhatsApp interactive list."""
+    if wa_client is None:
+        # Fallback to text if no WhatsApp client (e.g. local dev).
+        barcodes = [c.get("barcode_value", "") for c in candidates]
+        await _safe_send_text(
+            sender,
+            f"Found {len(barcodes)} new barcodes. Which one to add?\n"
+            + "\n".join(f"- {b}" for b in barcodes)
+        )
+        return
+
+    rows = [
+        {
+            "id": c.get("barcode_value", ""),
+            "title": c.get("barcode_value", ""),
+        }
+        for c in candidates
+    ]
+    try:
+        await wa_client.send_interactive(
+            to=sender,
+            body_text=f"Found {len(candidates)} new barcodes but need to pick one. Tap to select:",
+            sections=[{"title": "Candidates", "rows": rows}],
+            button_text="Select",
+        )
+    except Exception:
+        logger.exception("Failed to send interactive list to=%s", sender)
+        # Fallback to text.
+        barcodes = [c.get("barcode_value", "") for c in candidates]
+        await _safe_send_text(
+            sender,
+            f"Found {len(barcodes)} new barcodes. Which one to add?\n"
+            + "\n".join(f"- {b}" for b in barcodes)
+        )
 
 
 @ls.traceable(
@@ -404,7 +524,9 @@ async def process_image_message(
         # --- Analyze -----------------------------------------------------
         upload_id = generate_upload_id()
         # Persist run row (status=pending) before processing
-        from src.persistence import create_run as persist_create_run, complete_run_from_dict, fail_run as persist_fail_run
+        from src.persistence import complete_run_from_dict
+        from src.persistence import create_run as persist_create_run
+        from src.persistence import fail_run as persist_fail_run
         await persist_create_run(
             run_repo,
             run_id=upload_id,
@@ -426,6 +548,8 @@ async def process_image_message(
             from src.ingest.session_graph import run_session_graph as _run_session
             from src.session_repository import (
                 NoOpSessionRepository as _NoOpSess,
+            )
+            from src.session_repository import (
                 SessionRepository as _SessRepo,
             )
 
@@ -470,6 +594,9 @@ async def process_image_message(
                 "session_expected_count": session_result.expected_count,
                 "session_missing_count": session_result.missing_count,
                 "session_message": session_result.message,
+                "session_candidates": [
+                    c.model_dump(mode="json") for c in session_result.candidates
+                ],
                 "audit_available": latest.audit_available if latest else False,
             }
             logger.info(
@@ -606,6 +733,20 @@ async def process_image_message(
             await _send_session_needs_more_reply(sender, result)
             if run is not None:
                 run.metadata["processing_status"] = "needs_better_photo"
+
+        elif session_status == "needs_user_selection":
+            # Ambiguous — send interactive list with candidates.
+            candidates = result.get("session_candidates", [])
+            if not candidates:
+                # Read from session result if not in result dict.
+                candidates = session_result.candidates if session_result else []
+            candidate_dicts = [
+                c.model_dump(mode="json") if hasattr(c, "model_dump") else c
+                for c in candidates
+            ]
+            await _send_candidate_list(sender, candidate_dicts)
+            if run is not None:
+                run.metadata["processing_status"] = "needs_user_selection"
 
         else:  # retryable_error
             error = result.get("error", {})
