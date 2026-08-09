@@ -179,7 +179,7 @@ def compute_metrics(
 
     # --- Issues ---
     primary_issue_counts = dict(
-        Counter(r.metadata.get("primary_issue", "none") for r in runs)
+        Counter(r.metadata.get("primary_issue") or "none" for r in runs)
     )
 
     # --- Version breakdowns (true rates) ---
