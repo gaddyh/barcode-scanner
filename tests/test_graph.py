@@ -170,7 +170,7 @@ _OK_KEYS = _BASE_KEYS | {
 }
 
 
-def test_contract_complete_all_found(tmp_path: Path) -> None:
+async def test_contract_complete_all_found(tmp_path: Path) -> None:
     """Happy path: scan + audit both ok, all labels matched → complete summary."""
     img = _png_path(tmp_path)
     detections = [
@@ -184,7 +184,7 @@ def test_contract_complete_all_found(tmp_path: Path) -> None:
     scanner = _FakeScanner(detections)
 
     with _patch_audit_ok(spatial):
-        summary = run_scan_graph(
+        summary = await run_scan_graph(
             img, scanner, model=None, max_retries=0, retry_delay_seconds=0.0,
         )
 
@@ -202,7 +202,7 @@ def test_contract_complete_all_found(tmp_path: Path) -> None:
     assert len(summary["reconciliation"]["unmatched_labels"]) == 0
 
 
-def test_contract_recovery_cycle(tmp_path: Path) -> None:
+async def test_contract_recovery_cycle(tmp_path: Path) -> None:
     """Recovery: one label unmatched → recover → re-reconcile → resolved."""
     img = _png_path(tmp_path)
     # Scanner only finds 1 of 2 barcodes.
@@ -216,7 +216,7 @@ def test_contract_recovery_cycle(tmp_path: Path) -> None:
     scanner = _FakeScanner(detections, recovery_detections=[recovery_det])
 
     with _patch_audit_ok(spatial):
-        summary = run_scan_graph(
+        summary = await run_scan_graph(
             img, scanner, model=None, max_retries=0, retry_delay_seconds=0.0,
         )
 
@@ -230,7 +230,7 @@ def test_contract_recovery_cycle(tmp_path: Path) -> None:
     assert len(summary["reconciliation"]["matches"]) == 2
 
 
-def test_contract_scan_error(tmp_path: Path) -> None:
+async def test_contract_scan_error(tmp_path: Path) -> None:
     """Scan error → retryable_error summary, no reconciliation."""
     img = _png_path(tmp_path)
     spatial = _spatial([])
@@ -243,7 +243,7 @@ def test_contract_scan_error(tmp_path: Path) -> None:
             return []
 
     with _patch_audit_ok(spatial):
-        summary = run_scan_graph(
+        summary = await run_scan_graph(
             img, _ErrorScanner(), model=None, max_retries=0, retry_delay_seconds=0.0,
         )
 
@@ -258,14 +258,14 @@ def test_contract_scan_error(tmp_path: Path) -> None:
     assert "recovery" not in summary
 
 
-def test_contract_audit_error(tmp_path: Path) -> None:
+async def test_contract_audit_error(tmp_path: Path) -> None:
     """Audit error → ok=False, no reconciliation, audit_error present."""
     img = _png_path(tmp_path)
     detections = [_detection("111", x1=110, y1=110, x2=190, y2=290)]
     scanner = _FakeScanner(detections)
 
     with _patch_audit_error({"type": "ShoeboxAuditError", "message": "boom"}):
-        summary = run_scan_graph(
+        summary = await run_scan_graph(
             img, scanner, model=None, max_retries=0, retry_delay_seconds=0.0,
         )
 
@@ -310,7 +310,7 @@ def test_contract_pipeline_path_facade(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_parallel_join_barrier_reconcile_needs_both(tmp_path: Path) -> None:
+async def test_parallel_join_barrier_reconcile_needs_both(tmp_path: Path) -> None:
     """The Pregel barrier must hold: reconcile cannot run with a single result.
 
     This test verifies the implicit fan-out/join behavior by instrumenting the
@@ -334,14 +334,14 @@ def test_parallel_join_barrier_reconcile_needs_both(tmp_path: Path) -> None:
     reconcile_states: list[dict] = []
     original_reconcile = _reconcile_node
 
-    def _tracking_reconcile(state: ScanState) -> dict:
+    async def _tracking_reconcile(state: ScanState) -> dict:
         reconcile_states.append(dict(state))
-        return original_reconcile(state)
+        return await original_reconcile(state)
 
     with _patch_audit_ok(spatial):
         with patch("src.ingest.graph._reconcile_node", _tracking_reconcile):
             _graph_module._compiled_graph = None  # reset cache to pick up patch
-            summary = run_scan_graph(
+            summary = await run_scan_graph(
                 img, scanner, model=None, max_retries=0, retry_delay_seconds=0.0,
             )
 
@@ -361,7 +361,7 @@ def test_parallel_join_barrier_reconcile_needs_both(tmp_path: Path) -> None:
     assert summary["decoded_count"] == 2
 
 
-def test_parallel_join_barrier_recovery_cycle(tmp_path: Path) -> None:
+async def test_parallel_join_barrier_recovery_cycle(tmp_path: Path) -> None:
     """The barrier holds across the recovery cycle too.
 
     When recovery triggers a second reconcile pass, both results must still be
@@ -379,14 +379,14 @@ def test_parallel_join_barrier_recovery_cycle(tmp_path: Path) -> None:
     reconcile_states: list[dict] = []
     original_reconcile = _reconcile_node
 
-    def _tracking_reconcile(state: ScanState) -> dict:
+    async def _tracking_reconcile(state: ScanState) -> dict:
         reconcile_states.append(dict(state))
-        return original_reconcile(state)
+        return await original_reconcile(state)
 
     with _patch_audit_ok(spatial):
         with patch("src.ingest.graph._reconcile_node", _tracking_reconcile):
             _graph_module._compiled_graph = None  # reset cache to pick up patch
-            summary = run_scan_graph(
+            summary = await run_scan_graph(
                 img, scanner, model=None, max_retries=0, retry_delay_seconds=0.0,
             )
 

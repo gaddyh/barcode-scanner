@@ -45,7 +45,7 @@ from src.ingest.reconciliation import match_scanner_to_labels
 from src.ingest.scanner import BarcodeScanner
 from src.ingest.vision import (
     ShoeboxAuditError,
-    audit_shoebox_labels,
+    audit_shoebox_labels_async,
 )
 from src.observability.tracing import emit_pipeline_event
 from src.runtime.events import EventType
@@ -135,16 +135,20 @@ def scan_path(path: Path, scanner: BarcodeScanner) -> dict[str, object]:
 
 
 @traceable(run_type="tool", name="gemini_audit")
-def _traced_audit(
+async def _traced_audit(
     path: Path,
     *,
     model: str | None,
     max_retries: int,
     retry_delay_seconds: float,
 ) -> dict[str, object]:
-    """Traced wrapper for the Gemini spatial label audit."""
+    """Traced async wrapper for the Gemini spatial label audit.
+
+    Uses the native async google-genai client (``audit_shoebox_labels_async``)
+    so the audit node runs without blocking the event loop.
+    """
     try:
-        spatial = audit_shoebox_labels(
+        spatial = await audit_shoebox_labels_async(
             path,
             model=model,
             max_retries=max_retries,
@@ -313,11 +317,17 @@ class ScanState(TypedDict, total=False):
 # ---------------------------------------------------------------------------
 
 
-def _scan_node(state: ScanState) -> dict[str, Any]:
-    """Run the deterministic barcode scanner."""
+async def _scan_node(state: ScanState) -> dict[str, Any]:
+    """Run the deterministic barcode scanner.
+
+    ZXing is sync/CPU-bound, so it runs in a thread via ``asyncio.to_thread``
+    to avoid blocking the event loop.
+    """
+    import asyncio
+
     path = Path(state["path"])
     scanner = state["scanner"]
-    scan_result = scan_path(path, scanner)
+    scan_result = await asyncio.to_thread(scan_path, path, scanner)
 
     scan_ok = scan_result.get("status") in ("found", "not_found")
 
@@ -344,10 +354,10 @@ def _scan_node(state: ScanState) -> dict[str, Any]:
     return {"scan_result": scan_result, "scan_ok": scan_ok}
 
 
-def _audit_node(state: ScanState) -> dict[str, Any]:
-    """Run the Gemini spatial label audit."""
+async def _audit_node(state: ScanState) -> dict[str, Any]:
+    """Run the Gemini spatial label audit (native async)."""
     path = Path(state["path"])
-    audit_result = _traced_audit(
+    audit_result = await _traced_audit(
         path,
         model=state.get("model"),
         max_retries=state.get("max_retries", 0),
@@ -367,7 +377,7 @@ def _audit_node(state: ScanState) -> dict[str, Any]:
     return {"audit_result": audit_result, "audit_ok": audit_ok}
 
 
-def _reconcile_node(state: ScanState) -> dict[str, Any]:
+async def _reconcile_node(state: ScanState) -> dict[str, Any]:
     """Match scanner detections to Gemini labels.
 
     On the first pass, barcodes are read from ``scan_result``. After recovery,
@@ -435,12 +445,17 @@ def _reconcile_node(state: ScanState) -> dict[str, Any]:
     }
 
 
-def _recover_node(state: ScanState) -> dict[str, Any]:
+async def _recover_node(state: ScanState) -> dict[str, Any]:
     """Crop and aggressively scan unmatched label regions.
 
     Augments ``barcodes`` with any newly decoded detections. Sets
     ``recovery_attempted`` so ``route_after_reconcile`` does not loop again.
+
+    Recovery is CPU-bound (OpenCV + ZXing), so it runs in a thread via
+    ``asyncio.to_thread``.
     """
+    import asyncio
+
     reconciliation = state.get("reconciliation")
     if reconciliation is None:
         return {}
@@ -462,7 +477,8 @@ def _recover_node(state: ScanState) -> dict[str, Any]:
         labels_to_try=recovery_labels_tried,
     )
 
-    recovery_detections = _gemini_guided_recovery(
+    recovery_detections = await asyncio.to_thread(
+        _gemini_guided_recovery,
         path,
         scanner,
         unmatched_labels,
@@ -496,7 +512,7 @@ def _recover_node(state: ScanState) -> dict[str, Any]:
     }
 
 
-def _finalize_node(state: ScanState) -> dict[str, Any]:
+async def _finalize_node(state: ScanState) -> dict[str, Any]:
     """Build the summary dict — shape-identical to the old ``pipeline_path()``.
 
     Reads all node outputs from state and assembles the final summary. Recovery
@@ -675,7 +691,7 @@ def _get_graph():
     return _compiled_graph
 
 
-def run_scan_graph(
+async def run_scan_graph(
     path: Path,
     scanner: BarcodeScanner,
     *,
@@ -683,11 +699,12 @@ def run_scan_graph(
     max_retries: int,
     retry_delay_seconds: float,
 ) -> dict[str, object]:
-    """Run the LangGraph scan pipeline and return the summary dict.
+    """Run the LangGraph scan pipeline (async) and return the summary dict.
 
     The returned dict is shape-identical to the old ``pipeline_path()``
-    return value. This is the canonical entry point; ``pipeline_path()`` is a
-    thin traced facade that delegates here.
+    return value. This is the canonical async entry point;
+    ``pipeline_path()`` is a thin traced facade that bridges via
+    ``asyncio.run()`` for sync callers.
     """
     initial_state: ScanState = {  # type: ignore[misc]
         "path": str(path),
@@ -698,5 +715,5 @@ def run_scan_graph(
     }
 
     graph = _get_graph()
-    final_state = graph.invoke(initial_state)
+    final_state = await graph.ainvoke(initial_state)
     return final_state["summary"]

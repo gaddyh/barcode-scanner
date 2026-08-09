@@ -977,6 +977,102 @@ def audit_shoebox_labels(
     ) from last_error
 
 
+async def audit_shoebox_labels_async(
+    image_path: str | os.PathLike[str],
+    *,
+    api_key: str | None = None,
+    model: str | None = None,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+    retry_delay_seconds: float = DEFAULT_RETRY_DELAY_SECONDS,
+) -> SpatialLabelAuditPixels:
+    """Async version of ``audit_shoebox_labels``.
+
+    Uses the async google-genai client (``client.aio.models.generate_content``)
+    so the audit node can run natively in the async LangGraph runtime without
+    blocking the event loop or bridging through ``asyncio.to_thread``.
+
+    The retry loop uses ``asyncio.sleep`` instead of ``time.sleep`` so the
+    event loop stays free during backoff.
+
+    Args/Returns/Raises: identical to ``audit_shoebox_labels``.
+    """
+    import asyncio
+
+    if max_retries < 0:
+        raise ValueError("max_retries must be >= 0")
+    if retry_delay_seconds < 0:
+        raise ValueError("retry_delay_seconds must be >= 0")
+
+    if api_key is None:
+        load_dotenv()
+
+    resolved_api_key = api_key or os.getenv("GEMINI_API_KEY")
+    if not resolved_api_key:
+        raise ValueError(
+            "Missing Gemini API key. Pass api_key=... or set GEMINI_API_KEY."
+        )
+
+    resolved_model = model or os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
+    path = Path(image_path).expanduser().resolve()
+    normalized = load_normalized_image(path)
+    image_bytes = normalized.data
+    mime_type = normalized.mime_type
+
+    client = genai.Client(api_key=resolved_api_key)
+    last_error: Exception | None = None
+
+    config_kwargs: dict[str, object] = dict(
+        response_mime_type="application/json",
+        response_schema=_gemini_compatible_schema(SpatialLabelAudit),
+        temperature=0,
+    )
+    if "lite" not in resolved_model:
+        config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+
+    for attempt in range(max_retries + 1):
+        try:
+            response = await client.aio.models.generate_content(
+                model=resolved_model,
+                contents=[
+                    types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+                    SPATIAL_LABEL_PROMPT,
+                ],
+                config=types.GenerateContentConfig(**config_kwargs),
+            )
+
+            if response.parsed is not None:
+                if isinstance(response.parsed, SpatialLabelAudit):
+                    audit = response.parsed
+                else:
+                    audit = SpatialLabelAudit.model_validate(response.parsed)
+            elif response.text:
+                audit = SpatialLabelAudit.model_validate_json(response.text)
+            else:
+                raise ShoeboxAuditError(
+                    f"Gemini returned neither parsed output nor text for '{path.name}'."
+                )
+
+            return _convert_spatial_audit_to_pixels(
+                audit,
+                original_width=normalized.original_width,
+                original_height=normalized.original_height,
+            )
+
+        except Exception as exc:
+            last_error = exc
+            if attempt >= max_retries:
+                break
+
+            delay = retry_delay_seconds * (2**attempt)
+            if delay > 0:
+                await asyncio.sleep(delay)
+
+    raise ShoeboxAuditError(
+        f"Gemini spatial label audit failed for '{path.name}' after "
+        f"{max_retries + 1} attempt(s): {last_error}"
+    ) from last_error
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run a structured Gemini visual audit on a shoebox image."

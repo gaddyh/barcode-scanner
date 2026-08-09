@@ -1,21 +1,23 @@
 """
 pipeline.py
 
-Thin facade over the LangGraph-based pipeline orchestrator (M15A).
+Thin facade over the LangGraph-based pipeline orchestrator (M15A/M15B).
 
 The actual orchestration — parallel scan + audit, containment reconciliation,
 Gemini-guided recovery, and summary assembly — now lives in
-``src.ingest.graph`` as an explicit ``StateGraph``. This module preserves the
-public API (``pipeline_path``, ``scan_path``, ``_traced_audit``,
+``src.ingest.graph`` as an explicit async ``StateGraph``. This module
+preserves the public API (``pipeline_path``, ``scan_path``, ``_traced_audit``,
 ``RECOVERY_VERSION``) so existing consumers (``analyze.py``, ``cli_app``,
 ``observability.versions``, tests) continue to work unchanged.
 
-``pipeline_path()`` delegates to ``run_scan_graph()`` and returns a summary
-dict that is shape-identical to the previous hand-written implementation.
+``pipeline_path()`` delegates to the async ``run_scan_graph()`` and bridges
+via ``asyncio.run()`` for sync callers. The FastAPI route can call
+``run_scan_graph()`` directly to stay fully async.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from pathlib import Path
@@ -64,7 +66,8 @@ def pipeline_path(
 ) -> dict[str, object]:
     """Run deterministic scan and Gemini audit in parallel, return combined summary.
 
-    Delegates to the LangGraph orchestrator (``run_scan_graph``). The summary
+    Delegates to the async LangGraph orchestrator (``run_scan_graph``) and
+    bridges via ``asyncio.run()`` for sync callers (CLI, eval). The summary
     is reshaped by ``analyze_image`` into the product response.
 
     Stamps component versions on the pipeline span for LangSmith tracing.
@@ -81,12 +84,14 @@ def pipeline_path(
             }
         )
 
-    return run_scan_graph(
-        path,
-        scanner,
-        model=model,
-        max_retries=max_retries,
-        retry_delay_seconds=retry_delay_seconds,
+    return asyncio.run(
+        run_scan_graph(
+            path,
+            scanner,
+            model=model,
+            max_retries=max_retries,
+            retry_delay_seconds=retry_delay_seconds,
+        )
     )
 
 
