@@ -16,7 +16,7 @@ const TABS: { key: Tab; label: string }[] = [
 
 export function AdminApp() {
   const [tab, setTab] = useState<Tab>("overview");
-  const [hours, setHours] = useState(24);
+  const [hours, setHours] = useState(168);
 
   return (
     <div style={styles.container}>
@@ -91,7 +91,9 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 600,
     color: "#64748b",
     cursor: "pointer",
-    borderBottom: "2px solid transparent",
+    borderBottomWidth: 2,
+    borderBottomStyle: "solid",
+    borderBottomColor: "transparent",
     marginBottom: -2,
   },
   tabActive: {

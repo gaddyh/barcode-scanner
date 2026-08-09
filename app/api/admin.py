@@ -193,10 +193,18 @@ def get_metrics(
         from langsmith import Client
 
         client = Client()
+        # Match all production root trace names: CLI (ingest_one),
+        # web (web_analyze_barcode), and WhatsApp (process_whatsapp_message).
         runs = list(
             client.list_runs(
                 project_name=project,
-                filter='eq(name, "ingest_one")',
+                filter=(
+                    'or('
+                    'eq(name, "ingest_one"), '
+                    'eq(name, "web_analyze_barcode"), '
+                    'eq(name, "process_whatsapp_message")'
+                    ')'
+                ),
                 is_root=True,
                 start_time=start,
                 limit=_METRICS_LIMIT,

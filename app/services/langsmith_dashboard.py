@@ -22,7 +22,13 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-ROOT_TRACE_FILTER = 'eq(name, "ingest_one")'
+ROOT_TRACE_FILTER = (
+    'or('
+    'eq(name, "ingest_one"), '
+    'eq(name, "web_analyze_barcode"), '
+    'eq(name, "process_whatsapp_message")'
+    ')'
+)
 
 
 # ---------------------------------------------------------------------------

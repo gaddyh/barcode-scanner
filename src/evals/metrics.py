@@ -383,3 +383,9 @@ def _meta_bool(meta: dict[str, Any], key: str) -> bool:
     if isinstance(val, (int, float)):
         return val != 0
     return bool(val)
+
+
+def _meta_str(meta: dict[str, Any], key: str) -> str | None:
+    """Extract a string from metadata."""
+    val = meta.get(key)
+    return str(val) if val is not None else None

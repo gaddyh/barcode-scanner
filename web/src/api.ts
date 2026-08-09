@@ -131,11 +131,12 @@ export async function submitFeedback(
 }
 
 async function extractError(res: Response): Promise<string> {
+  const text = await res.text();
   try {
-    const body = await res.json();
+    const body = JSON.parse(text);
     return `HTTP ${res.status}: ${JSON.stringify(body)}`;
   } catch {
-    return `HTTP ${res.status}: ${await res.text()}`;
+    return `HTTP ${res.status}: ${text}`;
   }
 }
 

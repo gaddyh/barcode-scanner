@@ -212,6 +212,15 @@ async def _traced_analyze(
     )
 
     summary = result.get("summary", {})
+    recovery_info = summary.get("recovery", {})
+    scanner_count = len(result.get("found", [])) + summary.get("missing_count", 0)
+    vision_count = summary.get("visible_label_count", 0)
+    recovery_attempted = recovery_info.get("attempted", False)
+    recovery_labels_resolved = recovery_info.get("labels_resolved", 0)
+    outcome = result.get("outcome", "retryable_error")
+    # Normalize outcome to the canonical final_status values used by ingest_one.
+    final_status = "needs_user_input" if outcome == "needs_better_photo" else outcome
+
     run = ls.get_current_run_tree()
     if run is not None:
         run.metadata.update(
@@ -222,14 +231,18 @@ async def _traced_analyze(
                 "upload_bytes": upload_bytes,
                 "image_width": result.get("image_width", 0),
                 "image_height": result.get("image_height", 0),
-                "outcome": result.get("outcome"),
+                "outcome": outcome,
+                "final_status": final_status,
                 "audit_available": result.get("audit_available"),
-                "visible_label_count": summary.get("visible_label_count", 0),
+                "visible_label_count": vision_count,
                 "found_count": summary.get("found_count", 0),
                 "missing_count": summary.get("missing_count", 0),
                 "unassigned_count": summary.get("unassigned_count", 0),
                 "all_found": summary.get("all_found", False),
                 "elapsed_ms": elapsed_ms,
+                "latency_ms": elapsed_ms,
+                "scanner_count": scanner_count,
+                "vision_count": vision_count,
                 "found_values": [
                     f.get("barcode_value") for f in result.get("found", [])
                 ],
@@ -237,10 +250,14 @@ async def _traced_analyze(
                     m.get("label_index") for m in result.get("missing", [])
                 ],
                 "has_annotated_image": bool(result.get("annotated_image_b64")),
-                "recovery_attempted": summary.get("recovery", {}).get("attempted", False),
-                "recovery_labels_tried": summary.get("recovery", {}).get("labels_tried", 0),
-                "recovery_barcodes_found": summary.get("recovery", {}).get("barcodes_found", 0),
-                "recovery_labels_resolved": summary.get("recovery", {}).get("labels_resolved", 0),
+                "recovery_attempted": recovery_attempted,
+                "recovery_labels_tried": recovery_info.get("labels_tried", 0),
+                "recovery_barcodes_found": recovery_info.get("barcodes_found", 0),
+                "recovery_labels_resolved": recovery_labels_resolved,
+                # Derived fields for dashboard grouping
+                "scanner_vision_match": scanner_count == vision_count,
+                "count_delta": vision_count - scanner_count,
+                "recovery_succeeded": recovery_labels_resolved > 0,
             }
         )
 
