@@ -4,10 +4,9 @@ Endpoints for reviewing interesting pipeline failures, promoting
 reviewed candidates to the eval dataset, and querying operational
 metrics.
 
-Metrics source priority:
-    1. Postgres (if DATABASE_URL is set and pool is available) — fast, no
-       external API calls, no 100-run limit.
-    2. LangSmith (fallback if DB is unavailable) — queries trace metadata.
+Metrics are read from Postgres (the operational system of record).
+LangSmith remains the observability/evaluation system — it is not
+queried for admin metrics.
 
 No auth — dev only. Add auth before any real deployment.
 """
@@ -15,8 +14,6 @@ No auth — dev only. Add auth before any real deployment.
 from __future__ import annotations
 
 import logging
-import os
-from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from dotenv import load_dotenv
@@ -39,7 +36,6 @@ from src.evals.metrics import (
     unavailable_grouped_response,
     unavailable_response,
 )
-from src.repository import NoOpRunRepository
 
 load_dotenv()
 
@@ -166,7 +162,6 @@ def _candidate_to_summary(cand: Any) -> CandidateSummary:
 # ---------------------------------------------------------------------------
 
 
-_METRICS_LIMIT = 100
 _DB_METRICS_LIMIT = 2000
 
 
@@ -189,14 +184,14 @@ async def get_metrics(
     hours: int = 24,
     group_by: str | None = None,
 ) -> MetricsResponse | GroupedMetricsResponse:
-    """Return operational metrics.
+    """Return operational metrics from Postgres.
 
-    Source priority:
-        1. Postgres (if available) — fast, no external API, no 100-run limit.
-        2. LangSmith (fallback if DB unavailable) — queries trace metadata.
+    Postgres is the operational system of record. LangSmith is not
+    queried — it remains the observability/evaluation system only.
 
     If the DB is accessible but empty, returns zeroed metrics with
-    ``source="postgres"`` — no LangSmith fallback for empty data.
+    ``source="postgres"``. If the DB is unavailable, returns
+    ``source="unavailable"``.
 
     If ``group_by`` is set (e.g. ``pipeline_version``, ``scanner_version``,
     ``recovery_version``, ``vision_prompt_version``, ``vision_model``,
@@ -209,78 +204,33 @@ async def get_metrics(
             detail=f"Invalid group_by '{group_by}'. Valid values: {sorted(VALID_GROUP_BY)}",
         )
 
-    # --- Try Postgres first ---
     repo = _get_run_repo()
-    # NoOpRunRepository means no DB configured — skip to LangSmith fallback
-    db_available = not isinstance(repo, NoOpRunRepository)
-
-    if db_available:
-        try:
-            rows = await repo.query_runs(hours=hours, limit=_DB_METRICS_LIMIT)
-            runs = [_DbRowRunLike(r) for r in rows]
-            truncated = len(runs) >= _DB_METRICS_LIMIT
-
-            if group_by is not None:
-                resp = compute_grouped_metrics(
-                    runs,
-                    group_by=group_by,
-                    time_window_hours=hours,
-                    truncated=truncated,
-                )
-                resp.source = "postgres"
-                return resp
-
-            resp = compute_metrics(
-                runs,
-                time_window_hours=hours,
-                truncated=truncated,
-            )
-            resp.source = "postgres"
-            return resp
-        except Exception:
-            logger.warning("DB metrics query failed, falling back to LangSmith", exc_info=True)
-
-    # --- Fallback: LangSmith ---
-    start = datetime.now(UTC) - timedelta(hours=hours)
-    project = os.getenv("LANGSMITH_PROJECT", "default")
 
     try:
-        from langsmith import Client
-
-        client = Client()
-        runs = list(
-            client.list_runs(
-                project_name=project,
-                filter=(
-                    'or('
-                    'eq(name, "ingest_one"), '
-                    'eq(name, "web_analyze_barcode"), '
-                    'eq(name, "process_whatsapp_message")'
-                    ')'
-                ),
-                is_root=True,
-                start_time=start,
-                limit=_METRICS_LIMIT,
-            )
-        )
+        rows = await repo.query_runs(hours=hours, limit=_DB_METRICS_LIMIT)
     except Exception:
-        logger.exception("admin_metrics_query_failed")
+        logger.exception("admin_metrics_db_query_failed")
         if group_by is not None:
             return unavailable_grouped_response(group_by=group_by, time_window_hours=hours)
         return unavailable_response(time_window_hours=hours)
 
-    truncated = len(runs) >= _METRICS_LIMIT
+    runs = [_DbRowRunLike(r) for r in rows]
+    truncated = len(runs) >= _DB_METRICS_LIMIT
 
     if group_by is not None:
-        return compute_grouped_metrics(
+        resp = compute_grouped_metrics(
             runs,
             group_by=group_by,
             time_window_hours=hours,
             truncated=truncated,
         )
+        resp.source = "postgres"
+        return resp
 
-    return compute_metrics(
+    resp = compute_metrics(
         runs,
         time_window_hours=hours,
         truncated=truncated,
     )
+    resp.source = "postgres"
+    return resp
