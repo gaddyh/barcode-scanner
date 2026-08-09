@@ -126,7 +126,8 @@ CREATE INDEX IF NOT EXISTS idx_annotations_status ON annotations(status);
 CREATE TABLE IF NOT EXISTS sessions (
     id                  TEXT PRIMARY KEY,
     status              TEXT NOT NULL DEFAULT 'active'
-                        CHECK (status IN ('active', 'complete', 'expired', 'failed', 'closed')),
+                        CHECK (status IN ('active', 'complete', 'expired', 'failed', 'closed',
+                                          'needs_user_selection')),
     expected_count      INTEGER NOT NULL DEFAULT 0,
     found_count         INTEGER NOT NULL DEFAULT 0,
     missing_count       INTEGER NOT NULL DEFAULT 0,
@@ -167,7 +168,8 @@ EXCEPTION WHEN OTHERS THEN
 END $$;
 
 ALTER TABLE sessions ADD CONSTRAINT sessions_status_check
-    CHECK (status IN ('active', 'complete', 'expired', 'failed', 'closed'));
+    CHECK (status IN ('active', 'complete', 'expired', 'failed', 'closed',
+                      'needs_user_selection'));
 
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
 CREATE INDEX IF NOT EXISTS idx_sessions_created ON sessions(created_at);

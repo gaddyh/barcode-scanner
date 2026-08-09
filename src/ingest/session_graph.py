@@ -195,31 +195,52 @@ async def run_session_graph(
         )
         expected_count = image_result.visible_label_count
     else:
-        # Update expected_count if it wasn't set yet (e.g. resumed session).
-        if expected_count == 0 and image_result.visible_label_count > 0:
+        # Update expected_count if this photo shows more visible labels than
+        # the first (e.g. first photo was at an angle, missed some boxes).
+        # Also handle the edge case where expected_count was never set.
+        if image_result.visible_label_count > expected_count:
+            old_expected = expected_count
             expected_count = image_result.visible_label_count
+            logger.info(
+                "Session %s: expected_count updated %d → %d (photo %d saw more labels)",
+                session_id, old_expected, expected_count, image_index,
+            )
 
     # Merge: add new items, resolve missing items.
-    # Each found item is a label that has a decoded barcode. Multiple labels
-    # can share the same barcode value (same product, multiple physical boxes)
-    # — each label is a separate session item.
     #
-    # For the first image: add ALL found items (one per label).
-    # For subsequent images: dedup by barcode_value to avoid double-counting
-    # the same physical box from overlapping photos. This means if photo #2
-    # shows a box that was already decoded in photo #1, we don't add it again.
-    new_items: list[SessionItem] = []
-    for found in image_result.found:
-        if is_new_session:
-            # First image — add every found label.
-            already_known = False
-        else:
-            # Subsequent image — skip barcodes already in the session.
-            already_known = any(
-                i.barcode_value == found.barcode_value for i in existing_items
-            )
-        if not already_known:
-            # New item — add to session.
+    # First image: add ALL found items (one per label). Set expected_count.
+    #
+    # Subsequent images — deterministic resolution:
+    #   Filter out already-known barcodes (neighbors). The remaining are
+    #   "new" candidates that could resolve missing labels.
+    #   - new_unique == missing_count → perfect match, add all, resolve all
+    #   - new_unique < missing_count  → add all new (partial resolution)
+    #   - new_unique > missing_count  → AMBIGUOUS, ask user to pick
+    #   - new_unique == 0             → nothing new, ask for better photo
+    #
+    # We dedup new barcodes by value first — same product on 2 boxes in the
+    # photo counts as 1 unique new barcode, not 2.
+    unresolved_before = [m for m in existing_missing if not m.resolved]
+    missing_before_count = len(unresolved_before)
+
+    # Filter to only NEW barcodes (not already in session), then dedup by value.
+    known_barcodes = {i.barcode_value for i in existing_items}
+    new_found = [f for f in image_result.found if f.barcode_value not in known_barcodes]
+    # Dedup by barcode_value — keep first occurrence per value.
+    seen_values: set[str] = set()
+    new_found_unique: list = []
+    for f in new_found:
+        if f.barcode_value not in seen_values:
+            seen_values.add(f.barcode_value)
+            new_found_unique.append(f)
+    new_count = len(new_found_unique)
+
+    candidates: list[SessionItem] = []
+    needs_selection = False
+
+    if is_new_session:
+        # First image — add every found label.
+        for found in image_result.found:
             item = SessionItem(
                 barcode_value=found.barcode_value,
                 barcode_format=found.barcode_format,
@@ -231,22 +252,59 @@ async def run_session_graph(
             )
             inserted = await repo.add_item(session_id, item)
             if inserted:
-                new_items.append(item)
                 existing_items.append(item)
-
+    elif new_count == 0:
+        # Nothing new — ask for a better photo.
+        pass
+    elif new_count <= missing_before_count:
+        # Exact or fewer — accept all new items, resolve missing labels.
+        for found in new_found_unique:
+            item = SessionItem(
+                barcode_value=found.barcode_value,
+                barcode_format=found.barcode_format,
+                barcode_bbox=found.barcode_bbox,
+                label_bbox=found.label_bbox,
+                label_index=found.label_index,
+                match_basis=found.match_basis,
+                source_image=image_index,
+            )
+            inserted = await repo.add_item(session_id, item)
+            if inserted:
+                existing_items.append(item)
                 # Resolve one unresolved missing item (FIFO).
                 for m in existing_missing:
                     if not m.resolved:
-                        await repo.resolve_missing(session_id, m.label_index, image_index)
+                        await repo.resolve_missing(
+                            session_id, m.label_index, image_index
+                        )
                         m.resolved = True
                         logger.info(
-                            "Session %s: missing label %d resolved by image %d (barcode=%s)",
-                            session_id, m.label_index, image_index, found.barcode_value,
+                            "Session %s: missing label %d resolved by image %d "
+                            "(barcode=%s)",
+                            session_id, m.label_index, image_index,
+                            found.barcode_value,
                         )
                         break
+    else:
+        # More new than missing — ambiguous. Don't add anything.
+        # Return candidates for user selection.
+        needs_selection = True
+        for found in new_found_unique:
+            candidates.append(SessionItem(
+                barcode_value=found.barcode_value,
+                barcode_format=found.barcode_format,
+                barcode_bbox=found.barcode_bbox,
+                label_bbox=found.label_bbox,
+                label_index=found.label_index,
+                match_basis=found.match_basis,
+                source_image=image_index,
+            ))
 
-    # Update missing items: only from the first image (or if we had none before).
-    # Subsequent images' missing entries are less reliable (close-ups show fewer boxes).
+    # Update missing items.
+    # First image: record all missing labels.
+    # Subsequent images: if expected_count increased (photo saw more labels),
+    # add the new missing labels from this photo. Label indices are per-image,
+    # so we can't dedup across photos — we add all missing from this photo.
     if is_new_session:
         for m in image_result.missing:
             missing_item = MissingItem(
@@ -258,6 +316,23 @@ async def run_session_graph(
             )
             await repo.add_missing(session_id, missing_item)
             existing_missing.append(missing_item)
+    elif image_result.visible_label_count > 0 and image_result.missing:
+        # expected_count grew — add new missing labels from this photo.
+        for m in image_result.missing:
+            missing_item = MissingItem(
+                label_index=m.label_index,
+                label_bbox=m.label_bbox,
+                barcode_bbox=m.barcode_bbox,
+                status=m.status,
+                source_image=image_index,
+            )
+            await repo.add_missing(session_id, missing_item)
+            existing_missing.append(missing_item)
+            logger.info(
+                "Session %s: new missing label %d added from image %d "
+                "(expected_count grew)",
+                session_id, m.label_index, image_index,
+            )
 
     # Recompute counts.
     unresolved_missing = [m for m in existing_missing if not m.resolved]
@@ -266,10 +341,14 @@ async def run_session_graph(
     image_count = image_index + 1
 
     # Determine session status.
-    # Complete ONLY when every expected box has a barcode.
-    # found_count < expected_count with 0 missing means the audit saw boxes
-    # we couldn't decode — still active, ask for a better photo.
-    if expected_count > 0 and found_count >= expected_count:
+    if needs_selection:
+        session_status = SessionStatus.NEEDS_USER_SELECTION
+        barcodes = [c.barcode_value for c in candidates]
+        message = (
+            f"Found {new_count} new barcodes but only {missing_before_count} "
+            f"missing. Which one(s) to add? {barcodes}"
+        )
+    elif expected_count > 0 and found_count >= expected_count:
         session_status = SessionStatus.COMPLETE
         message = None
     else:
@@ -302,6 +381,7 @@ async def run_session_graph(
         image_count=image_count,
         message=message,
         latest_image=image_result,
+        candidates=candidates if needs_selection else [],
     )
 
     logger.info(

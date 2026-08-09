@@ -48,6 +48,7 @@ class SessionStatus(StrEnum):
     EXPIRED = "expired"            # session timed out without completing
     CLOSED = "closed"              # session explicitly closed by client
     FAILED = "failed"              # unrecoverable error (e.g. Gemini down)
+    NEEDS_USER_SELECTION = "needs_user_selection"  # ambiguous: user must pick
 
 
 class SessionItem(BaseModel):
@@ -124,3 +125,7 @@ class SessionResult(BaseModel):
 
     # The result of the most recent image (for immediate display)
     latest_image: ImageResult | None = None
+
+    # When status == NEEDS_USER_SELECTION: the candidate barcodes from the
+    # latest image that the user must choose from to resolve missing labels.
+    candidates: list[SessionItem] = Field(default_factory=list)

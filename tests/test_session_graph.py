@@ -238,6 +238,232 @@ async def test_session_multi_box_photo_resolves_partial(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_session_ambiguous_more_new_than_missing(tmp_path: Path) -> None:
+    """Photo #2 has 2 new barcodes but only 1 missing → ask user to pick."""
+    repo = NoOpSessionRepository()
+    img = tmp_path / "img.png"
+    img.write_bytes(b"fake")
+
+    mock1 = {
+        "outcome": "needs_better_photo",
+        "audit_available": True,
+        "found": [
+            {"barcode_value": "111", "label_index": 1},
+            {"barcode_value": "222", "label_index": 2},
+            {"barcode_value": "333", "label_index": 3},
+        ],
+        "missing": [
+            {"label_index": 4, "status": "not_visible", "label_bbox": {}, "barcode_bbox": {}},
+        ],
+        "unassigned": [],
+        "summary": {"visible_label_count": 4, "found_count": 3, "missing_count": 1},
+    }
+
+    mock2 = {
+        "outcome": "complete",
+        "audit_available": True,
+        "found": [
+            {"barcode_value": "444", "label_index": 1},  # new
+            {"barcode_value": "555", "label_index": 2},  # new — ambiguous!
+        ],
+        "missing": [],
+        "unassigned": [],
+        "summary": {"visible_label_count": 2, "found_count": 2, "missing_count": 0},
+    }
+
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
+        result1 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
+
+    assert result1.status == SessionStatus.ACTIVE
+    assert result1.found_count == 3
+    assert result1.missing_count == 1
+
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock2)):
+        result2 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
+
+    # 2 new barcodes, 1 missing → ambiguous, ask user.
+    assert result2.status == SessionStatus.NEEDS_USER_SELECTION
+    assert result2.found_count == 3  # unchanged — nothing added
+    assert result2.missing_count == 1  # still missing
+    assert len(result2.candidates) == 2
+    candidate_barcodes = {c.barcode_value for c in result2.candidates}
+    assert candidate_barcodes == {"444", "555"}
+
+
+@pytest.mark.asyncio
+async def test_session_dedup_same_barcode_not_ambiguous(tmp_path: Path) -> None:
+    """Missing 1, photo has 2 new but same value (same product, 2 boxes) → accept, don't ask."""
+    repo = NoOpSessionRepository()
+    img = tmp_path / "img.png"
+    img.write_bytes(b"fake")
+
+    mock1 = {
+        "outcome": "needs_better_photo",
+        "audit_available": True,
+        "found": [
+            {"barcode_value": "111", "label_index": 1},
+            {"barcode_value": "222", "label_index": 2},
+            {"barcode_value": "333", "label_index": 3},
+        ],
+        "missing": [
+            {"label_index": 4, "status": "not_visible", "label_bbox": {}, "barcode_bbox": {}},
+        ],
+        "unassigned": [],
+        "summary": {"visible_label_count": 4, "found_count": 3, "missing_count": 1},
+    }
+
+    # Photo #2: 3 found — 1 known + 2 new (same barcode value, 2 boxes of same product)
+    mock2 = {
+        "outcome": "complete",
+        "audit_available": True,
+        "found": [
+            {"barcode_value": "222", "label_index": 1},  # already known (neighbor)
+            {"barcode_value": "444", "label_index": 2},  # new — resolves missing
+            {"barcode_value": "444", "label_index": 3},  # same value, different box
+        ],
+        "missing": [],
+        "unassigned": [],
+        "summary": {"visible_label_count": 3, "found_count": 3, "missing_count": 0},
+    }
+
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
+        result1 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
+    assert result1.status == SessionStatus.ACTIVE
+    assert result1.missing_count == 1
+
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock2)):
+        result2 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
+
+    # 2 new found but same value → 1 unique new → matches 1 missing → accept
+    assert result2.status == SessionStatus.COMPLETE
+    assert result2.found_count == 4  # 3 original + 1 new unique
+    assert result2.missing_count == 0
+    assert len(result2.candidates) == 0  # no ambiguity
+
+
+@pytest.mark.asyncio
+async def test_session_multi_rephoto_two_missing(tmp_path: Path) -> None:
+    """2 missing → photo #2 resolves 1 → still active → photo #3 resolves the other → complete."""
+    repo = NoOpSessionRepository()
+    img = tmp_path / "img.png"
+    img.write_bytes(b"fake")
+
+    mock1 = {
+        "outcome": "needs_better_photo",
+        "audit_available": True,
+        "found": [
+            {"barcode_value": "111", "label_index": 1},
+            {"barcode_value": "222", "label_index": 2},
+            {"barcode_value": "333", "label_index": 3},
+        ],
+        "missing": [
+            {"label_index": 4, "status": "not_visible", "label_bbox": {}, "barcode_bbox": {}},
+            {"label_index": 5, "status": "not_visible", "label_bbox": {}, "barcode_bbox": {}},
+        ],
+        "unassigned": [],
+        "summary": {"visible_label_count": 5, "found_count": 3, "missing_count": 2},
+    }
+
+    # Photo #2: only 1 of the 2 missing boxes (user photographed just one)
+    mock2 = {
+        "outcome": "complete",
+        "audit_available": True,
+        "found": [
+            {"barcode_value": "444", "label_index": 1},  # resolves 1 missing
+        ],
+        "missing": [],
+        "unassigned": [],
+        "summary": {"visible_label_count": 1, "found_count": 1, "missing_count": 0},
+    }
+
+    # Photo #3: the other missing box
+    mock3 = {
+        "outcome": "complete",
+        "audit_available": True,
+        "found": [
+            {"barcode_value": "555", "label_index": 1},  # resolves the last missing
+        ],
+        "missing": [],
+        "unassigned": [],
+        "summary": {"visible_label_count": 1, "found_count": 1, "missing_count": 0},
+    }
+
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
+        result1 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
+    assert result1.status == SessionStatus.ACTIVE
+    assert result1.found_count == 3
+    assert result1.missing_count == 2
+
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock2)):
+        result2 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
+    assert result2.status == SessionStatus.ACTIVE  # still 1 missing
+    assert result2.found_count == 4
+    assert result2.missing_count == 1
+
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock3)):
+        result3 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
+    assert result3.status == SessionStatus.COMPLETE
+    assert result3.found_count == 5
+    assert result3.missing_count == 0
+    assert result3.image_count == 3
+
+
+@pytest.mark.asyncio
+async def test_session_expected_count_updates_on_more_labels(tmp_path: Path) -> None:
+    """Photo #2 shows more visible labels than #1 → expected_count updated."""
+    repo = NoOpSessionRepository()
+    img = tmp_path / "img.png"
+    img.write_bytes(b"fake")
+
+    # Photo #1: 4 visible, 3 found, 1 missing
+    mock1 = {
+        "outcome": "needs_better_photo",
+        "audit_available": True,
+        "found": [
+            {"barcode_value": "111", "label_index": 1},
+            {"barcode_value": "222", "label_index": 2},
+            {"barcode_value": "333", "label_index": 3},
+        ],
+        "missing": [
+            {"label_index": 4, "status": "not_visible", "label_bbox": {}, "barcode_bbox": {}},
+        ],
+        "unassigned": [],
+        "summary": {"visible_label_count": 4, "found_count": 3, "missing_count": 1},
+    }
+
+    # Photo #2: 6 visible (user stepped back, saw 2 more boxes), 1 new barcode
+    mock2 = {
+        "outcome": "needs_better_photo",
+        "audit_available": True,
+        "found": [
+            {"barcode_value": "444", "label_index": 1},  # resolves the 1 missing
+        ],
+        "missing": [
+            {"label_index": 5, "status": "not_visible", "label_bbox": {}, "barcode_bbox": {}},
+            {"label_index": 6, "status": "not_visible", "label_bbox": {}, "barcode_bbox": {}},
+        ],
+        "unassigned": [],
+        "summary": {"visible_label_count": 6, "found_count": 1, "missing_count": 2},
+    }
+
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
+        result1 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
+    assert result1.status == SessionStatus.ACTIVE
+    assert result1.expected_count == 4
+    assert result1.found_count == 3
+    assert result1.missing_count == 1
+
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock2)):
+        result2 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
+    # expected_count updated from 4 → 6 (photo #2 saw more labels)
+    assert result2.expected_count == 6
+    # found 4 (3 + 1 new), missing 2 (the 2 new ones from the wider view)
+    assert result2.found_count == 4
+    assert result2.missing_count == 2
+    assert result2.status == SessionStatus.ACTIVE
+
+
+@pytest.mark.asyncio
 async def test_session_audit_failure(tmp_path: Path) -> None:
     """Audit failure on first image → session failed, no items accumulated."""
     repo = NoOpSessionRepository()
