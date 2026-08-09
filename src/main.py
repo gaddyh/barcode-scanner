@@ -111,10 +111,14 @@ async def lifespan(app: FastAPI):
 
         # Initialize LangGraph checkpointer (M15C) — uses a separate psycopg
         # pool for the checkpoint tables in the same Postgres instance.
+        # Non-fatal: if it fails, the app boots without checkpointing.
         from src.ingest.checkpoint import close_checkpointer, init_checkpointer
 
-        await init_checkpointer(settings.database_url)
-        logger.info("LangGraph checkpointer ready")
+        try:
+            await init_checkpointer(settings.database_url)
+            logger.info("LangGraph checkpointer ready")
+        except Exception:
+            logger.warning("LangGraph checkpointer init failed — running without persistence", exc_info=True)
     else:
         logger.info("No DATABASE_URL — using NoOp repository (no persistence)")
 
