@@ -1,16 +1,17 @@
 import { useRef, useState } from "react";
 import {
-  analyzeImage,
   scanBarcode,
+  submitSessionImage,
+  selectCandidate,
   submitFeedback,
-  type AnalyzeResponse,
   type ScanResponse,
+  type SessionResult,
 } from "./api";
 import { useHashRoute } from "./router";
 import { AdminApp } from "./admin/AdminApp";
 
 type Source = "camera" | "gallery";
-type Mode = "scanner" | "pipeline";
+type Mode = "session" | "scanner";
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -22,10 +23,10 @@ export default function App() {
   const route = useHashRoute();
   const [file, setFile] = useState<File | null>(null);
   const [source, setSource] = useState<Source | null>(null);
-  const [mode, setMode] = useState<Mode>("pipeline");
+  const [mode, setMode] = useState<Mode>("session");
   const [loading, setLoading] = useState(false);
   const [scanResult, setScanResult] = useState<ScanResponse | null>(null);
-  const [analyzeResult, setAnalyzeResult] = useState<AnalyzeResponse | null>(null);
+  const [sessionResult, setSessionResult] = useState<SessionResult | null>(null);
   const [totalMs, setTotalMs] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [feedbackSent, setFeedbackSent] = useState(false);
@@ -42,7 +43,7 @@ export default function App() {
     setFile(f);
     setSource(src);
     setScanResult(null);
-    setAnalyzeResult(null);
+    setSessionResult(null);
     setTotalMs(null);
     setError(null);
     setFeedbackSent(false);
@@ -54,7 +55,7 @@ export default function App() {
     setLoading(true);
     setError(null);
     setScanResult(null);
-    setAnalyzeResult(null);
+    setSessionResult(null);
     setTotalMs(null);
     setFeedbackSent(false);
     setFeedbackError(null);
@@ -64,10 +65,23 @@ export default function App() {
         const res = await scanBarcode(file);
         setScanResult(res);
       } else {
-        const res = await analyzeImage(file);
-        setAnalyzeResult(res);
+        const res = await submitSessionImage(file);
+        setSessionResult(res);
       }
       setTotalMs(performance.now() - t0);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onSelectCandidate(barcodeValue: string) {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await selectCandidate(barcodeValue);
+      setSessionResult(res);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -86,21 +100,11 @@ export default function App() {
     }
   }
 
-  const elapsedMs =
-    scanResult?.elapsed_ms ?? analyzeResult?.elapsed_ms ?? null;
-  const imageWidth =
-    scanResult?.image_width ?? analyzeResult?.image_width ?? null;
-  const imageHeight =
-    scanResult?.image_height ?? analyzeResult?.image_height ?? null;
-  const uploadBytes =
-    scanResult?.upload_bytes ?? analyzeResult?.upload_bytes ?? null;
-  const filename = scanResult?.filename ?? analyzeResult?.filename ?? null;
-  const uploadId =
-    scanResult?.upload_id ?? analyzeResult?.upload_id ?? null;
-  const traceId =
-    scanResult?.trace_id ?? analyzeResult?.trace_id ?? null;
-  const resultSource =
-    scanResult?.source ?? analyzeResult?.source ?? null;
+  const traceId = scanResult?.trace_id ?? null;
+
+  const sessionActive = sessionResult?.status === "active";
+  const sessionComplete = sessionResult?.status === "complete";
+  const needsSelection = sessionResult?.status === "needs_user_selection";
 
   return (
     <div style={styles.container}>
@@ -109,13 +113,13 @@ export default function App() {
       {/* Mode toggle */}
       <div style={styles.toggleRow}>
         <button
-          onClick={() => setMode("pipeline")}
+          onClick={() => setMode("session")}
           style={{
             ...styles.toggleBtn,
-            ...(mode === "pipeline" ? styles.toggleActive : {}),
+            ...(mode === "session" ? styles.toggleActive : {}),
           }}
         >
-          Full pipeline (Gemini)
+          Session (multi-photo)
         </button>
         <button
           onClick={() => setMode("scanner")}
@@ -168,7 +172,7 @@ export default function App() {
           opacity: !file || loading ? 0.5 : 1,
         }}
       >
-        {loading ? "Analyzing…" : `Analyze (${mode === "pipeline" ? "full pipeline" : "scanner"})`}
+        {loading ? "Analyzing…" : `Analyze (${mode === "session" ? "session" : "scanner"})`}
       </button>
 
       {error && (
@@ -177,62 +181,128 @@ export default function App() {
         </div>
       )}
 
-      {/* Common metadata */}
-      {elapsedMs !== null && (
+      {/* Scanner-only result */}
+      {scanResult && (
         <div style={styles.results}>
           <h2 style={styles.h2}>Result</h2>
-          <Row label="Upload ID" value={uploadId ?? "—"} />
-          <Row label="Trace ID" value={traceId ?? "—"} />
-          <Row label="Source" value={resultSource ?? "—"} />
-          <Row label="Filename" value={filename ?? "—"} />
-          <Row label="Source" value={source ?? "—"} />
-          <Row
-            label="Dimensions"
-            value={imageWidth && imageHeight ? `${imageWidth} × ${imageHeight}` : "—"}
-          />
-          <Row
-            label="File size"
-            value={uploadBytes !== null ? `${formatBytes(uploadBytes)} (${uploadBytes} B)` : "—"}
-          />
-          <Row label="Server scan" value={`${elapsedMs} ms`} />
+          <Row label="Upload ID" value={scanResult.upload_id ?? "—"} />
+          <Row label="Trace ID" value={scanResult.trace_id ?? "—"} />
+          <Row label="Status" value={scanResult.status} />
+          <Row label="Count" value={String(scanResult.count)} />
+          <Row label="Dimensions" value={`${scanResult.image_width} × ${scanResult.image_height}`} />
+          <Row label="File size" value={`${formatBytes(scanResult.upload_bytes)} (${scanResult.upload_bytes} B)`} />
+          <Row label="Server scan" value={`${scanResult.elapsed_ms} ms`} />
           <Row label="Total request" value={totalMs != null ? `${Math.round(totalMs)} ms` : "—"} />
-
-          {/* Scanner-only result */}
-          {scanResult && (
-            <ScannerResult result={scanResult} />
+          <h3 style={styles.h3}>Barcodes</h3>
+          {scanResult.barcodes.length === 0 ? (
+            <p style={styles.muted}>None decoded.</p>
+          ) : (
+            <ol style={styles.list}>
+              {scanResult.barcodes.map((b, i) => (
+                <li key={i} style={styles.listItem}>
+                  <strong>{b.value}</strong> ({b.format})
+                </li>
+              ))}
+            </ol>
           )}
-
-          {/* Full pipeline result */}
-          {analyzeResult && (
-            <PipelineResult result={analyzeResult} />
-          )}
-
-          {/* Feedback */}
           {traceId && !feedbackSent && (
-            <div style={styles.feedback}>
-              <p style={styles.feedbackQ}>Did the scanner find all barcodes correctly?</p>
-              <div style={styles.feedbackRow}>
-                <button
-                  onClick={() => sendFeedback(true)}
-                  style={styles.feedbackBtn}
-                >
-                  Correct
-                </button>
-                <button
-                  onClick={() => sendFeedback(false)}
-                  style={styles.feedbackBtn}
-                >
-                  Incorrect
-                </button>
-              </div>
-              {feedbackError && (
-                <p style={styles.error}>Feedback error: {feedbackError}</p>
-              )}
+            <FeedbackRow onFeedback={sendFeedback} feedbackError={feedbackError} />
+          )}
+          {feedbackSent && <p style={styles.feedbackDone}>Feedback recorded.</p>}
+        </div>
+      )}
+
+      {/* Session result */}
+      {sessionResult && (
+        <div style={styles.results}>
+          <h2 style={styles.h2}>Session</h2>
+          <Row label="Session ID" value={sessionResult.session_id} />
+          <Row
+            label="Status"
+            value={sessionResult.status}
+            highlight={sessionComplete ? "#16a34a" : needsSelection ? "#f59e0b" : undefined}
+          />
+          <Row label="Found" value={`${sessionResult.found_count} / ${sessionResult.expected_count}`} />
+          <Row label="Missing" value={String(sessionResult.missing_count)} />
+          <Row label="Images" value={String(sessionResult.image_count)} />
+          {totalMs != null && <Row label="Last request" value={`${Math.round(totalMs)} ms`} />}
+
+          {/* Session message */}
+          {sessionResult.message && (
+            <div style={styles.sessionMessage}>
+              {sessionResult.message}
             </div>
           )}
-          {feedbackSent && (
-            <p style={styles.feedbackDone}>Feedback recorded.</p>
+
+          {/* Needs user selection — show candidate buttons */}
+          {needsSelection && sessionResult.candidates.length > 0 && (
+            <div style={styles.candidates}>
+              <h3 style={styles.h3}>Select a barcode to add:</h3>
+              <div style={styles.candidateRow}>
+                {sessionResult.candidates.map((c, i) => (
+                  <button
+                    key={i}
+                    onClick={() => onSelectCandidate(c.barcode_value)}
+                    disabled={loading}
+                    style={styles.candidateBtn}
+                  >
+                    {c.barcode_value}
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
+
+          {/* Active — prompt for more photos */}
+          {sessionActive && sessionResult.missing_count > 0 && (
+            <div style={styles.promptMore}>
+              📸 Send another photo of the missing box(es).
+            </div>
+          )}
+
+          {/* Complete — show items */}
+          {sessionComplete && (
+            <div style={styles.completeBadge}>
+              ✅ All {sessionResult.expected_count} boxes scanned!
+            </div>
+          )}
+
+          {/* Items list */}
+          {sessionResult.items.length > 0 && (
+            <>
+              <h3 style={styles.h3}>Scanned barcodes ({sessionResult.items.length})</h3>
+              <ol style={styles.list}>
+                {sessionResult.items.map((item, i) => (
+                  <li key={i} style={styles.listItem}>
+                    <strong>{item.barcode_value}</strong>
+                    {item.barcode_format ? ` (${item.barcode_format})` : ""}
+                    {item.label_index != null && ` — label ${item.label_index}`}
+                  </li>
+                ))}
+              </ol>
+            </>
+          )}
+
+          {/* Missing labels */}
+          {sessionResult.missing.length > 0 && !sessionComplete && (
+            <>
+              <h3 style={styles.h3}>Missing labels ({sessionResult.missing.length})</h3>
+              <ul style={styles.list}>
+                {sessionResult.missing.map((m, i) => (
+                  <li key={i} style={styles.listItem}>
+                    Label {m.label_index ?? "?"} — {m.status}
+                    {m.resolved ? " (resolved)" : ""}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+
+          {/* Feedback (only for complete sessions) */}
+          {sessionComplete && !feedbackSent && (
+            <FeedbackRow onFeedback={sendFeedback} feedbackError={feedbackError} />
+          )}
+          {feedbackSent && <p style={styles.feedbackDone}>Feedback recorded.</p>}
         </div>
       )}
 
@@ -245,253 +315,172 @@ export default function App() {
   );
 }
 
-function ScannerResult({ result }: { result: ScanResponse }) {
+function FeedbackRow({
+  onFeedback,
+  feedbackError,
+}: {
+  onFeedback: (correct: boolean) => void;
+  feedbackError: string | null;
+}) {
   return (
-    <>
-      <Row label="Status" value={result.status} />
-      <Row label="Count" value={String(result.count)} />
-      <h3 style={styles.h3}>Barcodes</h3>
-      {result.barcodes.length === 0 ? (
-        <p style={styles.muted}>None decoded.</p>
-      ) : (
-        <ol style={styles.ol}>
-          {result.barcodes.map((b, i) => (
-            <li key={i} style={styles.li}>
-              <code>{b.value}</code>
-              <span style={styles.fmt}> · {b.format}</span>
-            </li>
-          ))}
-        </ol>
-      )}
-    </>
+    <div style={styles.feedback}>
+      <p style={styles.feedbackQ}>Did the scanner find all barcodes correctly?</p>
+      <div style={styles.feedbackRow}>
+        <button onClick={() => onFeedback(true)} style={styles.feedbackBtn}>
+          Correct
+        </button>
+        <button onClick={() => onFeedback(false)} style={styles.feedbackBtn}>
+          Incorrect
+        </button>
+      </div>
+      {feedbackError && <p style={styles.error}>Feedback error: {feedbackError}</p>}
+    </div>
   );
 }
 
-function PipelineResult({ result }: { result: AnalyzeResponse }) {
-  return (
-    <>
-      <Row label="Outcome" value={result.outcome} />
-      <Row label="Audit available" value={String(result.audit_available)} />
-      <Row label="Visible labels" value={String(result.summary.visible_label_count)} />
-      <Row label="Found" value={String(result.summary.found_count)} />
-      <Row label="Missing" value={String(result.summary.missing_count)} />
-      <Row label="Unassigned" value={String(result.summary.unassigned_count)} />
-
-      {result.error && (
-        <div style={styles.error}>
-          <strong>Error:</strong> {result.error.code}: {result.error.message}
-        </div>
-      )}
-
-      {/* Annotated image */}
-      {result.annotated_image_b64 && (
-        <div style={styles.annotation}>
-          <h3 style={styles.h3}>Annotated — missing regions</h3>
-          {result.message && (
-            <p style={styles.message}>{result.message}</p>
-          )}
-          <img
-            src={`data:image/png;base64,${result.annotated_image_b64}`}
-            alt="Annotated — red circles around missing barcode regions"
-            style={styles.annotatedImg}
-          />
-        </div>
-      )}
-
-      {/* Found barcodes */}
-      <h3 style={styles.h3}>Found ({result.found.length})</h3>
-      {result.found.length === 0 ? (
-        <p style={styles.muted}>None.</p>
-      ) : (
-        <ol style={styles.ol}>
-          {result.found.map((f, i) => (
-            <li key={i} style={styles.li}>
-              <strong>Label {f.label_index}:</strong>{" "}
-              <code>{f.barcode_value}</code>
-              <span style={styles.fmt}> · {f.barcode_format}</span>
-            </li>
-          ))}
-        </ol>
-      )}
-
-      {/* Missing labels */}
-      {result.missing.length > 0 && (
-        <>
-          <h3 style={styles.h3}>Missing ({result.missing.length})</h3>
-          <ol style={styles.ol}>
-            {result.missing.map((m, i) => (
-              <li key={i} style={styles.li}>
-                <strong>Label {m.label_index}</strong>{" "}
-                <span style={styles.fmt}>· {m.status}</span>
-              </li>
-            ))}
-          </ol>
-        </>
-      )}
-
-      {/* Unassigned barcodes */}
-      {result.unassigned.length > 0 && (
-        <>
-          <h3 style={styles.h3}>Unassigned ({result.unassigned.length})</h3>
-          <ol style={styles.ol}>
-            {result.unassigned.map((u, i) => (
-              <li key={i} style={styles.li}>
-                <code>{u.barcode_value}</code>
-                <span style={styles.fmt}> · {u.barcode_format}</span>
-              </li>
-            ))}
-          </ol>
-        </>
-      )}
-    </>
-  );
-}
-
-function Row({ label, value }: { label: string; value: string }) {
+function Row({
+  label,
+  value,
+  highlight,
+}: {
+  label: string;
+  value: string;
+  highlight?: string;
+}) {
   return (
     <div style={styles.row}>
-      <span style={styles.rowLabel}>{label}</span>
-      <span style={styles.rowValue}>{value}</span>
+      <span style={styles.rowLabel}>{label}:</span>
+      <span style={{ ...styles.rowValue, ...(highlight ? { color: highlight, fontWeight: 600 } : {}) }}>
+        {value}
+      </span>
     </div>
   );
 }
 
 const styles: Record<string, React.CSSProperties> = {
   container: {
-    fontFamily: "system-ui, -apple-system, sans-serif",
     maxWidth: 480,
     margin: "0 auto",
-    padding: "20px 16px",
-    color: "#111",
+    padding: 16,
+    fontFamily: "system-ui, -apple-system, sans-serif",
+    color: "#1e293b",
   },
-  h1: { fontSize: 22, margin: "0 0 12px" },
-  toggleRow: { display: "flex", gap: 6, marginBottom: 16 },
+  h1: { fontSize: 24, fontWeight: 700, marginBottom: 16 },
+  h2: { fontSize: 20, fontWeight: 600, marginBottom: 12 },
+  h3: { fontSize: 16, fontWeight: 600, marginTop: 16, marginBottom: 8 },
+  toggleRow: { display: "flex", gap: 8, marginBottom: 16 },
   toggleBtn: {
     flex: 1,
-    padding: "8px 6px",
-    border: "1px solid #d0d0d0",
-    background: "#fff",
+    padding: "8px 12px",
+    border: "1px solid #cbd5e1",
     borderRadius: 8,
-    fontSize: 13,
-    fontWeight: 500,
+    background: "#fff",
     cursor: "pointer",
+    fontSize: 14,
+    fontWeight: 500,
   },
-  toggleActive: {
-    background: "#007aff",
-    color: "#fff",
-    borderColor: "#007aff",
-  },
-  inputRow: { display: "flex", gap: 10, marginBottom: 16 },
+  toggleActive: { background: "#3b82f6", color: "#fff", borderColor: "#3b82f6" },
+  inputRow: { display: "flex", gap: 8, marginBottom: 16 },
   button: {
     flex: 1,
-    display: "inline-block",
+    padding: "10px 16px",
+    background: "#f1f5f9",
+    borderRadius: 8,
     textAlign: "center",
-    padding: "12px 8px",
-    background: "#007aff",
-    color: "#fff",
-    borderRadius: 10,
-    fontSize: 15,
-    fontWeight: 500,
     cursor: "pointer",
+    fontSize: 14,
+    fontWeight: 500,
+    border: "1px solid #cbd5e1",
   },
   fileInfo: {
-    background: "#f5f5f7",
-    borderRadius: 10,
-    padding: "10px 12px",
-    fontSize: 14,
-    lineHeight: 1.6,
+    padding: 12,
+    background: "#f8fafc",
+    borderRadius: 8,
     marginBottom: 16,
+    fontSize: 13,
+    lineHeight: 1.6,
   },
   analyze: {
     width: "100%",
-    padding: "14px",
-    background: "#34c759",
+    padding: "12px 16px",
+    background: "#3b82f6",
     color: "#fff",
     border: "none",
-    borderRadius: 10,
+    borderRadius: 8,
     fontSize: 16,
     fontWeight: 600,
     cursor: "pointer",
-  },
-  error: {
-    marginTop: 16,
-    padding: "10px 12px",
-    background: "#fff3f3",
-    border: "1px solid #f0c0c0",
-    borderRadius: 10,
-    fontSize: 14,
-    color: "#a00",
+    marginBottom: 16,
   },
   results: {
-    marginTop: 20,
-    borderTop: "1px solid #eee",
-    paddingTop: 16,
-  },
-  h2: { fontSize: 18, margin: "0 0 12px" },
-  h3: { fontSize: 15, margin: "16px 0 8px", color: "#333" },
-  row: {
-    display: "flex",
-    justifyContent: "space-between",
-    padding: "6px 0",
-    borderBottom: "1px solid #f0f0f0",
-    fontSize: 14,
-  },
-  rowLabel: { color: "#666" },
-  rowValue: { color: "#111", fontWeight: 500, textAlign: "right" },
-  ol: { margin: "8px 0 0", paddingLeft: 22, fontSize: 14, lineHeight: 1.7 },
-  li: { marginBottom: 2 },
-  fmt: { color: "#888", fontSize: 12 },
-  muted: { color: "#888", fontSize: 14, margin: "8px 0 0" },
-  annotation: {
-    marginTop: 16,
-    padding: 12,
-    background: "#fff8e8",
-    border: "1px solid #f0d878",
-    borderRadius: 10,
-  },
-  message: {
-    fontSize: 14,
-    color: "#665000",
-    margin: "0 0 10px",
-    fontWeight: 500,
-  },
-  annotatedImg: {
-    width: "100%",
-    height: "auto",
-    borderRadius: 8,
-    display: "block",
-  },
-  feedback: {
-    marginTop: 20,
-    padding: 14,
-    background: "#f5f5f7",
-    border: "1px solid #e0e0e0",
-    borderRadius: 10,
-  },
-  feedbackQ: {
-    margin: "0 0 10px",
-    fontSize: 14,
-    fontWeight: 500,
-    color: "#333",
-  },
-  feedbackRow: {
-    display: "flex",
-    gap: 10,
-  },
-  feedbackBtn: {
-    flex: 1,
-    padding: "10px",
-    border: "1px solid #d0d0d0",
-    borderRadius: 8,
+    padding: 16,
     background: "#fff",
-    fontSize: 15,
+    border: "1px solid #e2e8f0",
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  row: { display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 14 },
+  rowLabel: { color: "#64748b", fontWeight: 500 },
+  rowValue: { color: "#1e293b", fontWeight: 500 },
+  sessionMessage: {
+    padding: 12,
+    background: "#fef3c7",
+    borderRadius: 8,
+    marginTop: 12,
+    marginBottom: 12,
+    fontSize: 14,
+    fontWeight: 500,
+    color: "#92400e",
+  },
+  candidates: { marginTop: 12, marginBottom: 12 },
+  candidateRow: { display: "flex", flexWrap: "wrap", gap: 8 },
+  candidateBtn: {
+    padding: "8px 14px",
+    background: "#3b82f6",
+    color: "#fff",
+    border: "none",
+    borderRadius: 8,
+    fontSize: 14,
     fontWeight: 600,
     cursor: "pointer",
   },
-  feedbackDone: {
-    marginTop: 16,
+  promptMore: {
+    padding: 12,
+    background: "#dbeafe",
+    borderRadius: 8,
+    marginTop: 12,
+    marginBottom: 12,
     fontSize: 14,
-    color: "#34c759",
+    fontWeight: 500,
+    color: "#1e40af",
+  },
+  completeBadge: {
+    padding: 12,
+    background: "#dcfce7",
+    borderRadius: 8,
+    marginTop: 12,
+    marginBottom: 12,
+    fontSize: 16,
+    fontWeight: 600,
+    color: "#166534",
+    textAlign: "center",
+  },
+  list: { margin: "8px 0", paddingLeft: 20, fontSize: 14, lineHeight: 1.8 },
+  listItem: { marginBottom: 4 },
+  muted: { color: "#94a3b8", fontSize: 14 },
+  error: { color: "#dc2626", fontSize: 14, padding: 8, background: "#fef2f2", borderRadius: 8 },
+  feedback: { marginTop: 16, paddingTop: 16, borderTop: "1px solid #e2e8f0" },
+  feedbackQ: { fontSize: 14, marginBottom: 8 },
+  feedbackRow: { display: "flex", gap: 8 },
+  feedbackBtn: {
+    flex: 1,
+    padding: "8px 16px",
+    border: "1px solid #cbd5e1",
+    borderRadius: 8,
+    background: "#fff",
+    cursor: "pointer",
+    fontSize: 14,
     fontWeight: 500,
   },
+  feedbackDone: { color: "#16a34a", fontSize: 14, fontWeight: 500 },
 };

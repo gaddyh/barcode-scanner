@@ -101,7 +101,7 @@ export interface SessionMissingItem {
 
 export interface SessionResult {
   session_id: string;
-  status: "active" | "complete" | "expired" | "closed" | "failed";
+  status: "active" | "complete" | "expired" | "closed" | "failed" | "needs_user_selection";
   expected_count: number;
   found_count: number;
   missing_count: number;
@@ -109,6 +109,7 @@ export interface SessionResult {
   missing: SessionMissingItem[];
   image_count: number;
   message: string | null;
+  candidates: SessionItem[];
   latest_image: {
     image_index: number;
     status: string;
