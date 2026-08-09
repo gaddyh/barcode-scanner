@@ -192,38 +192,6 @@ async def _traced_analyze(
     result = analyze_image(image_bytes)
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
-    return await _build_web_response(
-        result=result,
-        elapsed_ms=elapsed_ms,
-        upload_id=upload_id,
-        trace_id=trace_id,
-        source=source,
-        filename=filename,
-        upload_bytes=upload_bytes,
-    )
-
-
-@ls.traceable(
-    name="build_web_response",
-    run_type="chain",
-    tags=["barcode-scanner", "web", "response"],
-)
-async def _build_web_response(
-    *,
-    result: dict,
-    elapsed_ms: int,
-    upload_id: str,
-    trace_id: str,
-    source: str,
-    filename: str,
-    upload_bytes: int,
-) -> dict:
-    """Shape the analyze_image() result into the web API response.
-
-    Traced as a child span so the response-building step (metadata stamping,
-    outcome logging, annotated image check) is visible in the trace tree,
-    mirroring the WhatsApp path's ``send_needs_better_photo_reply``.
-    """
     result["upload_id"] = upload_id
     result["trace_id"] = trace_id
     result["source"] = source
@@ -276,6 +244,63 @@ async def _build_web_response(
             }
         )
 
+    outcome = result.get("outcome", "retryable_error")
+    if outcome == "complete":
+        return await _send_complete_reply(result)
+    elif outcome == "needs_better_photo":
+        return await _send_needs_better_photo_reply(result)
+    else:
+        return result
+
+
+@ls.traceable(
+    name="send_complete_reply",
+    run_type="chain",
+    tags=["barcode-scanner", "web", "reply"],
+)
+async def _send_complete_reply(result: dict[str, Any]) -> dict[str, Any]:
+    """Build the web response for a complete outcome.
+
+    Mirrors the WhatsApp ``send_complete_reply`` — the web equivalent of
+    sending the barcode list is returning the JSON response with found barcodes.
+    """
+    found = result.get("found", [])
+    unassigned = result.get("unassigned", [])
+    reply_run = ls.get_current_run_tree()
+    if reply_run is not None:
+        reply_run.metadata.update(
+            {
+                "total_barcodes": len(found) + len(unassigned),
+                "found_count": len(found),
+                "unassigned_count": len(unassigned),
+            }
+        )
+    return result
+
+
+@ls.traceable(
+    name="send_needs_better_photo_reply",
+    run_type="chain",
+    tags=["barcode-scanner", "web", "reply"],
+)
+async def _send_needs_better_photo_reply(
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    """Build the web response for a needs_better_photo outcome.
+
+    Mirrors the WhatsApp ``send_needs_better_photo_reply`` — the web equivalent
+    of sending the annotated image is returning the JSON response with
+    ``annotated_image_b64`` and ``missing`` labels.
+    """
+    reply_run = ls.get_current_run_tree()
+    if reply_run is not None:
+        reply_run.metadata.update(
+            {
+                "has_annotated_image": bool(result.get("annotated_image_b64")),
+                "missing_count": len(result.get("missing", [])),
+                "message": result.get("message", ""),
+            }
+        )
     return result
 
 
