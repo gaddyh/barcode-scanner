@@ -50,8 +50,22 @@ from src.messaging.transcribe import (
     handle_360dialog_audio_message,
 )
 from src.messaging.transcription_factory import get_transcriber
+from src.db import create_pool, init_db
+from src.repository import (
+    NoOpRunRepository,
+    NoOpAnnotationRepository,
+    PostgresRunRepository,
+    PostgresAnnotationRepository,
+    RunRepository,
+    AnnotationRepository,
+)
 
 logger = logging.getLogger(__name__)
+
+# Module-level repository singletons — set by lifespan, read by request handlers.
+run_repo: RunRepository = NoOpRunRepository()
+annotation_repo: AnnotationRepository = NoOpAnnotationRepository()
+_db_pool = None
 logging.basicConfig(
     level=getattr(logging, settings.log_level, logging.INFO)
 )
@@ -81,13 +95,26 @@ _IMAGE_SUFFIX_BY_MIME = {
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global wa_client, transcriber
+    global wa_client, transcriber, run_repo, annotation_repo, _db_pool
 
     wa_client = Dialog360Client(settings)
     transcriber = get_transcriber(settings)
 
+    # Initialize Postgres pool if DATABASE_URL is set
+    if settings.database_url:
+        logger.info("Initializing Postgres pool: %s", settings.database_url[:30] + "...")
+        _db_pool = await create_pool(settings.database_url)
+        await init_db(_db_pool)
+        run_repo = PostgresRunRepository(_db_pool)
+        annotation_repo = PostgresAnnotationRepository(_db_pool)
+        logger.info("Postgres operational DB ready")
+    else:
+        logger.info("No DATABASE_URL — using NoOp repository (no persistence)")
+
     yield
 
+    if _db_pool is not None:
+        await _db_pool.close()
     if transcriber is not None:
         await transcriber.close()
 
@@ -365,6 +392,19 @@ async def process_image_message(
 
         # --- Analyze -----------------------------------------------------
         upload_id = generate_upload_id()
+        # Persist run row (status=pending) before processing
+        from src.persistence import create_run as persist_create_run, complete_run_from_dict, fail_run as persist_fail_run
+        await persist_create_run(
+            run_repo,
+            run_id=upload_id,
+            source="whatsapp",
+            endpoint="/webhook/360dialog",
+            trace_id=trace_id,
+            session_id=upload_id,
+            filename=filename,
+            provider_message_id=msg_id,
+            sender=sender,
+        )
         result: dict[str, Any]
         try:
             logger.info(
@@ -426,6 +466,7 @@ async def process_image_message(
                 sender,
                 media_id,
             )
+            await persist_fail_run(run_repo, upload_id, exc)
             if sub_run is not None:
                 sub_run.metadata.update(
                     {"stage": "analyze_failed", "error_type": type(exc).__name__}
@@ -470,6 +511,14 @@ async def process_image_message(
                     "recovery_succeeded": recovery_labels_resolved > 0,
                 }
             )
+
+        # Persist completed run to DB
+        try:
+            from src.observability.versions import collect_versions
+            versions = collect_versions().model_dump()
+            await complete_run_from_dict(run_repo, upload_id, result, result.get("elapsed_ms", 0), versions=versions)
+        except Exception:
+            logger.warning("Failed to persist WhatsApp run %s to DB", upload_id, exc_info=True)
 
         # --- Reply by outcome -------------------------------------------
         if outcome == "complete":

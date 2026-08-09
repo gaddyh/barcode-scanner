@@ -17,6 +17,8 @@ from src.models.upload import generate_upload_id
 from src.ingest.analyze import analyze_image
 from src.ingest.scanner import BarcodeScanner
 from src.api.feedback import submit_upload_feedback
+from src.persistence import create_run as persist_create_run, complete_run_from_dict, fail_run as persist_fail_run
+from src.observability.versions import collect_versions
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +27,12 @@ router = APIRouter()
 
 def get_scanner() -> BarcodeScanner:
     return BarcodeScanner()
+
+
+def _get_run_repo():
+    """Get the module-level run_repo from src.main (set by lifespan)."""
+    from src.main import run_repo
+    return run_repo
 
 
 def _sanitize_scan_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
@@ -110,6 +118,19 @@ async def _traced_scan(
     # Attach the uploaded image to the LangSmith trace so it's viewable in the UI.
     _attach_image_to_run(image_bytes, (file.content_type or "image/jpeg"))
 
+    # Persist run row (status=pending) before processing
+    repo = _get_run_repo()
+    await persist_create_run(
+        repo,
+        run_id=upload_id,
+        source=source,
+        endpoint="/barcode/scan",
+        trace_id=trace_id,
+        session_id=upload_id,
+        filename=filename,
+        upload_bytes=upload_bytes,
+    )
+
     try:
         t0 = time.perf_counter()
         barcodes = scanner.scan_bytes(image_bytes)
@@ -146,6 +167,33 @@ async def _traced_scan(
                 "barcode_values": [b.value for b in barcodes],
             }
         )
+
+    # Persist completed scan run
+    try:
+        from src.ingest.models import IngestResult, IngestStatus, DetectedItem, RunMetrics
+        scan_result = IngestResult(
+            status=IngestStatus.COMPLETE if barcodes else IngestStatus.NEEDS_USER_INPUT,
+            items=[
+                DetectedItem(
+                    barcode_value=b.value,
+                    barcode_format=b.format,
+                    barcode_bbox={
+                        "x1": b.bounding_box.x1, "y1": b.bounding_box.y1,
+                        "x2": b.bounding_box.x2, "y2": b.bounding_box.y2,
+                    } if b.bounding_box else None,
+                )
+                for b in barcodes
+            ],
+            metrics=RunMetrics(
+                elapsed_ms=elapsed_ms,
+                scanner_count=len(barcodes),
+            ),
+            image_width=image_width,
+            image_height=image_height,
+        )
+        await repo.complete_run(upload_id, scan_result)
+    except Exception:
+        logger.warning("Failed to persist scan run %s to DB", upload_id, exc_info=True)
 
     return ScanResponse(
         upload_id=upload_id,
@@ -188,8 +236,26 @@ async def _traced_analyze(
     # Attach the uploaded image to the LangSmith trace so it's viewable in the UI.
     _attach_image_to_run(image_bytes, (file.content_type or "image/jpeg"))
 
+    # Persist run row (status=pending) before processing
+    repo = _get_run_repo()
+    await persist_create_run(
+        repo,
+        run_id=upload_id,
+        source=source,
+        endpoint="/barcode/analyze",
+        trace_id=trace_id,
+        session_id=upload_id,
+        filename=filename,
+        upload_bytes=upload_bytes,
+    )
+
     t0 = time.perf_counter()
-    result = analyze_image(image_bytes)
+    try:
+        result = analyze_image(image_bytes)
+    except Exception as exc:
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
+        await persist_fail_run(repo, upload_id, exc)
+        raise
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
     result["upload_id"] = upload_id
@@ -260,6 +326,13 @@ async def _traced_analyze(
                 "recovery_succeeded": recovery_labels_resolved > 0,
             }
         )
+
+    # Persist completed run with versions
+    try:
+        versions = collect_versions().model_dump()
+        await complete_run_from_dict(repo, upload_id, result, elapsed_ms, versions=versions)
+    except Exception:
+        logger.warning("Failed to persist run %s to DB", upload_id, exc_info=True)
 
     outcome = result.get("outcome", "retryable_error")
     if outcome == "complete":

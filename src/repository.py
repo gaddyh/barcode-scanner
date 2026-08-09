@@ -20,12 +20,11 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
 from typing import Any, Protocol
 
 import asyncpg
 
-from src.ingest.models import IngestResult, IngestStatus
+from src.ingest.models import IngestResult
 
 logger = logging.getLogger(__name__)
 
