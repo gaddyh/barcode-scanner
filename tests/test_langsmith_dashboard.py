@@ -57,7 +57,7 @@ def test_build_chart_payloads_uses_root_analysis_filter_and_project_scope():
         "recovery-attempts",
         "user-confirmed-correctness",
         "first-pass-completion-rate",
-        "p50-analysis-latency",
+        "p99-analysis-latency",
         "recovery-labels-resolved",
     ]
     assert all(p["section_id"] == "section-id" for p in payloads)
@@ -71,15 +71,37 @@ def test_build_chart_payloads_uses_root_analysis_filter_and_project_scope():
     assert upload_series["group_by_definitions"] == [
         {"attribute": "metadata", "path": "source"}
     ]
-    assert "web_analyze_barcode" in upload_series["metric_definition"]["filter"]
-    assert "process_whatsapp_message" in upload_series["metric_definition"]["filter"]
+    assert "ingest_one" in upload_series["metric_definition"]["filter"]
 
+    # Outcome distribution groups by final_status (not outcome).
+    outcome = next(
+        p for p in payloads if p["metadata"]["chart_key"] == "outcome-distribution"
+    )
+    outcome_series = outcome["series"][0]
+    assert outcome_series["group_by_definitions"] == [
+        {"attribute": "metadata", "path": "final_status"}
+    ]
+
+    # Completed analyses filter on final_status=complete (not outcome=complete).
     completion = next(
         p for p in payloads if p["metadata"]["chart_key"] == "first-pass-completion-rate"
     )
     completion_series = completion["series"][0]
     assert completion_series["metric_definition"]["type"] == "count"
-    assert "outcome=complete" in completion_series["metric_definition"]["filter"]
+    assert "final_status=complete" in completion_series["metric_definition"]["filter"]
+
+    # Recovery attempts filter uses Python bool serialization (True, not true).
+    recovery = next(
+        p for p in payloads if p["metadata"]["chart_key"] == "recovery-attempts"
+    )
+    recovery_filter = recovery["series"][0]["metric_definition"]["filter"]
+    assert "recovery_attempted=True" in recovery_filter
+
+    # P99 latency (not P50 — P95 is not available in LangSmith charts).
+    latency = next(
+        p for p in payloads if p["metadata"]["chart_key"] == "p99-analysis-latency"
+    )
+    assert latency["series"][0]["metric"] == "latency_p99"
 
 
 def test_provision_creates_section_and_charts():

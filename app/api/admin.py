@@ -1,7 +1,8 @@
-"""Admin API — annotation queue management.
+"""Admin API — annotation queue management + operational metrics.
 
-Endpoints for reviewing interesting pipeline failures and promoting
-reviewed candidates to the eval dataset.
+Endpoints for reviewing interesting pipeline failures, promoting
+reviewed candidates to the eval dataset, and querying operational
+metrics from LangSmith traces.
 
 No auth — dev only. Add auth before any real deployment.
 """
@@ -9,8 +10,11 @@ No auth — dev only. Add auth before any real deployment.
 from __future__ import annotations
 
 import logging
+import os
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -21,6 +25,13 @@ from src.evals.annotation_store import (
     list_pending,
     submit_review,
 )
+from src.evals.metrics import (
+    MetricsResponse,
+    compute_metrics,
+    unavailable_response,
+)
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -137,4 +148,49 @@ def _candidate_to_summary(cand: Any) -> CandidateSummary:
         reviewed_at=cand.reviewed_at.isoformat() if cand.reviewed_at else None,
         reviewed_by=cand.reviewed_by,
         added_to_dataset=cand.added_to_dataset,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Metrics — operational health from LangSmith traces
+# ---------------------------------------------------------------------------
+
+
+_METRICS_LIMIT = 100
+
+
+@router.get("/metrics")
+def get_metrics(hours: int = 24) -> MetricsResponse:
+    """Return 8 operational metrics from LangSmith ingest_one traces.
+
+    Queries LangSmith for root ``ingest_one`` traces in the time window
+    and aggregates in Python. Distinguishes empty data (source=langsmith)
+    from API failure (source=unavailable). Returns ``truncated=true`` if
+    the 100-run limit was hit (LangSmith's max page size).
+    """
+    start = datetime.now(UTC) - timedelta(hours=hours)
+    project = os.getenv("LANGSMITH_PROJECT", "default")
+
+    try:
+        from langsmith import Client
+
+        client = Client()
+        runs = list(
+            client.list_runs(
+                project_name=project,
+                filter='eq(name, "ingest_one")',
+                is_root=True,
+                start_time=start,
+                limit=_METRICS_LIMIT,
+            )
+        )
+    except Exception:
+        logger.exception("admin_metrics_query_failed")
+        return unavailable_response(time_window_hours=hours)
+
+    truncated = len(runs) >= _METRICS_LIMIT
+    return compute_metrics(
+        runs,
+        time_window_hours=hours,
+        truncated=truncated,
     )

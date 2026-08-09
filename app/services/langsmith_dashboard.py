@@ -15,16 +15,13 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-DASHBOARD_KEY = "barcode-scanner-production-health"
-SECTION_TITLE = "Barcode Scanner Production Health"
+DASHBOARD_KEY = "barcode-scanner-ingest-monitor"
+SECTION_TITLE = "Barcode Scanner Ingest Monitor"
 SECTION_DESCRIPTION = (
-    "Operational health for barcode analysis traces across web and WhatsApp."
+    "Operational metrics for ingest_one pipeline runs (CLI, web, WhatsApp)."
 )
 
-ROOT_TRACE_FILTER = (
-    'or(eq(name, "web_analyze_barcode"), '
-    'eq(name, "process_whatsapp_message"))'
-)
+ROOT_TRACE_FILTER = 'eq(name, "ingest_one")'
 
 
 class DashboardApiError(RuntimeError):
@@ -239,7 +236,7 @@ def build_chart_payloads(project_id: str, section_id: str) -> list[dict[str, Any
                 _count_series(
                     "Analysis outcomes",
                     project_id,
-                    group_by=metadata_group("outcome"),
+                    group_by=metadata_group("final_status"),
                 )
             ],
         },
@@ -256,7 +253,7 @@ def build_chart_payloads(project_id: str, section_id: str) -> list[dict[str, Any
                     project_id,
                     filter_expression=(
                         f"and({ROOT_TRACE_FILTER}, "
-                        'has(metadata, "recovery_attempted=true"))'
+                        'has(metadata, "recovery_attempted=True"))'
                     ),
                     group_by=metadata_group("source"),
                 )
@@ -297,22 +294,22 @@ def build_chart_payloads(project_id: str, section_id: str) -> list[dict[str, Any
                     project_id,
                     filter_expression=(
                         f"and({ROOT_TRACE_FILTER}, "
-                        'has(metadata, "outcome=complete"))'
+                        'has(metadata, "final_status=complete"))'
                     ),
                 )
             ],
         },
         {
-            "title": "P50 analysis latency",
-            "description": "Median LangSmith latency for root barcode analysis traces.",
+            "title": "P99 analysis latency",
+            "description": "99th percentile latency for root barcode analysis traces.",
             "index": 5,
             "chart_type": "line",
             "section_id": section_id,
-            "metadata": _chart_metadata("p50-analysis-latency"),
+            "metadata": _chart_metadata("p99-analysis-latency"),
             "series": [
                 {
-                    "name": "P50 latency",
-                    "metric": "latency_p50",
+                    "name": "P99 latency",
+                    "metric": "latency_p99",
                     "filter_definition": _project_filter(
                         project_id,
                         run_filter=ROOT_TRACE_FILTER,
