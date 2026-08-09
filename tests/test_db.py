@@ -34,10 +34,25 @@ pytestmark = pytest.mark.asyncio
 
 @pytest.fixture
 async def pool():
-    """Create a connection pool and initialize schema."""
+    """Create a connection pool, initialize schema, and clean up test data.
+
+    Uses DELETE (not DROP) after each test so the schema persists but test
+    rows don't leak between runs. Test run IDs use a distinctive prefix
+    (``01JTEST``) so we only delete our own rows.
+    """
     p = await create_pool(TEST_DB_URL, min_size=1, max_size=3)
     await init_db(p)
+    # Clean up any leftover test data from previous runs.
+    async with p.acquire() as conn:
+        await conn.execute("DELETE FROM run_items WHERE run_id LIKE '01JTEST%'")
+        await conn.execute("DELETE FROM annotations WHERE run_id LIKE '01JTEST%'")
+        await conn.execute("DELETE FROM runs WHERE id LIKE '01JTEST%'")
     yield p
+    # Clean up after the test too.
+    async with p.acquire() as conn:
+        await conn.execute("DELETE FROM run_items WHERE run_id LIKE '01JTEST%'")
+        await conn.execute("DELETE FROM annotations WHERE run_id LIKE '01JTEST%'")
+        await conn.execute("DELETE FROM runs WHERE id LIKE '01JTEST%'")
     await p.close()
 
 

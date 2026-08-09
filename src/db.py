@@ -21,12 +21,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _SCHEMA_SQL = """
--- Drop existing tables (clean slate for POC stage)
-DROP TABLE IF EXISTS run_items CASCADE;
-DROP TABLE IF EXISTS annotations CASCADE;
-DROP TABLE IF EXISTS runs CASCADE;
-
-CREATE TABLE runs (
+-- Idempotent schema creation — safe to call on every startup.
+-- Does NOT drop existing tables or data.
+CREATE TABLE IF NOT EXISTS runs (
     id                  TEXT PRIMARY KEY,
     session_id          TEXT,
     trace_id            TEXT,
@@ -82,17 +79,17 @@ CREATE TABLE runs (
     processed_at        TIMESTAMPTZ
 );
 
-CREATE INDEX idx_runs_created_at ON runs(created_at);
-CREATE INDEX idx_runs_status_created ON runs(status, created_at);
-CREATE INDEX idx_runs_source_created ON runs(source, created_at);
-CREATE INDEX idx_runs_scanner_version_created ON runs(scanner_version, created_at);
-CREATE INDEX idx_runs_pipeline_version_created ON runs(pipeline_version, created_at);
-CREATE INDEX idx_runs_trace_id ON runs(trace_id);
-CREATE UNIQUE INDEX uq_runs_provider_message
+CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs(created_at);
+CREATE INDEX IF NOT EXISTS idx_runs_status_created ON runs(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_runs_source_created ON runs(source, created_at);
+CREATE INDEX IF NOT EXISTS idx_runs_scanner_version_created ON runs(scanner_version, created_at);
+CREATE INDEX IF NOT EXISTS idx_runs_pipeline_version_created ON runs(pipeline_version, created_at);
+CREATE INDEX IF NOT EXISTS idx_runs_trace_id ON runs(trace_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_runs_provider_message
     ON runs(provider_message_id)
     WHERE provider_message_id IS NOT NULL;
 
-CREATE TABLE run_items (
+CREATE TABLE IF NOT EXISTS run_items (
     id                  BIGSERIAL PRIMARY KEY,
     run_id              TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
     label_index         INTEGER,
@@ -105,9 +102,9 @@ CREATE TABLE run_items (
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_run_items_run_id ON run_items(run_id);
+CREATE INDEX IF NOT EXISTS idx_run_items_run_id ON run_items(run_id);
 
-CREATE TABLE annotations (
+CREATE TABLE IF NOT EXISTS annotations (
     id                  BIGSERIAL PRIMARY KEY,
     run_id              TEXT NOT NULL UNIQUE REFERENCES runs(id) ON DELETE CASCADE,
     status              TEXT NOT NULL DEFAULT 'pending'
@@ -120,12 +117,16 @@ CREATE TABLE annotations (
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_annotations_status ON annotations(status);
+CREATE INDEX IF NOT EXISTS idx_annotations_status ON annotations(status);
 """
 
 
 async def init_db(pool: asyncpg.Pool) -> None:
-    """Create schema. Safe to call on every startup (DROP + CREATE)."""
+    """Create schema if it doesn't exist. Safe to call on every startup.
+
+    Uses ``CREATE TABLE IF NOT EXISTS`` — existing tables and data are
+    preserved across restarts and deploys.
+    """
     async with pool.acquire() as conn:
         await conn.execute(_SCHEMA_SQL)
     logger.info("Database schema initialized")
