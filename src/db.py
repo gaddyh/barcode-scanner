@@ -118,6 +118,64 @@ CREATE TABLE IF NOT EXISTS annotations (
 );
 
 CREATE INDEX IF NOT EXISTS idx_annotations_status ON annotations(status);
+
+-- ---------------------------------------------------------------------------
+-- Multi-image ingest sessions (M16)
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS sessions (
+    id                  TEXT PRIMARY KEY,
+    status              TEXT NOT NULL DEFAULT 'active'
+                        CHECK (status IN ('active', 'complete', 'expired', 'failed')),
+    expected_count      INTEGER NOT NULL DEFAULT 0,
+    found_count         INTEGER NOT NULL DEFAULT 0,
+    missing_count       INTEGER NOT NULL DEFAULT 0,
+    image_count         INTEGER NOT NULL DEFAULT 0,
+    source              TEXT,                          -- 'web', 'whatsapp', 'cli'
+    message             TEXT,                          -- prompt for next photo
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at        TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+CREATE INDEX IF NOT EXISTS idx_sessions_created ON sessions(created_at);
+
+-- Confirmed barcodes accumulated across all images in a session.
+-- Deduplicated by barcode_value within a session.
+CREATE TABLE IF NOT EXISTS session_items (
+    id                  BIGSERIAL PRIMARY KEY,
+    session_id          TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    barcode_value       TEXT NOT NULL,
+    barcode_format      TEXT,
+    barcode_bbox        JSONB,
+    label_bbox          JSONB,
+    label_index         INTEGER,
+    match_basis         TEXT,
+    source_image        INTEGER NOT NULL DEFAULT 0,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(session_id, barcode_value)
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_items_session ON session_items(session_id);
+
+-- Boxes visible but without a decoded barcode, tracked across images.
+CREATE TABLE IF NOT EXISTS session_missing (
+    id                  BIGSERIAL PRIMARY KEY,
+    session_id          TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    label_index         INTEGER,
+    label_bbox          JSONB,
+    barcode_bbox        JSONB,
+    status              TEXT NOT NULL DEFAULT 'not_visible',
+    source_image        INTEGER NOT NULL DEFAULT 0,
+    resolved            BOOLEAN NOT NULL DEFAULT FALSE,
+    resolved_by_image   INTEGER,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_missing_session ON session_missing(session_id);
+CREATE INDEX IF NOT EXISTS idx_session_missing_unresolved
+    ON session_missing(session_id) WHERE resolved = FALSE;
 """
 
 

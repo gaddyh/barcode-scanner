@@ -38,6 +38,7 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, TypedDict
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -281,8 +282,10 @@ class ScanState(TypedDict, total=False):
     """
 
     # --- inputs (set once at graph invocation) ---
+    # NOTE: ``scanner`` is intentionally NOT in state — it is a non-serializable
+    # runtime object passed through ``config["configurable"]["scanner"]`` so the
+    # Postgres checkpointer never tries to msgpack-encode it.
     path: str
-    scanner: BarcodeScanner
     model: str | None
     max_retries: int
     retry_delay_seconds: float
@@ -317,16 +320,20 @@ class ScanState(TypedDict, total=False):
 # ---------------------------------------------------------------------------
 
 
-async def _scan_node(state: ScanState) -> dict[str, Any]:
+async def _scan_node(state: ScanState, config: RunnableConfig) -> dict[str, Any]:
     """Run the deterministic barcode scanner.
 
     ZXing is sync/CPU-bound, so it runs in a thread via ``asyncio.to_thread``
     to avoid blocking the event loop.
+
+    The ``scanner`` is read from ``config["configurable"]["scanner"]`` (not
+    state) because it is a non-serializable runtime object that the Postgres
+    checkpointer cannot msgpack-encode.
     """
     import asyncio
 
     path = Path(state["path"])
-    scanner = state["scanner"]
+    scanner = config["configurable"]["scanner"]
     scan_result = await asyncio.to_thread(scan_path, path, scanner)
 
     scan_ok = scan_result.get("status") in ("found", "not_found")
@@ -445,7 +452,7 @@ async def _reconcile_node(state: ScanState) -> dict[str, Any]:
     }
 
 
-async def _recover_node(state: ScanState) -> dict[str, Any]:
+async def _recover_node(state: ScanState, config: RunnableConfig) -> dict[str, Any]:
     """Crop and aggressively scan unmatched label regions.
 
     Augments ``barcodes`` with any newly decoded detections. Sets
@@ -453,6 +460,10 @@ async def _recover_node(state: ScanState) -> dict[str, Any]:
 
     Recovery is CPU-bound (OpenCV + ZXing), so it runs in a thread via
     ``asyncio.to_thread``.
+
+    The ``scanner`` is read from ``config["configurable"]["scanner"]`` (not
+    state) because it is a non-serializable runtime object that the Postgres
+    checkpointer cannot msgpack-encode.
     """
     import asyncio
 
@@ -467,7 +478,7 @@ async def _recover_node(state: ScanState) -> dict[str, Any]:
     image_width = state["image_width"]
     image_height = state["image_height"]
     path = Path(state["path"])
-    scanner = state["scanner"]
+    scanner = config["configurable"]["scanner"]
 
     recovery_labels_tried = len(unmatched_labels)
     matched_before = reconciliation.matched_label_count
@@ -755,7 +766,6 @@ async def run_scan_graph(
     """
     initial_state: ScanState = {  # type: ignore[misc]
         "path": str(path),
-        "scanner": scanner,
         "model": model,
         "max_retries": max_retries,
         "retry_delay_seconds": retry_delay_seconds,
@@ -764,9 +774,12 @@ async def run_scan_graph(
     use_checkpoint = thread_id is not None
     graph = _get_graph(use_checkpoint=use_checkpoint)
 
-    config: dict[str, object] = {}
+    # The scanner is a non-serializable runtime object — pass it through the
+    # RunnableConfig (not state) so the Postgres checkpointer never tries to
+    # msgpack-encode it. Nodes read it via config["configurable"]["scanner"].
+    config: dict[str, object] = {"configurable": {"scanner": scanner}}
     if use_checkpoint and thread_id is not None:
-        config["configurable"] = {"thread_id": thread_id}
+        config["configurable"]["thread_id"] = thread_id
 
     final_state = await graph.ainvoke(initial_state, config=config)
     return final_state["summary"]
