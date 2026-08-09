@@ -634,3 +634,34 @@ async def get_session(session_id: str) -> dict:
             },
         )
     return result.model_dump(mode="json")
+
+
+@router.delete(
+    "/barcode/session/{session_id}",
+    tags=["barcode"],
+    summary="Close an ingest session",
+)
+async def close_session(session_id: str) -> dict:
+    """Explicitly close a session.
+
+    The session is marked ``closed`` and can no longer accept new images.
+    The client starts a fresh session by calling ``POST /barcode/session``
+    without a ``session_id``.
+
+    Returns the final session state. Returns 404 if the session doesn't exist.
+    """
+    repo = _get_session_repo()
+    result = await repo.to_result(session_id)
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "session_not_found",
+                "message": f"Session {session_id} not found.",
+            },
+        )
+    await repo.close_session(session_id)
+    result = await repo.to_result(session_id)
+    if result:
+        return result.model_dump(mode="json")
+    return {"session_id": session_id, "status": "closed"}

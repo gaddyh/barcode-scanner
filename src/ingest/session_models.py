@@ -46,6 +46,7 @@ class SessionStatus(StrEnum):
     ACTIVE = "active"              # session is accepting more images
     COMPLETE = "complete"          # all expected boxes have barcodes
     EXPIRED = "expired"            # session timed out without completing
+    CLOSED = "closed"              # session explicitly closed by client
     FAILED = "failed"              # unrecoverable error (e.g. Gemini down)
 
 

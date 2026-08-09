@@ -31,6 +31,7 @@ StateGraph.
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +46,11 @@ from src.ingest.session_models import (
 from src.session_repository import NoOpSessionRepository, SessionRepository
 
 logger = logging.getLogger(__name__)
+
+# Sessions that haven't received a photo in this long are lazily expired
+# on the next access. 30 minutes is generous for a user photographing
+# boxes on a shelf.
+SESSION_INACTIVITY_TTL = timedelta(minutes=30)
 
 
 async def run_session_graph(
@@ -105,6 +111,40 @@ async def run_session_graph(
         expected_count = 0
     else:
         s = state["session"]
+        current_status = s.get("status", "active")
+
+        # Lazy expiry: if the session has been inactive past the TTL, mark it
+        # expired and reject the request.
+        last_activity = s.get("last_activity_at")
+        if last_activity and current_status == "active":
+            if isinstance(last_activity, str):
+                last_activity = datetime.fromisoformat(last_activity)
+            if last_activity.tzinfo is None:
+                last_activity = last_activity.replace(tzinfo=UTC)
+            age = datetime.now(UTC) - last_activity
+            if age > SESSION_INACTIVITY_TTL:
+                await repo.expire_session(session_id)
+                current_status = "expired"
+
+        # Reject if the session is no longer accepting images.
+        if current_status in ("complete", "expired", "closed"):
+            existing_items = state["items"]
+            existing_missing = [m for m in state["missing"] if not m.resolved]
+            return SessionResult(
+                session_id=session_id,
+                status=SessionStatus(current_status),
+                expected_count=s.get("expected_count", 0),
+                found_count=s.get("found_count", len(existing_items)),
+                missing_count=len(existing_missing),
+                items=existing_items,
+                missing=existing_missing,
+                image_count=s.get("image_count", 0),
+                message=(
+                    f"Session is {current_status}. Start a new session by "
+                    "calling POST /barcode/session without a session_id."
+                ),
+            )
+
         image_index = s.get("image_count", 0)
         existing_items = state["items"]
         existing_missing = [m for m in state["missing"] if not m.resolved]

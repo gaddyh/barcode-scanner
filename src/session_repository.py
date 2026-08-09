@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import UTC
 from typing import Any
 
 import asyncpg
@@ -41,14 +42,19 @@ class SessionRepository:
         session_id: str,
         *,
         source: str | None = None,
+        channel: str | None = None,
+        participant_id: str | None = None,
     ) -> None:
         """Create a new session row."""
         async with self._pool.acquire() as conn:
             await conn.execute(
-                """INSERT INTO sessions (id, source) VALUES ($1, $2)
+                """INSERT INTO sessions (id, source, channel, participant_id)
+                   VALUES ($1, $2, $3, $4)
                    ON CONFLICT (id) DO NOTHING""",
                 session_id,
                 source,
+                channel,
+                participant_id,
             )
 
     async def get_session(self, session_id: str) -> dict[str, Any] | None:
@@ -57,6 +63,27 @@ class SessionRepository:
             row = await conn.fetchrow(
                 "SELECT * FROM sessions WHERE id = $1",
                 session_id,
+            )
+            return dict(row) if row else None
+
+    async def find_active_by_participant(
+        self, channel: str, participant_id: str
+    ) -> dict[str, Any] | None:
+        """Find the active session for a participant (WhatsApp sender).
+
+        Returns the session row if an active session exists, None otherwise.
+        Used for WhatsApp where the client can't send a session_id — we
+        resolve it server-side from the sender's phone number.
+        """
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """SELECT * FROM sessions
+                   WHERE channel = $1 AND participant_id = $2
+                     AND status = 'active'
+                   ORDER BY last_activity_at DESC
+                   LIMIT 1""",
+                channel,
+                participant_id,
             )
             return dict(row) if row else None
 
@@ -105,12 +132,37 @@ class SessionRepository:
             return
 
         sets.append("updated_at = NOW()")
+        sets.append("last_activity_at = NOW()")
         if status == SessionStatus.COMPLETE:
             sets.append("completed_at = NOW()")
+        elif status == SessionStatus.CLOSED:
+            sets.append("closed_at = NOW()")
 
         sql = f"UPDATE sessions SET {', '.join(sets)} WHERE id = $1"
         async with self._pool.acquire() as conn:
             await conn.execute(sql, *args)
+
+    async def close_session(self, session_id: str) -> bool:
+        """Explicitly close a session. Returns True if it was open."""
+        async with self._pool.acquire() as conn:
+            result = await conn.execute(
+                """UPDATE sessions
+                   SET status = 'closed', closed_at = NOW(),
+                       updated_at = NOW(), last_activity_at = NOW()
+                   WHERE id = $1 AND status IN ('active', 'complete')""",
+                session_id,
+            )
+            return result == "UPDATE 1"
+
+    async def expire_session(self, session_id: str) -> None:
+        """Mark a session as expired (lazy expiry)."""
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """UPDATE sessions
+                   SET status = 'expired', updated_at = NOW()
+                   WHERE id = $1 AND status = 'active'""",
+                session_id,
+            )
 
     # ------------------------------------------------------------------
     # Session items (confirmed barcodes)
@@ -272,6 +324,8 @@ class NoOpSessionRepository:
         self, session_id: str, *, source: str | None = None
     ) -> None:
         if session_id not in self._sessions:
+            from datetime import datetime
+
             self._sessions[session_id] = {
                 "id": session_id,
                 "status": "active",
@@ -281,12 +335,15 @@ class NoOpSessionRepository:
                 "image_count": 0,
                 "source": source,
                 "message": None,
+                "last_activity_at": datetime.now(UTC),
             }
 
     async def get_session(self, session_id: str) -> dict[str, Any] | None:
         return self._sessions.get(session_id)
 
     async def update_session(self, session_id: str, **kwargs: Any) -> None:
+        from datetime import datetime
+
         s = self._sessions.setdefault(session_id, {"id": session_id})
         for k, v in kwargs.items():
             if v is not None:
@@ -294,6 +351,19 @@ class NoOpSessionRepository:
                     s[k] = v.value if hasattr(v, "value") else str(v)
                 else:
                     s[k] = v
+        s["last_activity_at"] = datetime.now(UTC)
+
+    async def close_session(self, session_id: str) -> bool:
+        s = self._sessions.get(session_id)
+        if s is None or s.get("status") not in ("active", "complete"):
+            return False
+        s["status"] = "closed"
+        return True
+
+    async def expire_session(self, session_id: str) -> None:
+        s = self._sessions.get(session_id)
+        if s is not None and s.get("status") == "active":
+            s["status"] = "expired"
 
     async def add_item(self, session_id: str, item: SessionItem) -> bool:
         s = self._sessions.setdefault(session_id, {"id": session_id, "_items": []})

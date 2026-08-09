@@ -6,6 +6,7 @@ Uses NoOpSessionRepository for in-memory session state.
 
 from __future__ import annotations
 
+from datetime import UTC
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -168,14 +169,20 @@ async def test_session_dedup_across_images(tmp_path: Path) -> None:
     }
 
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
-        await run_session_graph("S1", img, repo=repo)
+        result1 = await run_session_graph("S1", img, repo=repo)
 
+    assert result1.status == SessionStatus.COMPLETE
+
+    # Session is complete — second photo should be rejected, not merged.
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock2)):
         result2 = await run_session_graph("S1", img, repo=repo)
 
-    assert result2.found_count == 2  # not 4
+    assert result2.status == SessionStatus.COMPLETE
+    assert result2.found_count == 2  # unchanged
     assert len(result2.items) == 2
-    assert result2.image_count == 2
+    assert result2.image_count == 1  # didn't increment
+    assert result2.latest_image is None  # no scan was run
+    assert "complete" in (result2.message or "").lower()
 
 
 @pytest.mark.asyncio
@@ -296,3 +303,129 @@ async def test_session_resume_after_failure(tmp_path: Path) -> None:
 
     assert result2.status == SessionStatus.COMPLETE
     assert result2.found_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Session lifecycle tests (M16C)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_session_reject_photo_on_complete(tmp_path: Path) -> None:
+    """Complete session + new photo → rejected, not silently reopened."""
+    repo = NoOpSessionRepository()
+    img = tmp_path / "img.png"
+    img.write_bytes(b"fake")
+
+    mock1 = {
+        "outcome": "complete",
+        "audit_available": True,
+        "found": [
+            {"barcode_value": "111", "label_index": 1},
+            {"barcode_value": "222", "label_index": 2},
+        ],
+        "missing": [],
+        "unassigned": [],
+        "summary": {"visible_label_count": 2, "found_count": 2, "missing_count": 0},
+    }
+
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
+        result1 = await run_session_graph("S1", img, repo=repo)
+
+    assert result1.status == SessionStatus.COMPLETE
+
+    # Try to send another photo — should be rejected.
+    mock2 = {
+        "outcome": "complete",
+        "audit_available": True,
+        "found": [{"barcode_value": "333", "label_index": 3}],
+        "missing": [],
+        "unassigned": [],
+        "summary": {"visible_label_count": 1, "found_count": 1, "missing_count": 0},
+    }
+
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock2)):
+        result2 = await run_session_graph("S1", img, repo=repo)
+
+    assert result2.status == SessionStatus.COMPLETE
+    assert result2.found_count == 2  # unchanged
+    assert result2.image_count == 1  # didn't increment
+    assert result2.latest_image is None
+
+
+@pytest.mark.asyncio
+async def test_session_close_then_reject(tmp_path: Path) -> None:
+    """Closed session rejects new photos."""
+    repo = NoOpSessionRepository()
+    img = tmp_path / "img.png"
+    img.write_bytes(b"fake")
+
+    mock1 = {
+        "outcome": "needs_better_photo",
+        "audit_available": True,
+        "found": [{"barcode_value": "111", "label_index": 1}],
+        "missing": [
+            {"label_index": 2, "status": "not_visible",
+             "label_bbox": {}, "barcode_bbox": {}},
+        ],
+        "unassigned": [],
+        "summary": {"visible_label_count": 2, "found_count": 1, "missing_count": 1},
+    }
+
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
+        result1 = await run_session_graph("S1", img, repo=repo)
+
+    assert result1.status == SessionStatus.ACTIVE
+
+    # Close the session.
+    closed = await repo.close_session("S1")
+    assert closed is True
+
+    # Try to send another photo — should be rejected.
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
+        result2 = await run_session_graph("S1", img, repo=repo)
+
+    assert result2.status == SessionStatus.CLOSED
+    assert result2.found_count == 1  # unchanged
+    assert result2.image_count == 1  # didn't increment
+    assert result2.latest_image is None
+
+
+@pytest.mark.asyncio
+async def test_session_lazy_expiry(tmp_path: Path) -> None:
+    """Session that's been inactive past TTL is expired on next access."""
+    from datetime import datetime, timedelta
+
+    repo = NoOpSessionRepository()
+    img = tmp_path / "img.png"
+    img.write_bytes(b"fake")
+
+    mock1 = {
+        "outcome": "needs_better_photo",
+        "audit_available": True,
+        "found": [{"barcode_value": "111", "label_index": 1}],
+        "missing": [
+            {"label_index": 2, "status": "not_visible",
+             "label_bbox": {}, "barcode_bbox": {}},
+        ],
+        "unassigned": [],
+        "summary": {"visible_label_count": 2, "found_count": 1, "missing_count": 1},
+    }
+
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
+        result1 = await run_session_graph("S1", img, repo=repo)
+
+    assert result1.status == SessionStatus.ACTIVE
+
+    # Simulate the session being old — manually set last_activity_at in the past.
+    old_time = datetime.now(UTC) - timedelta(minutes=31)
+    repo._sessions["S1"]["last_activity_at"] = old_time
+
+    # Next access should expire the session and reject the photo.
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
+        result2 = await run_session_graph("S1", img, repo=repo)
+
+    assert result2.status == SessionStatus.EXPIRED
+    assert result2.found_count == 1  # unchanged
+    assert result2.image_count == 1  # didn't increment
+    assert result2.latest_image is None

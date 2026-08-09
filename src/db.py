@@ -126,20 +126,34 @@ CREATE INDEX IF NOT EXISTS idx_annotations_status ON annotations(status);
 CREATE TABLE IF NOT EXISTS sessions (
     id                  TEXT PRIMARY KEY,
     status              TEXT NOT NULL DEFAULT 'active'
-                        CHECK (status IN ('active', 'complete', 'expired', 'failed')),
+                        CHECK (status IN ('active', 'complete', 'expired', 'failed', 'closed')),
     expected_count      INTEGER NOT NULL DEFAULT 0,
     found_count         INTEGER NOT NULL DEFAULT 0,
     missing_count       INTEGER NOT NULL DEFAULT 0,
     image_count         INTEGER NOT NULL DEFAULT 0,
-    source              TEXT,                          -- 'web', 'whatsapp', 'cli'
+    channel             TEXT,                          -- 'web', 'whatsapp'
+    participant_id      TEXT,                          -- WhatsApp sender; null for web
+    source              TEXT,                          -- legacy: 'web', 'whatsapp', 'cli'
     message             TEXT,                          -- prompt for next photo
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    completed_at        TIMESTAMPTZ
+    last_activity_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at        TIMESTAMPTZ,
+    closed_at           TIMESTAMPTZ
 );
+
+-- Additive columns for pre-existing tables (idempotent).
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS channel TEXT;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS participant_id TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
 CREATE INDEX IF NOT EXISTS idx_sessions_created ON sessions(created_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_last_activity ON sessions(last_activity_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_participant
+    ON sessions(participant_id, channel, status)
+    WHERE participant_id IS NOT NULL AND status = 'active';
 
 -- Confirmed barcodes accumulated across all images in a session.
 -- Deduplicated by barcode_value within a session.
