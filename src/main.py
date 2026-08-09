@@ -21,7 +21,6 @@ upgrade.
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import io
 import logging
@@ -43,7 +42,7 @@ from src.api.admin import router as admin_router
 from src.api.routes import router
 from src.config import settings
 from src.models.upload import generate_upload_id
-from src.ingest.analyze import analyze_image
+from src.ingest.analyze import analyze_image_async
 from src.messaging.dialog360 import Dialog360Client, iter_incoming_messages
 from src.messaging.transcribe import (
     Transcriber,
@@ -424,7 +423,7 @@ async def process_image_message(
                 "Starting analyze_image upload_id=%s trace_id=%s for %s from=%s",
                 upload_id, trace_id, temp_path, sender,
             )
-            result = await asyncio.to_thread(analyze_image, temp_path)
+            result = await analyze_image_async(temp_path, thread_id=upload_id)
             result["upload_id"] = upload_id
             result["trace_id"] = trace_id
             result["source"] = "whatsapp"

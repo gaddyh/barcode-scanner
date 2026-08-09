@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import time
 from io import BytesIO as _BytesIO
@@ -15,7 +14,7 @@ from src.config import Settings, get_settings
 from src.models.barcode import ScanResponse, ScanStatus
 from src.models.feedback import FeedbackRequest, FeedbackResponse
 from src.models.upload import generate_upload_id
-from src.ingest.analyze import analyze_image
+from src.ingest.analyze import analyze_image_async
 from src.ingest.scanner import BarcodeScanner
 from src.api.feedback import submit_upload_feedback
 from src.persistence import create_run as persist_create_run, complete_run_from_dict, fail_run as persist_fail_run
@@ -252,13 +251,12 @@ async def _traced_analyze(
 
     t0 = time.perf_counter()
     try:
-        # Run in a thread because analyze_image → pipeline_path → asyncio.run()
-        # needs its own event loop (FastAPI's loop is already running).
-        # Note: thread_id is not passed here because the asyncio.run() bridge
-        # creates a new event loop that can't use the checkpointer's lock.
-        # Checkpointing will be enabled when the route calls run_scan_graph()
-        # directly (M16C).
-        result = await asyncio.to_thread(analyze_image, image_bytes)
+        # Call analyze_image_async directly — stays in FastAPI's event loop
+        # so the Postgres checkpointer's asyncio.Lock works (M16C).
+        # Pass upload_id as thread_id for checkpoint persistence.
+        result = await analyze_image_async(
+            image_bytes, thread_id=upload_id
+        )
     except Exception as exc:
         elapsed_ms = int((time.perf_counter() - t0) * 1000)
         await persist_fail_run(repo, upload_id, exc)
@@ -524,3 +522,115 @@ async def analyze_barcode(
             "tags": [f"source:{source}", "image-upload"],
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Multi-image session endpoint (M16C)
+# ---------------------------------------------------------------------------
+
+
+def _get_session_repo():
+    """Get the session repository singleton (Postgres or NoOp)."""
+    from src.main import _db_pool
+
+    if _db_pool is not None:
+        from src.session_repository import SessionRepository
+
+        return SessionRepository(_db_pool)
+    from src.session_repository import NoOpSessionRepository
+
+    return NoOpSessionRepository()
+
+
+@router.post(
+    "/barcode/session",
+    tags=["barcode"],
+    summary="Multi-image session: submit a photo to an ingest session",
+)
+async def session_ingest(
+    file: UploadFile = File(..., description="JPEG, PNG, or WebP product photo"),
+    session_id: str | None = None,
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    """Submit an image to a multi-image ingest session.
+
+    If ``session_id`` is not provided, a new session is created. Subsequent
+    calls with the same ``session_id`` accumulate results across photos.
+
+    Returns a ``SessionResult`` with:
+
+    - ``status``: ``active`` (need more photos) or ``complete`` (all boxes found)
+    - ``expected_count``: total visible boxes (from first photo's audit)
+    - ``found_count``: unique barcodes confirmed so far
+    - ``missing_count``: boxes still without barcodes
+    - ``items``: confirmed barcodes
+    - ``missing``: unresolved boxes with label metadata
+    - ``message``: human-readable prompt for the next photo
+    - ``image_count``: how many photos submitted so far
+
+    Requires ``GEMINI_API_KEY`` in the environment.
+    """
+    content_type = (file.content_type or "").lower()
+    if content_type not in settings.allowed_content_types:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail={
+                "code": "unsupported_image_type",
+                "message": f"Unsupported content type: {content_type or 'unknown'}",
+                "allowed": sorted(settings.allowed_content_types),
+            },
+        )
+
+    image_bytes = await file.read(settings.max_upload_bytes + 1)
+    await file.close()
+
+    if len(image_bytes) > settings.max_upload_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail={
+                "code": "image_too_large",
+                "message": f"Maximum upload size is {settings.max_upload_bytes} bytes.",
+            },
+        )
+
+    # Generate session_id if not provided.
+    if session_id is None:
+        session_id = generate_upload_id()
+
+    repo = _get_session_repo()
+
+    from src.ingest.session_graph import run_session_graph
+
+    result = await run_session_graph(
+        session_id,
+        image_bytes,
+        repo=repo,
+        source="web",
+    )
+
+    return result.model_dump(mode="json")
+
+
+@router.get(
+    "/barcode/session/{session_id}",
+    tags=["barcode"],
+    summary="Get session state without submitting a new image",
+)
+async def get_session(session_id: str) -> dict:
+    """Get the current state of an ingest session.
+
+    Returns the same ``SessionResult`` shape as the POST endpoint, but
+    without running a new image. Useful for polling or resuming a session
+    after a page refresh.
+    """
+    repo = _get_session_repo()
+    result = await repo.to_result(session_id)
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "session_not_found",
+                "message": f"Session {session_id} not found.",
+            },
+        )
+    return result.model_dump(mode="json")

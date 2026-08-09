@@ -159,6 +159,77 @@ def analyze_image(
                 pass
 
 
+async def analyze_image_async(
+    image: ImageInput,
+    *,
+    scanner: BarcodeScanner | None = None,
+    model: str | None = None,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+    retry_delay_seconds: float = DEFAULT_RETRY_DELAY_SECONDS,
+    thread_id: str | None = None,
+) -> dict[str, object]:
+    """Async version of ``analyze_image``.
+
+    Calls ``run_scan_graph()`` directly instead of going through the sync
+    ``pipeline_path()`` → ``asyncio.run()`` bridge. This keeps everything
+    in the caller's event loop, so the Postgres checkpointer's
+    ``asyncio.Lock`` works correctly (M16C).
+
+    Use this from async contexts (FastAPI route handlers). Use the sync
+    ``analyze_image()`` from CLI, eval, and other sync callers.
+
+    Args:
+        thread_id: Optional unique ID for checkpoint persistence. When
+            provided and a checkpointer is configured, the graph state
+            is saved to Postgres after every superstep.
+    """
+    from src.ingest.graph import run_scan_graph
+
+    own_scanner = scanner is None
+    if own_scanner:
+        scanner = BarcodeScanner()
+
+    cleanup_path: str | None = None
+    try:
+        if isinstance(image, (bytes, bytearray)):
+            path = _write_temp_image(bytes(image))
+            cleanup_path = str(path)
+        else:
+            path = Path(image).expanduser().resolve()
+
+        try:
+            image_width, image_height = _image_dimensions(path)
+        except (OSError, UnidentifiedImageError, ValueError):
+            image_width, image_height = 0, 0
+
+        summary = await run_scan_graph(
+            path,
+            scanner,
+            model=model,
+            max_retries=max_retries,
+            retry_delay_seconds=retry_delay_seconds,
+            thread_id=thread_id,
+        )
+        result = _reshape(summary, image_width, image_height, image_path=path)
+        logger.info(
+            "analyze_image_async result: outcome=%s found=%d missing=%d "
+            "unassigned=%d image=%dx%d",
+            result.get("outcome"),
+            result.get("summary", {}).get("found_count", 0),
+            result.get("summary", {}).get("missing_count", 0),
+            result.get("summary", {}).get("unassigned_count", 0),
+            image_width,
+            image_height,
+        )
+        return result
+    finally:
+        if cleanup_path is not None:
+            try:
+                os.unlink(cleanup_path)
+            except OSError:
+                pass
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
