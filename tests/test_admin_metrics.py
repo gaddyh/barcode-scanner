@@ -234,3 +234,125 @@ def test_group_by_missing_version_defaults_to_unknown(
     groups = resp.json()["groups"]
     assert set(groups.keys()) == {"ingest-v1", "unknown"}
     assert groups["unknown"]["images_processed"] == 1
+
+
+# ---------------------------------------------------------------------------
+# DB-first metrics — Postgres source
+# ---------------------------------------------------------------------------
+
+
+class FakeDbRepo:
+    """Fake PostgresRunRepository that returns DB rows with metadata dicts."""
+
+    def __init__(self, rows: list[dict[str, Any]] | None = None, exc: Exception | None = None):
+        self._rows = rows or []
+        self._exc = exc
+
+    async def query_runs(self, *, hours: int, limit: int = 500) -> list[dict[str, Any]]:
+        if self._exc:
+            raise self._exc
+        return self._rows
+
+
+def _db_row(
+    final_status: str = "complete",
+    found_count: int = 6,
+    recovery_attempted: bool = False,
+    recovery_labels_resolved: int = 0,
+    latency_ms: int = 3000,
+    source: str = "web",
+    pipeline_version: str = "ingest-v1",
+    scanner_version: str = "scanner-0.8",
+    scanner_vision_match: bool = True,
+    count_delta: int = 0,
+    missing_count: int = 0,
+    unassigned_count: int = 0,
+) -> dict[str, Any]:
+    """Build a DB row dict with metadata sub-dict matching compute_metrics keys."""
+    return {
+        "id": "01JTEST",
+        "source": source,
+        "status": final_status,
+        "metadata": {
+            "final_status": final_status,
+            "source": source,
+            "found_count": found_count,
+            "recovery_attempted": recovery_attempted,
+            "recovery_labels_resolved": recovery_labels_resolved,
+            "latency_ms": latency_ms,
+            "pipeline_version": pipeline_version,
+            "scanner_version": scanner_version,
+            "scanner_vision_match": scanner_vision_match,
+            "count_delta": count_delta,
+            "missing_count": missing_count,
+            "unassigned_count": unassigned_count,
+        },
+    }
+
+
+def _patch_db_repo(monkeypatch: pytest.MonkeyPatch, repo: FakeDbRepo) -> None:
+    """Patch src.main.run_repo to use our fake DB repo."""
+    import src.main
+    monkeypatch.setattr(src.main, "run_repo", repo)
+
+
+def test_db_metrics_successful(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """DB available → source=postgres with real metrics."""
+    rows = [_db_row(), _db_row(final_status="needs_user_input")]
+    _patch_db_repo(monkeypatch, FakeDbRepo(rows=rows))
+
+    resp = client.get("/admin/metrics?hours=24")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["source"] == "postgres"
+    assert data["images_processed"] == 2
+    assert data["boxes_processed"] == 12
+    assert data["final_complete_pct"] == 50.0
+
+
+def test_db_metrics_empty(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """DB accessible but empty → source=postgres with zeros (no LangSmith fallback)."""
+    _patch_db_repo(monkeypatch, FakeDbRepo(rows=[]))
+
+    resp = client.get("/admin/metrics")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["source"] == "postgres"
+    assert data["images_processed"] == 0
+
+
+def test_db_metrics_fallback_to_langsmith_on_error(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DB query fails → fall back to LangSmith."""
+    _patch_db_repo(monkeypatch, FakeDbRepo(exc=Exception("DB connection lost")))
+    runs = [_run(), _run(final_status="needs_user_input")]
+    _patch_client(monkeypatch, FakeClient(runs=runs))
+
+    resp = client.get("/admin/metrics?hours=24")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["source"] == "langsmith"
+    assert data["images_processed"] == 2
+
+
+def test_db_metrics_grouped(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """DB + group_by → source=postgres with per-group metrics."""
+    rows = [
+        _db_row(final_status="complete", pipeline_version="ingest-v1"),
+        _db_row(final_status="complete", pipeline_version="ingest-v1"),
+        _db_row(final_status="needs_user_input", pipeline_version="ingest-v1"),
+        _db_row(final_status="complete", pipeline_version="ingest-v2"),
+    ]
+    _patch_db_repo(monkeypatch, FakeDbRepo(rows=rows))
+
+    resp = client.get("/admin/metrics?group_by=pipeline_version")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["source"] == "postgres"
+    assert data["group_by"] == "pipeline_version"
+    groups = data["groups"]
+    assert set(groups.keys()) == {"ingest-v1", "ingest-v2"}
+    assert groups["ingest-v1"]["images_processed"] == 3
+    assert groups["ingest-v1"]["final_complete_pct"] == 66.7
+    assert groups["ingest-v2"]["images_processed"] == 1

@@ -2,7 +2,12 @@
 
 Endpoints for reviewing interesting pipeline failures, promoting
 reviewed candidates to the eval dataset, and querying operational
-metrics from LangSmith traces.
+metrics.
+
+Metrics source priority:
+    1. Postgres (if DATABASE_URL is set and pool is available) — fast, no
+       external API calls, no 100-run limit.
+    2. LangSmith (fallback if DB is unavailable) — queries trace metadata.
 
 No auth — dev only. Add auth before any real deployment.
 """
@@ -34,6 +39,7 @@ from src.evals.metrics import (
     unavailable_grouped_response,
     unavailable_response,
 )
+from src.repository import NoOpRunRepository
 
 load_dotenv()
 
@@ -161,19 +167,36 @@ def _candidate_to_summary(cand: Any) -> CandidateSummary:
 
 
 _METRICS_LIMIT = 100
+_DB_METRICS_LIMIT = 2000
+
+
+def _get_run_repo():
+    """Get the module-level run_repo from src.main (set by lifespan)."""
+    from src.main import run_repo
+    return run_repo
+
+
+class _DbRowRunLike:
+    """Adapter that wraps a DB row dict as a RunLike for compute_metrics()."""
+
+    def __init__(self, row: dict[str, Any]):
+        self._row = row
+        self.metadata = row.get("metadata", {})
 
 
 @router.get("/metrics")
-def get_metrics(
+async def get_metrics(
     hours: int = 24,
     group_by: str | None = None,
 ) -> MetricsResponse | GroupedMetricsResponse:
-    """Return operational metrics from LangSmith ingest_one traces.
+    """Return operational metrics.
 
-    Queries LangSmith for root ``ingest_one`` traces in the time window
-    and aggregates in Python. Distinguishes empty data (source=langsmith)
-    from API failure (source=unavailable). Returns ``truncated=true`` if
-    the 100-run limit was hit (LangSmith's max page size).
+    Source priority:
+        1. Postgres (if available) — fast, no external API, no 100-run limit.
+        2. LangSmith (fallback if DB unavailable) — queries trace metadata.
+
+    If the DB is accessible but empty, returns zeroed metrics with
+    ``source="postgres"`` — no LangSmith fallback for empty data.
 
     If ``group_by`` is set (e.g. ``pipeline_version``, ``scanner_version``,
     ``recovery_version``, ``vision_prompt_version``, ``vision_model``,
@@ -186,6 +209,38 @@ def get_metrics(
             detail=f"Invalid group_by '{group_by}'. Valid values: {sorted(VALID_GROUP_BY)}",
         )
 
+    # --- Try Postgres first ---
+    repo = _get_run_repo()
+    # NoOpRunRepository means no DB configured — skip to LangSmith fallback
+    db_available = not isinstance(repo, NoOpRunRepository)
+
+    if db_available:
+        try:
+            rows = await repo.query_runs(hours=hours, limit=_DB_METRICS_LIMIT)
+            runs = [_DbRowRunLike(r) for r in rows]
+            truncated = len(runs) >= _DB_METRICS_LIMIT
+
+            if group_by is not None:
+                resp = compute_grouped_metrics(
+                    runs,
+                    group_by=group_by,
+                    time_window_hours=hours,
+                    truncated=truncated,
+                )
+                resp.source = "postgres"
+                return resp
+
+            resp = compute_metrics(
+                runs,
+                time_window_hours=hours,
+                truncated=truncated,
+            )
+            resp.source = "postgres"
+            return resp
+        except Exception:
+            logger.warning("DB metrics query failed, falling back to LangSmith", exc_info=True)
+
+    # --- Fallback: LangSmith ---
     start = datetime.now(UTC) - timedelta(hours=hours)
     project = os.getenv("LANGSMITH_PROJECT", "default")
 
@@ -193,8 +248,6 @@ def get_metrics(
         from langsmith import Client
 
         client = Client()
-        # Match all production root trace names: CLI (ingest_one),
-        # web (web_analyze_barcode), and WhatsApp (process_whatsapp_message).
         runs = list(
             client.list_runs(
                 project_name=project,

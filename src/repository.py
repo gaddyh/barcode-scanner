@@ -76,6 +76,7 @@ class RunRepository(Protocol):
     async def complete_run(self, run_id: str, result: IngestResult, *, versions: dict[str, str] | None = None) -> None: ...
     async def fail_run(self, run_id: str, error: Exception) -> None: ...
     async def query_metrics(self, *, hours: int, group_by: str | None = None) -> dict[str, Any]: ...
+    async def query_runs(self, *, hours: int, limit: int = 500) -> list[dict[str, Any]]: ...
 
 
 class AnnotationRepository(Protocol):
@@ -105,6 +106,9 @@ class NoOpRunRepository:
 
     async def query_metrics(self, *, hours: int, group_by: str | None = None) -> dict[str, Any]:
         return {"source": "noop", "runs": []}
+
+    async def query_runs(self, *, hours: int, limit: int = 500) -> list[dict[str, Any]]:
+        return []
 
 
 class NoOpAnnotationRepository:
@@ -333,6 +337,67 @@ class PostgresRunRepository:
                     hours,
                 )
                 return {"source": "postgres", "grouped": True, "groups": [dict(r) for r in rows]}
+
+    async def query_runs(self, *, hours: int, limit: int = 500) -> list[dict[str, Any]]:
+        """Return runs in the time window as dicts with metadata-compatible keys.
+
+        Each row is converted to a dict with a ``metadata`` sub-dict matching
+        the keys that ``compute_metrics()`` expects (final_status, found_count,
+        latency_ms, scanner_vision_match, etc.). This lets the admin endpoint
+        reuse the same aggregation logic for both DB and LangSmith sources.
+        """
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT
+                    id, source, status, filename,
+                    scanner_count, vision_count, scanner_vision_match,
+                    count_delta, found_count, missing_count, unassigned_count,
+                    recovery_attempted, recovery_labels_tried,
+                    recovery_barcodes_found, recovery_labels_resolved,
+                    recovery_succeeded, latency_ms,
+                    primary_issue, issue_count,
+                    pipeline_version, scanner_version,
+                    vision_prompt_version, vision_model, recovery_version,
+                    created_at, processed_at
+                FROM runs
+                WHERE created_at >= NOW() - make_interval(hours => $1)
+                ORDER BY created_at DESC
+                LIMIT $2
+                """,
+                hours,
+                limit,
+            )
+
+        result = []
+        for r in rows:
+            d = dict(r)
+            # Build metadata dict matching LangSmith metadata keys
+            d["metadata"] = {
+                "final_status": d.get("status"),
+                "found_count": d.get("found_count", 0),
+                "missing_count": d.get("missing_count", 0),
+                "unassigned_count": d.get("unassigned_count", 0),
+                "scanner_count": d.get("scanner_count", 0),
+                "vision_count": d.get("vision_count", 0),
+                "scanner_vision_match": d.get("scanner_vision_match", False),
+                "count_delta": d.get("count_delta", 0),
+                "recovery_attempted": d.get("recovery_attempted", False),
+                "recovery_labels_tried": d.get("recovery_labels_tried", 0),
+                "recovery_barcodes_found": d.get("recovery_barcodes_found", 0),
+                "recovery_labels_resolved": d.get("recovery_labels_resolved", 0),
+                "recovery_succeeded": d.get("recovery_succeeded", False),
+                "latency_ms": d.get("latency_ms", 0),
+                "primary_issue": d.get("primary_issue"),
+                "pipeline_version": d.get("pipeline_version"),
+                "scanner_version": d.get("scanner_version"),
+                "vision_prompt_version": d.get("vision_prompt_version"),
+                "vision_model": d.get("vision_model"),
+                "recovery_version": d.get("recovery_version"),
+                "source": d.get("source"),
+            }
+            result.append(d)
+        return result
 
 
 class PostgresAnnotationRepository:
