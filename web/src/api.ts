@@ -78,6 +78,61 @@ export interface AnalyzeResponse {
   message?: string;
 }
 
+// --- Session types (/barcode/session) ---
+
+export interface SessionItem {
+  barcode_value: string;
+  barcode_format: string | null;
+  barcode_bbox: Record<string, number> | null;
+  label_bbox: Record<string, number> | null;
+  label_index: number | null;
+  match_basis: string | null;
+  source_image: number;
+}
+
+export interface SessionMissingItem {
+  label_index: number | null;
+  label_bbox: Record<string, number> | null;
+  barcode_bbox: Record<string, number> | null;
+  status: string;
+  source_image: number;
+  resolved: boolean;
+}
+
+export interface SessionResult {
+  session_id: string;
+  status: "active" | "complete" | "expired" | "closed" | "failed";
+  expected_count: number;
+  found_count: number;
+  missing_count: number;
+  items: SessionItem[];
+  missing: SessionMissingItem[];
+  image_count: number;
+  message: string | null;
+  latest_image: {
+    image_index: number;
+    status: string;
+    found: SessionItem[];
+    missing: SessionMissingItem[];
+    visible_label_count: number;
+    found_count: number;
+    missing_count: number;
+  } | null;
+}
+
+// --- Participant ID (stable client identity in localStorage) ---
+
+const PARTICIPANT_ID_KEY = "barcode_participant_id";
+
+export function getParticipantId(): string {
+  let id = localStorage.getItem(PARTICIPANT_ID_KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(PARTICIPANT_ID_KEY, id);
+  }
+  return id;
+}
+
 // Same-origin by default (Docker/Render). Set VITE_API_BASE_URL for local dev.
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -104,6 +159,39 @@ export async function analyzeImage(file: File): Promise<AnalyzeResponse> {
     throw new Error(await extractError(res));
   }
   return (await res.json()) as AnalyzeResponse;
+}
+
+export async function submitSessionImage(file: File): Promise<SessionResult> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("participant_id", getParticipantId());
+  const res = fetch(`${apiBaseUrl}/barcode/session`, {
+    method: "POST",
+    body: form,
+  });
+  const response = await res;
+  if (!response.ok) {
+    throw new Error(await extractError(response));
+  }
+  return (await response.json()) as SessionResult;
+}
+
+export async function getSession(sessionId: string): Promise<SessionResult> {
+  const res = await fetch(`${apiBaseUrl}/barcode/session/${sessionId}`);
+  if (!res.ok) {
+    throw new Error(await extractError(res));
+  }
+  return (await res.json()) as SessionResult;
+}
+
+export async function closeSession(sessionId: string): Promise<SessionResult> {
+  const res = await fetch(`${apiBaseUrl}/barcode/session/${sessionId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    throw new Error(await extractError(res));
+  }
+  return (await res.json()) as SessionResult;
 }
 
 // --- Feedback (/feedback) ---

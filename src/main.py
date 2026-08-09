@@ -42,7 +42,6 @@ from src.api.admin import router as admin_router
 from src.api.routes import router
 from src.config import settings
 from src.models.upload import generate_upload_id
-from src.ingest.analyze import analyze_image_async
 from src.messaging.dialog360 import Dialog360Client, iter_incoming_messages
 from src.messaging.transcribe import (
     Transcriber,
@@ -420,25 +419,69 @@ async def process_image_message(
         result: dict[str, Any]
         try:
             logger.info(
-                "Starting analyze_image upload_id=%s trace_id=%s for %s from=%s",
+                "Starting session ingest upload_id=%s trace_id=%s for %s from=%s",
                 upload_id, trace_id, temp_path, sender,
             )
-            result = await analyze_image_async(temp_path, thread_id=upload_id)
-            result["upload_id"] = upload_id
-            result["trace_id"] = trace_id
-            result["source"] = "whatsapp"
-            result["filename"] = filename or "unknown"
-            outcome = result.get("outcome", "retryable_error")
-            summary = result.get("summary", {})
+            # Use session graph for WhatsApp — resolves session by sender.
+            from src.ingest.session_graph import run_session_graph as _run_session
+            from src.session_repository import (
+                NoOpSessionRepository as _NoOpSess,
+                SessionRepository as _SessRepo,
+            )
+
+            if _db_pool is not None:
+                _sess_repo = _SessRepo(_db_pool)
+            else:
+                _sess_repo = _NoOpSess()
+
+            session_result = await _run_session(
+                temp_path,
+                repo=_sess_repo,
+                source="whatsapp",
+                channel="whatsapp",
+                participant_id=sender,
+            )
+
+            # Build a result dict compatible with the existing reply/persist code.
+            latest = session_result.latest_image
+            if latest is not None:
+                outcome = latest.status
+                summary = {
+                    "found_count": latest.found_count,
+                    "missing_count": latest.missing_count,
+                    "visible_label_count": latest.visible_label_count,
+                    "unassigned_count": len(latest.unassigned),
+                }
+            else:
+                # Session was rejected (complete/expired/closed) — no scan ran.
+                outcome = "session_rejected"
+                summary = {}
+
+            result = {
+                "upload_id": upload_id,
+                "trace_id": trace_id,
+                "source": "whatsapp",
+                "filename": filename or "unknown",
+                "outcome": outcome,
+                "summary": summary,
+                "session_id": session_result.session_id,
+                "session_status": session_result.status.value,
+                "session_found_count": session_result.found_count,
+                "session_expected_count": session_result.expected_count,
+                "session_missing_count": session_result.missing_count,
+                "session_message": session_result.message,
+                "audit_available": latest.audit_available if latest else False,
+            }
             logger.info(
-                "analyze_image complete upload_id=%s trace_id=%s filename=%s "
-                "outcome=%s found=%s missing=%s from=%s",
+                "session ingest complete upload_id=%s trace_id=%s filename=%s "
+                "outcome=%s session=%s found=%s/%s from=%s",
                 upload_id,
                 trace_id,
                 filename or "unknown",
                 outcome,
-                summary.get("found_count", 0),
-                summary.get("missing_count", 0),
+                session_result.session_id,
+                session_result.found_count,
+                session_result.expected_count,
                 sender,
             )
             if sub_run is not None:
@@ -533,13 +576,34 @@ async def process_image_message(
             logger.warning("Failed to persist WhatsApp run %s to DB", upload_id, exc_info=True)
 
         # --- Reply by outcome -------------------------------------------
-        if outcome == "complete":
-            await _send_complete_reply(sender, result)
+        session_status = result.get("session_status", "active")
+
+        if outcome == "session_rejected":
+            # Session was complete/expired/closed — a new one was started.
+            # The photo was processed as the first image of the new session.
+            # Re-read the actual outcome from the session result.
+            if session_status == "complete":
+                await _send_session_complete_reply(sender, result)
+                if run is not None:
+                    run.metadata["processing_status"] = "completed"
+            elif session_status == "active":
+                await _send_session_needs_more_reply(sender, result)
+                if run is not None:
+                    run.metadata["processing_status"] = "needs_better_photo"
+            else:
+                await _safe_send_text(sender, result.get("session_message", "Session closed."))
+                if run is not None:
+                    run.metadata["processing_status"] = "session_closed"
+
+        elif outcome == "complete":
+            # Single-image complete — session is also complete.
+            await _send_session_complete_reply(sender, result)
             if run is not None:
                 run.metadata["processing_status"] = "completed"
 
         elif outcome == "needs_better_photo":
-            await _send_needs_better_photo_reply(sender, result)
+            # Missing boxes — session is still active.
+            await _send_session_needs_more_reply(sender, result)
             if run is not None:
                 run.metadata["processing_status"] = "needs_better_photo"
 
@@ -647,6 +711,40 @@ async def send_photo_instruction(sender: str) -> None:
     run_type="chain",
     tags=["barcode-scanner", "whatsapp", "reply"],
 )
+async def _send_session_complete_reply(
+    sender: str, result: dict[str, Any]
+) -> None:
+    """Send a session-complete WhatsApp reply.
+
+    Reports the accumulated session totals, not just this image's results.
+    """
+    found_count = result.get("session_found_count", 0)
+    expected = result.get("session_expected_count", 0)
+    await _safe_send_text(
+        sender,
+        f"✅ סריקה הושלמה! נמצאו {found_count} מתוך {expected} ברקודים.\n"
+        f"כל הקופסאות זוהו בהצלחה.",
+    )
+
+
+async def _send_session_needs_more_reply(
+    sender: str, result: dict[str, Any]
+) -> None:
+    """Send a session-needs-more-photos WhatsApp reply."""
+    found_count = result.get("session_found_count", 0)
+    expected = result.get("session_expected_count", 0)
+    missing_count = result.get("session_missing_count", 0)
+    message = result.get("session_message", "")
+    if message:
+        body = message
+    else:
+        body = (
+            f"📸 נמצאו {found_count} מתוך {expected} ברקודים.\n"
+            f"חסרים עוד {missing_count}. צלם שוב את הקופסאות החסרות."
+        )
+    await _safe_send_text(sender, body)
+
+
 async def _send_complete_reply(sender: str, result: dict[str, Any]) -> None:
     """Send the barcode list as a WhatsApp text message.
 

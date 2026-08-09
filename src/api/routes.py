@@ -5,7 +5,7 @@ from typing import Any
 from uuid import uuid4
 
 import langsmith as ls
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from langsmith.schemas import Attachment
 from langsmith.utils import LangSmithError
 from PIL import Image, UnidentifiedImageError
@@ -549,16 +549,22 @@ def _get_session_repo():
 )
 async def session_ingest(
     file: UploadFile = File(..., description="JPEG, PNG, or WebP product photo"),
-    session_id: str | None = None,
+    participant_id: str = Form(..., description="Stable client ID (UUID in localStorage for web, phone number for WhatsApp)"),
     settings: Settings = Depends(get_settings),
 ) -> dict:
     """Submit an image to a multi-image ingest session.
 
-    If ``session_id`` is not provided, a new session is created. Subsequent
-    calls with the same ``session_id`` accumulate results across photos.
+    The ``participant_id`` identifies the user across requests. For web,
+    the browser generates a UUID on first visit and stores it in
+    localStorage. For WhatsApp, it's the sender's phone number.
+
+    The server resolves the active session for this participant
+    automatically. If none exists (or the previous one is
+    complete/expired/closed), a new session is created.
 
     Returns a ``SessionResult`` with:
 
+    - ``session_id``: internal session ID (for debugging/admin)
     - ``status``: ``active`` (need more photos) or ``complete`` (all boxes found)
     - ``expected_count``: total visible boxes (from first photo's audit)
     - ``found_count``: unique barcodes confirmed so far
@@ -593,19 +599,16 @@ async def session_ingest(
             },
         )
 
-    # Generate session_id if not provided.
-    if session_id is None:
-        session_id = generate_upload_id()
-
     repo = _get_session_repo()
 
     from src.ingest.session_graph import run_session_graph
 
     result = await run_session_graph(
-        session_id,
         image_bytes,
         repo=repo,
         source="web",
+        channel="web",
+        participant_id=participant_id,
     )
 
     return result.model_dump(mode="json")

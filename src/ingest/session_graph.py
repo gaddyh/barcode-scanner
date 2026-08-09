@@ -54,10 +54,11 @@ SESSION_INACTIVITY_TTL = timedelta(minutes=30)
 
 
 async def run_session_graph(
-    session_id: str,
     image: bytes | Path | str,
     *,
     repo: SessionRepository | NoOpSessionRepository,
+    channel: str,
+    participant_id: str,
     scanner: BarcodeScanner | None = None,
     model: str | None = None,
     max_retries: int = 0,
@@ -68,23 +69,33 @@ async def run_session_graph(
 
     This is the canonical entry point for multi-image ingest. It:
 
-    1. Loads (or creates) the session from the repository.
-    2. Runs ScanGraph on the image (via ``analyze_image``).
-    3. Merges the result into accumulated session state.
-    4. Persists the updated state.
-    5. Returns a ``SessionResult`` — either ``complete`` or ``active``
+    1. Resolves the session by ``participant_id`` (same mechanism for
+       web and WhatsApp).
+    2. Loads (or creates) the session from the repository.
+    3. Runs ScanGraph on the image (via ``analyze_image_async``).
+    4. Merges the result into accumulated session state.
+    5. Persists the updated state.
+    6. Returns a ``SessionResult`` — either ``complete`` or ``active``
        with information about what's still missing.
 
-    The caller (API route, CLI) checks ``result.status``:
+    **Session resolution (unified for both channels):**
 
-    - ``SessionStatus.COMPLETE`` — all expected boxes have barcodes.
-    - ``SessionStatus.ACTIVE`` — still missing boxes, ask for more photos.
-    - ``SessionStatus.FAILED`` — scan/audit error on this image.
+    - ``participant_id`` identifies the user across requests.
+      - Web: a UUID generated in the browser, stored in localStorage.
+      - WhatsApp: the sender's phone number.
+    - The server looks up the active session for this participant.
+    - If found and still active → reuse it.
+    - If not found, or complete/expired/closed → create a new session.
+
+    The client never sends a ``session_id``. The server creates it
+    internally and returns it in the response (for debugging/admin).
 
     Args:
-        session_id: Unique session identifier (e.g. upload_id from the API).
         image: Raw image bytes or path to an image file.
         repo: Session repository (Postgres or NoOp).
+        channel: 'web' or 'whatsapp'.
+        participant_id: Stable user identity. Web: localStorage UUID.
+            WhatsApp: sender phone number.
         scanner: Optional pre-constructed BarcodeScanner.
         model: Gemini model name override.
         max_retries: Gemini retry count.
@@ -94,6 +105,34 @@ async def run_session_graph(
     Returns:
         ``SessionResult`` with accumulated items, missing items, and status.
     """
+    from src.models.upload import generate_upload_id
+
+    # --- Session resolution (unified for both channels) ---
+    # find_active_by_participant only returns status='active' sessions.
+    # If the session is complete/expired/closed, it won't be found, and a
+    # new session is created automatically — the user just sends another
+    # photo and gets a fresh session.
+    existing = await repo.find_active_by_participant(channel, participant_id)
+
+    session_id: str | None = None
+    if existing is not None:
+        # Check lazy expiry before reusing.
+        last_activity = existing.get("last_activity_at")
+        if last_activity:
+            if isinstance(last_activity, str):
+                last_activity = datetime.fromisoformat(last_activity)
+            if last_activity.tzinfo is None:
+                last_activity = last_activity.replace(tzinfo=UTC)
+            age = datetime.now(UTC) - last_activity
+            if age > SESSION_INACTIVITY_TTL:
+                # Session expired — mark it and let a new session be created.
+                await repo.expire_session(existing["id"])
+            else:
+                session_id = existing["id"]
+
+    if session_id is None:
+        session_id = generate_upload_id()
+
     from src.ingest.analyze import analyze_image_async
 
     if scanner is None:
@@ -104,47 +143,15 @@ async def run_session_graph(
     is_new_session = state is None
 
     if is_new_session:
-        await repo.create_session(session_id, source=source)
+        await repo.create_session(
+            session_id, source=source, channel=channel, participant_id=participant_id
+        )
         image_index = 0
         existing_items: list[SessionItem] = []
         existing_missing: list[MissingItem] = []
         expected_count = 0
     else:
         s = state["session"]
-        current_status = s.get("status", "active")
-
-        # Lazy expiry: if the session has been inactive past the TTL, mark it
-        # expired and reject the request.
-        last_activity = s.get("last_activity_at")
-        if last_activity and current_status == "active":
-            if isinstance(last_activity, str):
-                last_activity = datetime.fromisoformat(last_activity)
-            if last_activity.tzinfo is None:
-                last_activity = last_activity.replace(tzinfo=UTC)
-            age = datetime.now(UTC) - last_activity
-            if age > SESSION_INACTIVITY_TTL:
-                await repo.expire_session(session_id)
-                current_status = "expired"
-
-        # Reject if the session is no longer accepting images.
-        if current_status in ("complete", "expired", "closed"):
-            existing_items = state["items"]
-            existing_missing = [m for m in state["missing"] if not m.resolved]
-            return SessionResult(
-                session_id=session_id,
-                status=SessionStatus(current_status),
-                expected_count=s.get("expected_count", 0),
-                found_count=s.get("found_count", len(existing_items)),
-                missing_count=len(existing_missing),
-                items=existing_items,
-                missing=existing_missing,
-                image_count=s.get("image_count", 0),
-                message=(
-                    f"Session is {current_status}. Start a new session by "
-                    "calling POST /barcode/session without a session_id."
-                ),
-            )
-
         image_index = s.get("image_count", 0)
         existing_items = state["items"]
         existing_missing = [m for m in state["missing"] if not m.resolved]

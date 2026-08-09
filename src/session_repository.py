@@ -321,7 +321,8 @@ class NoOpSessionRepository:
         self._sessions: dict[str, dict[str, Any]] = {}
 
     async def create_session(
-        self, session_id: str, *, source: str | None = None
+        self, session_id: str, *, source: str | None = None,
+        channel: str | None = None, participant_id: str | None = None,
     ) -> None:
         if session_id not in self._sessions:
             from datetime import datetime
@@ -334,12 +335,26 @@ class NoOpSessionRepository:
                 "missing_count": 0,
                 "image_count": 0,
                 "source": source,
+                "channel": channel,
+                "participant_id": participant_id,
                 "message": None,
                 "last_activity_at": datetime.now(UTC),
             }
 
     async def get_session(self, session_id: str) -> dict[str, Any] | None:
         return self._sessions.get(session_id)
+
+    async def find_active_by_participant(
+        self, channel: str, participant_id: str
+    ) -> dict[str, Any] | None:
+        for s in self._sessions.values():
+            if (
+                s.get("channel") == channel
+                and s.get("participant_id") == participant_id
+                and s.get("status") == "active"
+            ):
+                return s
+        return None
 
     async def update_session(self, session_id: str, **kwargs: Any) -> None:
         from datetime import datetime

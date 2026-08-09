@@ -37,7 +37,7 @@ async def test_session_complete_on_first_image(tmp_path: Path) -> None:
     }
 
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock_result)):
-        result = await run_session_graph("S1", img, repo=repo)
+        result = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
 
     assert result.status == SessionStatus.COMPLETE
     assert result.expected_count == 2
@@ -70,7 +70,7 @@ async def test_session_needs_more_images(tmp_path: Path) -> None:
     }
 
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock_result)):
-        result = await run_session_graph("S1", img, repo=repo)
+        result = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
 
     assert result.status == SessionStatus.ACTIVE
     assert result.expected_count == 3
@@ -118,14 +118,14 @@ async def test_session_second_image_resolves_missing(tmp_path: Path) -> None:
     }
 
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
-        result1 = await run_session_graph("S1", img, repo=repo)
+        result1 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
 
     assert result1.status == SessionStatus.ACTIVE
     assert result1.found_count == 2
     assert result1.missing_count == 1
 
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock2)):
-        result2 = await run_session_graph("S1", img, repo=repo)
+        result2 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
 
     assert result2.status == SessionStatus.COMPLETE
     assert result2.found_count == 3
@@ -169,20 +169,20 @@ async def test_session_dedup_across_images(tmp_path: Path) -> None:
     }
 
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
-        result1 = await run_session_graph("S1", img, repo=repo)
+        result1 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
 
     assert result1.status == SessionStatus.COMPLETE
+    session1 = result1.session_id
 
-    # Session is complete — second photo should be rejected, not merged.
+    # Session is complete — second photo starts a NEW session (not rejected).
+    # The old session is immutable; the new photo begins fresh accumulation.
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock2)):
-        result2 = await run_session_graph("S1", img, repo=repo)
+        result2 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
 
+    assert result2.session_id != session1  # new session
     assert result2.status == SessionStatus.COMPLETE
-    assert result2.found_count == 2  # unchanged
-    assert len(result2.items) == 2
-    assert result2.image_count == 1  # didn't increment
-    assert result2.latest_image is None  # no scan was run
-    assert "complete" in (result2.message or "").lower()
+    assert result2.found_count == 2  # fresh session, 2 found in this photo
+    assert result2.image_count == 1  # first image of new session
 
 
 @pytest.mark.asyncio
@@ -223,13 +223,13 @@ async def test_session_multi_box_photo_resolves_partial(tmp_path: Path) -> None:
     }
 
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
-        result1 = await run_session_graph("S1", img, repo=repo)
+        result1 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
 
     assert result1.status == SessionStatus.ACTIVE
     assert result1.found_count == 3
 
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock2)):
-        result2 = await run_session_graph("S1", img, repo=repo)
+        result2 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
 
     assert result2.status == SessionStatus.COMPLETE
     assert result2.found_count == 4  # 3 original + 1 new (deduped)
@@ -255,7 +255,7 @@ async def test_session_audit_failure(tmp_path: Path) -> None:
     }
 
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock_result)):
-        result = await run_session_graph("S1", img, repo=repo)
+        result = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
 
     assert result.status == SessionStatus.FAILED
     assert result.found_count == 0
@@ -293,13 +293,13 @@ async def test_session_resume_after_failure(tmp_path: Path) -> None:
     }
 
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock_fail)):
-        result1 = await run_session_graph("S1", img, repo=repo)
+        result1 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
 
     assert result1.status == SessionStatus.FAILED
 
     # Second image — session was never created (failed), so this is a new session.
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock_ok)):
-        result2 = await run_session_graph("S1", img, repo=repo)
+        result2 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
 
     assert result2.status == SessionStatus.COMPLETE
     assert result2.found_count == 2
@@ -330,11 +330,12 @@ async def test_session_reject_photo_on_complete(tmp_path: Path) -> None:
     }
 
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
-        result1 = await run_session_graph("S1", img, repo=repo)
+        result1 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
 
     assert result1.status == SessionStatus.COMPLETE
+    session1 = result1.session_id
 
-    # Try to send another photo — should be rejected.
+    # Session is complete — next photo starts a NEW session automatically.
     mock2 = {
         "outcome": "complete",
         "audit_available": True,
@@ -345,17 +346,17 @@ async def test_session_reject_photo_on_complete(tmp_path: Path) -> None:
     }
 
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock2)):
-        result2 = await run_session_graph("S1", img, repo=repo)
+        result2 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
 
+    assert result2.session_id != session1  # new session
     assert result2.status == SessionStatus.COMPLETE
-    assert result2.found_count == 2  # unchanged
-    assert result2.image_count == 1  # didn't increment
-    assert result2.latest_image is None
+    assert result2.found_count == 1  # fresh session
+    assert result2.image_count == 1  # first image of new session
 
 
 @pytest.mark.asyncio
-async def test_session_close_then_reject(tmp_path: Path) -> None:
-    """Closed session rejects new photos."""
+async def test_session_close_then_new_session(tmp_path: Path) -> None:
+    """Closed session → next photo starts a new session."""
     repo = NoOpSessionRepository()
     img = tmp_path / "img.png"
     img.write_bytes(b"fake")
@@ -373,22 +374,23 @@ async def test_session_close_then_reject(tmp_path: Path) -> None:
     }
 
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
-        result1 = await run_session_graph("S1", img, repo=repo)
+        result1 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
 
     assert result1.status == SessionStatus.ACTIVE
+    session1 = result1.session_id
 
     # Close the session.
-    closed = await repo.close_session("S1")
+    closed = await repo.close_session(session1)
     assert closed is True
 
-    # Try to send another photo — should be rejected.
+    # Next photo — closed session not found → new session created.
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
-        result2 = await run_session_graph("S1", img, repo=repo)
+        result2 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
 
-    assert result2.status == SessionStatus.CLOSED
-    assert result2.found_count == 1  # unchanged
-    assert result2.image_count == 1  # didn't increment
-    assert result2.latest_image is None
+    assert result2.session_id != session1  # new session
+    assert result2.status == SessionStatus.ACTIVE
+    assert result2.found_count == 1  # fresh session
+    assert result2.image_count == 1  # first image of new session
 
 
 @pytest.mark.asyncio
@@ -413,19 +415,152 @@ async def test_session_lazy_expiry(tmp_path: Path) -> None:
     }
 
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
-        result1 = await run_session_graph("S1", img, repo=repo)
+        result1 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
 
     assert result1.status == SessionStatus.ACTIVE
+    session1 = result1.session_id
 
     # Simulate the session being old — manually set last_activity_at in the past.
     old_time = datetime.now(UTC) - timedelta(minutes=31)
-    repo._sessions["S1"]["last_activity_at"] = old_time
+    repo._sessions[session1]["last_activity_at"] = old_time
 
-    # Next access should expire the session and reject the photo.
+    # Next access — session is found (still 'active' in DB) but lazy expiry
+    # check marks it expired and rejects the photo. A new session is created.
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
-        result2 = await run_session_graph("S1", img, repo=repo)
+        result2 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
 
-    assert result2.status == SessionStatus.EXPIRED
-    assert result2.found_count == 1  # unchanged
-    assert result2.image_count == 1  # didn't increment
-    assert result2.latest_image is None
+    # The old session should now be expired.
+    assert repo._sessions[session1]["status"] == "expired"
+    # A new session was created for this photo.
+    assert result2.session_id != session1
+    assert result2.status == SessionStatus.ACTIVE
+    assert result2.found_count == 1  # fresh session
+    assert result2.image_count == 1  # first image of new session
+
+
+# ---------------------------------------------------------------------------
+# WhatsApp session tests (M16C)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_session_resolved_by_sender(tmp_path: Path) -> None:
+    """WhatsApp: session_id resolved by sender, not sent by client."""
+    repo = NoOpSessionRepository()
+    img = tmp_path / "img.png"
+    img.write_bytes(b"fake")
+
+    mock1 = {
+        "outcome": "needs_better_photo",
+        "audit_available": True,
+        "found": [{"barcode_value": "111", "label_index": 1}],
+        "missing": [
+            {"label_index": 2, "status": "not_visible",
+             "label_bbox": {}, "barcode_bbox": {}},
+        ],
+        "unassigned": [],
+        "summary": {"visible_label_count": 2, "found_count": 1, "missing_count": 1},
+    }
+
+    mock2 = {
+        "outcome": "complete",
+        "audit_available": True,
+        "found": [{"barcode_value": "222", "label_index": 2}],
+        "missing": [],
+        "unassigned": [],
+        "summary": {"visible_label_count": 1, "found_count": 1, "missing_count": 0},
+    }
+
+    # First photo — no session_id, resolved by sender.
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
+        result1 = await run_session_graph(
+            img, repo=repo, channel="whatsapp", participant_id="+972501234567"
+        )
+
+    assert result1.status == SessionStatus.ACTIVE
+    assert result1.found_count == 1
+    session_id = result1.session_id
+    assert session_id is not None
+
+    # Second photo — also no session_id, should resolve to same session.
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock2)):
+        result2 = await run_session_graph(
+            img, repo=repo, channel="whatsapp", participant_id="+972501234567"
+        )
+
+    assert result2.session_id == session_id  # same session
+    assert result2.status == SessionStatus.COMPLETE
+    assert result2.found_count == 2
+    assert result2.image_count == 2
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_complete_starts_new_session(tmp_path: Path) -> None:
+    """WhatsApp: when session is complete, next photo starts a new session."""
+    repo = NoOpSessionRepository()
+    img = tmp_path / "img.png"
+    img.write_bytes(b"fake")
+
+    mock_complete = {
+        "outcome": "complete",
+        "audit_available": True,
+        "found": [
+            {"barcode_value": "111", "label_index": 1},
+            {"barcode_value": "222", "label_index": 2},
+        ],
+        "missing": [],
+        "unassigned": [],
+        "summary": {"visible_label_count": 2, "found_count": 2, "missing_count": 0},
+    }
+
+    # First photo — completes the session.
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock_complete)):
+        result1 = await run_session_graph(
+            img, repo=repo, channel="whatsapp", participant_id="+972501234567"
+        )
+
+    assert result1.status == SessionStatus.COMPLETE
+    session1 = result1.session_id
+
+    # Second photo — session is complete, should start a new session.
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock_complete)):
+        result2 = await run_session_graph(
+            img, repo=repo, channel="whatsapp", participant_id="+972501234567"
+        )
+
+    assert result2.session_id != session1  # new session
+    assert result2.status == SessionStatus.COMPLETE
+    assert result2.found_count == 2
+    assert result2.image_count == 1  # first image of new session
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_different_senders_different_sessions(tmp_path: Path) -> None:
+    """WhatsApp: different senders get different sessions."""
+    repo = NoOpSessionRepository()
+    img = tmp_path / "img.png"
+    img.write_bytes(b"fake")
+
+    mock = {
+        "outcome": "needs_better_photo",
+        "audit_available": True,
+        "found": [{"barcode_value": "111", "label_index": 1}],
+        "missing": [
+            {"label_index": 2, "status": "not_visible",
+             "label_bbox": {}, "barcode_bbox": {}},
+        ],
+        "unassigned": [],
+        "summary": {"visible_label_count": 2, "found_count": 1, "missing_count": 1},
+    }
+
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock)):
+        result1 = await run_session_graph(
+            img, repo=repo, channel="whatsapp", participant_id="+972111111111"
+        )
+        result2 = await run_session_graph(
+            img, repo=repo, channel="whatsapp", participant_id="+972222222222"
+        )
+
+    assert result1.session_id != result2.session_id
+    assert result1.status == SessionStatus.ACTIVE
+    assert result2.status == SessionStatus.ACTIVE
