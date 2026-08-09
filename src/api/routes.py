@@ -668,3 +668,52 @@ async def close_session(session_id: str) -> dict:
     if result:
         return result.model_dump(mode="json")
     return {"session_id": session_id, "status": "closed"}
+
+
+@router.post(
+    "/barcode/session/select",
+    tags=["barcode"],
+    summary="Select a candidate barcode to resolve a missing label",
+)
+async def select_session_candidate(
+    participant_id: str = Form(..., description="Client participant ID"),
+    barcode_value: str = Form(..., description="Barcode value from the candidates list"),
+) -> dict:
+    """Resolve a user selection from the candidates list.
+
+    When a session is in ``needs_user_selection`` status, the client shows
+    the candidate barcodes. The user picks one, and the client calls this
+    endpoint with the selected ``barcode_value``.
+
+    The server resolves one missing label with the selected barcode and
+    returns the updated session state. If all labels are resolved, the
+    session becomes ``complete``.
+
+    Returns 400 if the session is not awaiting selection or the barcode
+    is not in the candidates list.
+    """
+    repo = _get_session_repo()
+
+    # Find the needs_user_selection session for this participant.
+    session = await repo.find_active_by_participant("web", participant_id)
+    if session is None or session.get("status") != "needs_user_selection":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "no_selection_pending",
+                "message": "No session awaiting selection for this participant.",
+            },
+        )
+    session_id = session["id"]
+
+    from src.ingest.session_graph import select_candidate
+
+    try:
+        result = await select_candidate(session_id, barcode_value, repo=repo)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "selection_error", "message": str(exc)},
+        )
+
+    return result.model_dump(mode="json")

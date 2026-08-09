@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.ingest.session_graph import run_session_graph
+from src.ingest.session_graph import run_session_graph, select_candidate
 from src.ingest.session_models import SessionStatus
 from src.session_repository import NoOpSessionRepository
 
@@ -790,3 +790,129 @@ async def test_whatsapp_different_senders_different_sessions(tmp_path: Path) -> 
     assert result1.session_id != result2.session_id
     assert result1.status == SessionStatus.ACTIVE
     assert result2.status == SessionStatus.ACTIVE
+
+
+# ---------------------------------------------------------------------------
+# User selection tests (M16E)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_select_candidate_resolves_missing(tmp_path: Path) -> None:
+    """User selects a candidate → resolves missing → complete."""
+    repo = NoOpSessionRepository()
+    img = tmp_path / "img.png"
+    img.write_bytes(b"fake")
+
+    mock1 = {
+        "outcome": "needs_better_photo",
+        "audit_available": True,
+        "found": [
+            {"barcode_value": "111", "label_index": 1},
+            {"barcode_value": "222", "label_index": 2},
+            {"barcode_value": "333", "label_index": 3},
+        ],
+        "missing": [
+            {"label_index": 4, "status": "not_visible", "label_bbox": {}, "barcode_bbox": {}},
+        ],
+        "unassigned": [],
+        "summary": {"visible_label_count": 4, "found_count": 3, "missing_count": 1},
+    }
+
+    mock2 = {
+        "outcome": "complete",
+        "audit_available": True,
+        "found": [
+            {"barcode_value": "444", "label_index": 1},
+            {"barcode_value": "555", "label_index": 2},
+        ],
+        "missing": [],
+        "unassigned": [],
+        "summary": {"visible_label_count": 2, "found_count": 2, "missing_count": 0},
+    }
+
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
+        result1 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
+    assert result1.status == SessionStatus.ACTIVE
+    assert result1.missing_count == 1
+
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock2)):
+        result2 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
+    assert result2.status == SessionStatus.NEEDS_USER_SELECTION
+    assert len(result2.candidates) == 2
+    session_id = result2.session_id
+
+    # User selects "444"
+    result3 = await select_candidate(session_id, "444", repo=repo)
+    assert result3.status == SessionStatus.COMPLETE
+    assert result3.found_count == 4  # 3 + 1 selected
+    assert result3.missing_count == 0
+    assert len(result3.candidates) == 0
+
+
+@pytest.mark.asyncio
+async def test_select_candidate_wrong_barcode_raises(tmp_path: Path) -> None:
+    """Selecting a barcode not in candidates raises ValueError."""
+    repo = NoOpSessionRepository()
+    img = tmp_path / "img.png"
+    img.write_bytes(b"fake")
+
+    mock1 = {
+        "outcome": "needs_better_photo",
+        "audit_available": True,
+        "found": [{"barcode_value": "111", "label_index": 1}],
+        "missing": [
+            {"label_index": 2, "status": "not_visible", "label_bbox": {}, "barcode_bbox": {}},
+        ],
+        "unassigned": [],
+        "summary": {"visible_label_count": 2, "found_count": 1, "missing_count": 1},
+    }
+
+    mock2 = {
+        "outcome": "complete",
+        "audit_available": True,
+        "found": [
+            {"barcode_value": "444", "label_index": 1},
+            {"barcode_value": "555", "label_index": 2},
+        ],
+        "missing": [],
+        "unassigned": [],
+        "summary": {"visible_label_count": 2, "found_count": 2, "missing_count": 0},
+    }
+
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
+        await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
+
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock2)):
+        result2 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
+    session_id = result2.session_id
+
+    # Select a barcode not in candidates
+    with pytest.raises(ValueError, match="not in candidates"):
+        await select_candidate(session_id, "999", repo=repo)
+
+
+@pytest.mark.asyncio
+async def test_select_candidate_wrong_status_raises(tmp_path: Path) -> None:
+    """Selecting on a session not in needs_user_selection raises ValueError."""
+    repo = NoOpSessionRepository()
+    img = tmp_path / "img.png"
+    img.write_bytes(b"fake")
+
+    mock1 = {
+        "outcome": "complete",
+        "audit_available": True,
+        "found": [
+            {"barcode_value": "111", "label_index": 1},
+            {"barcode_value": "222", "label_index": 2},
+        ],
+        "missing": [],
+        "unassigned": [],
+        "summary": {"visible_label_count": 2, "found_count": 2, "missing_count": 0},
+    }
+
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
+        result1 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
+    # Session is complete, not needs_user_selection
+    with pytest.raises(ValueError, match="not awaiting selection"):
+        await select_candidate(result1.session_id, "111", repo=repo)

@@ -69,17 +69,17 @@ class SessionRepository:
     async def find_active_by_participant(
         self, channel: str, participant_id: str
     ) -> dict[str, Any] | None:
-        """Find the active session for a participant (WhatsApp sender).
+        """Find the active or selection-pending session for a participant.
 
-        Returns the session row if an active session exists, None otherwise.
-        Used for WhatsApp where the client can't send a session_id — we
-        resolve it server-side from the sender's phone number.
+        Returns the session row if an active or needs_user_selection session
+        exists, None otherwise. Used for WhatsApp and web where the client
+        can't send a session_id — we resolve it server-side from participant_id.
         """
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
                 """SELECT * FROM sessions
                    WHERE channel = $1 AND participant_id = $2
-                     AND status = 'active'
+                     AND status IN ('active', 'needs_user_selection')
                    ORDER BY last_activity_at DESC
                    LIMIT 1""",
                 channel,
@@ -97,6 +97,7 @@ class SessionRepository:
         missing_count: int | None = None,
         image_count: int | None = None,
         message: str | None = None,
+        candidates: list[dict] | None = None,
     ) -> None:
         """Update session fields. Only sets provided fields."""
         sets: list[str] = []
@@ -126,6 +127,10 @@ class SessionRepository:
         if message is not None:
             sets.append(f"message = ${idx}")
             args.append(message)
+            idx += 1
+        if candidates is not None:
+            sets.append(f"candidates = ${idx}")
+            args.append(json.dumps(candidates))
             idx += 1
 
         if not sets:
@@ -351,7 +356,7 @@ class NoOpSessionRepository:
             if (
                 s.get("channel") == channel
                 and s.get("participant_id") == participant_id
-                and s.get("status") == "active"
+                and s.get("status") in ("active", "needs_user_selection")
             ):
                 return s
         return None

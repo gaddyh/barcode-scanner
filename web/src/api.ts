@@ -194,6 +194,22 @@ export async function closeSession(sessionId: string): Promise<SessionResult> {
   return (await res.json()) as SessionResult;
 }
 
+export async function selectCandidate(
+  barcodeValue: string,
+): Promise<SessionResult> {
+  const form = new FormData();
+  form.append("participant_id", getParticipantId());
+  form.append("barcode_value", barcodeValue);
+  const res = await fetch(`${apiBaseUrl}/barcode/session/select`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    throw new Error(await extractError(res));
+  }
+  return (await res.json()) as SessionResult;
+}
+
 // --- Feedback (/feedback) ---
 
 export interface FeedbackResponse {

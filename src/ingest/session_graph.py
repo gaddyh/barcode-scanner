@@ -30,6 +30,7 @@ StateGraph.
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -360,6 +361,9 @@ async def run_session_graph(
             message = f"Found {found_count}/{expected_count}. Send another photo."
 
     # Persist session metadata.
+    candidate_dicts = (
+        [c.model_dump(mode="json") for c in candidates] if needs_selection else []
+    )
     await repo.update_session(
         session_id,
         status=session_status,
@@ -368,6 +372,7 @@ async def run_session_graph(
         missing_count=missing_count,
         image_count=image_count,
         message=message,
+        candidates=candidate_dicts if needs_selection else [],
     )
 
     result = SessionResult(
@@ -387,6 +392,133 @@ async def run_session_graph(
     logger.info(
         "Session %s: image %d processed — status=%s found=%d/%d missing=%d",
         session_id, image_index, session_status.value, found_count, expected_count, missing_count,
+    )
+
+    return result
+
+
+async def select_candidate(
+    session_id: str,
+    barcode_value: str,
+    *,
+    repo: SessionRepository | NoOpSessionRepository,
+) -> SessionResult:
+    """Resolve a user selection from the candidates list.
+
+    Called when a session is in ``NEEDS_USER_SELECTION`` status and the
+    user has chosen which barcode to add. This:
+
+    1. Loads the session and its persisted candidates.
+    2. Finds the candidate matching ``barcode_value``.
+    3. Adds it as a session item, resolves one missing label.
+    4. Clears the candidates list.
+    5. Returns the updated ``SessionResult``.
+
+    If the barcode is not in the candidates list, raises ``ValueError``.
+    If the session is not in ``needs_user_selection`` status, raises ``ValueError``.
+    """
+    state = await repo.load_session_state(session_id)
+    if state is None:
+        raise ValueError(f"Session {session_id} not found")
+
+    s = state["session"]
+    current_status = s.get("status", "active")
+    if current_status != "needs_user_selection":
+        raise ValueError(
+            f"Session {session_id} is not awaiting selection (status={current_status})"
+        )
+
+    # Load persisted candidates.
+    raw_candidates = s.get("candidates") or []
+    if isinstance(raw_candidates, str):
+        raw_candidates = json.loads(raw_candidates)
+
+    # Find the matching candidate.
+    matched = None
+    for c in raw_candidates:
+        if c.get("barcode_value") == barcode_value:
+            matched = c
+            break
+
+    if matched is None:
+        available = [c.get("barcode_value") for c in raw_candidates]
+        raise ValueError(
+            f"Barcode {barcode_value} not in candidates. Available: {available}"
+        )
+
+    # Add the item.
+    item = SessionItem(
+        barcode_value=matched["barcode_value"],
+        barcode_format=matched.get("barcode_format"),
+        barcode_bbox=matched.get("barcode_bbox"),
+        label_bbox=matched.get("label_bbox"),
+        label_index=matched.get("label_index"),
+        match_basis=matched.get("match_basis"),
+        source_image=matched.get("source_image", 0),
+    )
+    inserted = await repo.add_item(session_id, item)
+    existing_items = state["items"]
+    if inserted:
+        existing_items.append(item)
+
+    # Resolve one unresolved missing item (FIFO).
+    existing_missing = [m for m in state["missing"] if not m.resolved]
+    for m in existing_missing:
+        if not m.resolved:
+            await repo.resolve_missing(session_id, m.label_index, item.source_image)
+            m.resolved = True
+            logger.info(
+                "Session %s: missing label %d resolved by user selection (barcode=%s)",
+                session_id, m.label_index, barcode_value,
+            )
+            break
+
+    # Recompute counts.
+    unresolved_missing = [m for m in existing_missing if not m.resolved]
+    found_count = len(existing_items)
+    missing_count = len(unresolved_missing)
+    expected_count = s.get("expected_count", 0)
+    image_count = s.get("image_count", 0)
+
+    # Determine new status.
+    if expected_count > 0 and found_count >= expected_count:
+        session_status = SessionStatus.COMPLETE
+        message = None
+    else:
+        session_status = SessionStatus.ACTIVE
+        if unresolved_missing:
+            labels = [m.label_index for m in unresolved_missing if m.label_index is not None]
+            message = f"Found {found_count}/{expected_count}. Send a photo of box(es): {labels}"
+        else:
+            message = f"Found {found_count}/{expected_count}. Send another photo."
+
+    # Persist — clear candidates, update status.
+    await repo.update_session(
+        session_id,
+        status=session_status,
+        found_count=found_count,
+        missing_count=missing_count,
+        message=message,
+        candidates=[],
+    )
+
+    result = SessionResult(
+        session_id=session_id,
+        status=session_status,
+        expected_count=expected_count,
+        found_count=found_count,
+        missing_count=missing_count,
+        items=existing_items,
+        missing=unresolved_missing,
+        image_count=image_count,
+        message=message,
+        latest_image=None,
+        candidates=[],
+    )
+
+    logger.info(
+        "Session %s: user selected %s — status=%s found=%d/%d missing=%d",
+        session_id, barcode_value, session_status.value, found_count, expected_count, missing_count,
     )
 
     return result

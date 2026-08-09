@@ -136,6 +136,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     participant_id      TEXT,                          -- WhatsApp sender; null for web
     source              TEXT,                          -- legacy: 'web', 'whatsapp', 'cli'
     message             TEXT,                          -- prompt for next photo
+    candidates          JSONB,                         -- pending candidates for user selection
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_activity_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -148,6 +149,7 @@ ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMPTZ NOT N
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS channel TEXT;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS participant_id TEXT;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS candidates JSONB;
 
 -- Drop and recreate the status CHECK constraint to include 'closed'.
 -- The original constraint (from CREATE TABLE) only allowed
