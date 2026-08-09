@@ -60,6 +60,7 @@ def ingest_one(
     model: str | None = None,
     max_retries: int = DEFAULT_MAX_RETRIES,
     retry_delay_seconds: float = DEFAULT_RETRY_DELAY_SECONDS,
+    image_ref: str | None = None,
 ) -> IngestResult:
     """Run the full ingest pipeline on one image and return a typed result.
 
@@ -75,6 +76,8 @@ def ingest_one(
         model: Gemini model name override.
         max_retries: Gemini retry count after the first attempt.
         retry_delay_seconds: Base delay between retries (exponential backoff).
+        image_ref: Optional image path for annotation candidates. CLI passes
+            the file path; web passes ``None`` (image persistence deferred).
 
     Returns:
         A typed ``IngestResult`` with status, items, missing, unassigned,
@@ -149,9 +152,16 @@ def ingest_one(
         session_id=context.session_id,
         payload={
             "status": result.status.value,
+            "source": context.source,
+            "image_ref": image_ref,
             "found_count": len(result.items),
             "missing_count": len(result.missing),
+            "scanner_count": result.metrics.scanner_count,
+            "vision_count": result.metrics.vision_count,
+            "recovery_attempted": result.metrics.recovery_attempted,
+            "recovery_labels_resolved": result.metrics.recovery_labels_resolved,
             "elapsed_ms": elapsed_ms,
+            "issues": [i.model_dump(mode="json") for i in result.issues],
         },
     ))
 

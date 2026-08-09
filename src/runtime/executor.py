@@ -29,8 +29,9 @@ async def execute(
     run_type: str = "chain",
     tags: list[str] | None = None,
     timeout: float | None = None,
+    **op_kwargs: Any,
 ) -> T:
-    """Execute ``operation(input, context=context)`` within the runtime.
+    """Execute ``operation(input, context=context, **op_kwargs)`` within the runtime.
 
     When ``name`` is provided, the operation is wrapped with LangSmith
     tracing. Sync operations are bridged to a thread via
@@ -38,7 +39,7 @@ async def execute(
     ``RetryableError`` / ``InvalidInputError`` types.
 
     Args:
-        operation: A callable accepting ``(input, context=context)``.
+        operation: A callable accepting ``(input, context=context, **kwargs)``.
             May be sync or async.
         input: The primary input passed to ``operation``.
         context: The ``RunContext`` for this execution.
@@ -48,6 +49,7 @@ async def execute(
         tags: Optional LangSmith trace tags.
         timeout: Optional timeout in seconds. If exceeded, raises
             ``RetryableError`` with code ``"timeout"``.
+        **op_kwargs: Additional keyword arguments passed to ``operation``.
 
     Returns:
         Whatever ``operation`` returns.
@@ -75,8 +77,8 @@ async def execute(
 
     async def _run() -> T:
         if asyncio.iscoroutinefunction(op):
-            return await op(input, context=context)
-        return await asyncio.to_thread(op, input, context=context)
+            return await op(input, context=context, **op_kwargs)
+        return await asyncio.to_thread(op, input, context=context, **op_kwargs)
 
     try:
         if timeout is not None:

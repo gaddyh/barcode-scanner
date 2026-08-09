@@ -8,3 +8,4 @@ htmlcov/
 .env
 .DS_Store
 tests/benchmark_spatial/preview/
+data/

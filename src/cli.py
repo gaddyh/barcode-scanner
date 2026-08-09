@@ -27,6 +27,7 @@ from uuid import uuid4
 from dotenv import load_dotenv
 
 from app.models.upload import generate_upload_id
+from src.evals.annotation_sink import register_annotation_sink
 from src.ingest import IngestStatus, ingest_one
 from src.observability import is_tracing
 from src.runtime import RunContext, execute
@@ -87,6 +88,9 @@ async def _run(args: argparse.Namespace) -> int:
     print(f"image:       {image_path}", file=sys.stderr)
     print("", file=sys.stderr)
 
+    # Register the annotation sink so interesting failures are captured.
+    register_annotation_sink()
+
     t0 = time.perf_counter()
     try:
         result = await execute(
@@ -95,6 +99,7 @@ async def _run(args: argparse.Namespace) -> int:
             ctx,
             name="ingest_one",
             tags=["barcode-scanner", "cli"],
+            image_ref=str(image_path),
         )
 
     except Exception as exc:

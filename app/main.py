@@ -39,6 +39,7 @@ from fastapi.staticfiles import StaticFiles
 from langsmith.schemas import Attachment
 from PIL import Image
 
+from app.api.admin import router as admin_router
 from app.api.routes import router
 from app.config import settings
 from app.models.upload import generate_upload_id
@@ -105,6 +106,7 @@ app.add_middleware(
 )
 
 app.include_router(router)
+app.include_router(admin_router)
 
 # NOTE: The static files mount at "/" must be added AFTER all API routes
 # (including the @app.post/@app.get routes defined below). Starlette matches
