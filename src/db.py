@@ -188,9 +188,30 @@ CREATE TABLE IF NOT EXISTS session_items (
     label_index         INTEGER,
     match_basis         TEXT,
     source_image        INTEGER NOT NULL DEFAULT 0,
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(session_id, barcode_value)
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Drop the old unique constraint (session_id, barcode_value) if it exists,
+-- since multiple boxes can share the same barcode value (same product,
+-- multiple units). Replace with a unique on (session_id, source_image,
+-- label_index) to prevent duplicate labels within the same image.
+DO $$
+BEGIN
+    EXECUTE (
+        SELECT 'ALTER TABLE session_items DROP CONSTRAINT IF EXISTS ' || conname
+        FROM pg_constraint
+        WHERE conrelid = 'session_items'::regclass
+          AND contype = 'u'
+          AND pg_get_constraintdef(oid) LIKE '%session_id, barcode_value%'
+        LIMIT 1
+    );
+EXCEPTION WHEN OTHERS THEN
+    NULL;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_session_items_label
+    ON session_items(session_id, source_image, label_index)
+    WHERE label_index IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_session_items_session ON session_items(session_id);
 

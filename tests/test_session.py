@@ -122,16 +122,22 @@ async def test_noop_add_item_dedup() -> None:
     repo = NoOpSessionRepository()
     await repo.create_session("S1")
 
-    item1 = SessionItem(barcode_value="111", barcode_format="Code128")
-    item2 = SessionItem(barcode_value="111", barcode_format="EAN13")  # same value
-    item3 = SessionItem(barcode_value="222")
+    # Same barcode value, different labels — both added (same product, 2 boxes).
+    item1 = SessionItem(barcode_value="111", barcode_format="Code128",
+                        label_index=1, source_image=0)
+    item2 = SessionItem(barcode_value="111", barcode_format="EAN13",
+                        label_index=2, source_image=0)  # same value, diff label
+    item3 = SessionItem(barcode_value="222", label_index=3, source_image=0)
+    # Same label in same image — deduplicated.
+    item4 = SessionItem(barcode_value="111", label_index=1, source_image=0)
 
     assert await repo.add_item("S1", item1) is True   # newly inserted
-    assert await repo.add_item("S1", item2) is False  # deduplicated
+    assert await repo.add_item("S1", item2) is True   # diff label → inserted
     assert await repo.add_item("S1", item3) is True   # newly inserted
+    assert await repo.add_item("S1", item4) is False  # same label → dedup
 
     items = await repo.get_items("S1")
-    assert len(items) == 2  # 111 and 222, not 3
+    assert len(items) == 3  # 3 labels, not deduped by barcode value
 
 
 @pytest.mark.asyncio

@@ -200,16 +200,26 @@ async def run_session_graph(
             expected_count = image_result.visible_label_count
 
     # Merge: add new items, resolve missing items.
-    # Label indices are per-image (from each photo's Gemini audit), NOT global
-    # across the session. So we can't match by label_index across photos.
-    # Instead: each new unique barcode resolves one unresolved missing item
-    # (the user sent a photo of the missing box, we decoded its barcode).
+    # Each found item is a label that has a decoded barcode. Multiple labels
+    # can share the same barcode value (same product, multiple physical boxes)
+    # — each label is a separate session item.
+    #
+    # For the first image: add ALL found items (one per label).
+    # For subsequent images: dedup by barcode_value to avoid double-counting
+    # the same physical box from overlapping photos. This means if photo #2
+    # shows a box that was already decoded in photo #1, we don't add it again.
     new_items: list[SessionItem] = []
     for found in image_result.found:
-        # Check if this barcode is already known.
-        already_known = any(i.barcode_value == found.barcode_value for i in existing_items)
+        if is_new_session:
+            # First image — add every found label.
+            already_known = False
+        else:
+            # Subsequent image — skip barcodes already in the session.
+            already_known = any(
+                i.barcode_value == found.barcode_value for i in existing_items
+            )
         if not already_known:
-            # New barcode — add to session.
+            # New item — add to session.
             item = SessionItem(
                 barcode_value=found.barcode_value,
                 barcode_format=found.barcode_format,

@@ -172,7 +172,7 @@ class SessionRepository:
         """Add a confirmed barcode to the session.
 
         Returns True if the item was newly inserted, False if it already
-        existed (deduplicated by barcode_value).
+        existed (deduplicated by source_image + label_index).
         """
         async with self._pool.acquire() as conn:
             result = await conn.execute(
@@ -181,7 +181,7 @@ class SessionRepository:
                         barcode_bbox, label_bbox, label_index,
                         match_basis, source_image)
                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                   ON CONFLICT (session_id, barcode_value) DO NOTHING""",
+                   ON CONFLICT DO NOTHING""",
                 session_id,
                 item.barcode_value,
                 item.barcode_format,
@@ -383,7 +383,12 @@ class NoOpSessionRepository:
     async def add_item(self, session_id: str, item: SessionItem) -> bool:
         s = self._sessions.setdefault(session_id, {"id": session_id, "_items": []})
         items = s.setdefault("_items", [])
-        if any(i.barcode_value == item.barcode_value for i in items):
+        # Dedup by (source_image, label_index) — same label in same image.
+        if item.label_index is not None and any(
+            i.source_image == item.source_image
+            and i.label_index == item.label_index
+            for i in items
+        ):
             return False
         items.append(item)
         return True
