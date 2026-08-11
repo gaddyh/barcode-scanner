@@ -129,3 +129,8 @@ class SessionResult(BaseModel):
     # When status == NEEDS_USER_SELECTION: the candidate barcodes from the
     # latest image that the user must choose from to resolve missing labels.
     candidates: list[SessionItem] = Field(default_factory=list)
+
+    # Order context selected by the web client and retained across photos.
+    customer_id: str | None = None
+    branch_id: str | None = None
+    action: str | None = None

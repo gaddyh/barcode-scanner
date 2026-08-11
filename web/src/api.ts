@@ -99,6 +99,13 @@ export interface SessionMissingItem {
   resolved: boolean;
 }
 
+export interface SelectOption {
+  id: string;
+  name: string;
+}
+
+export type OrderAction = "create_order" | "verify_order_before_shipment";
+
 export interface SessionResult {
   session_id: string;
   status: "active" | "complete" | "expired" | "closed" | "failed" | "needs_user_selection";
@@ -110,6 +117,9 @@ export interface SessionResult {
   image_count: number;
   message: string | null;
   candidates: SessionItem[];
+  customer_id: string | null;
+  branch_id: string | null;
+  action: OrderAction | null;
   latest_image: {
     image_index: number;
     status: string;
@@ -162,9 +172,33 @@ export async function analyzeImage(file: File): Promise<AnalyzeResponse> {
   return (await res.json()) as AnalyzeResponse;
 }
 
-export async function submitSessionImage(file: File): Promise<SessionResult> {
+export async function fetchCustomers(): Promise<SelectOption[]> {
+  const res = await fetch(`${apiBaseUrl}/customers`);
+  if (!res.ok) throw new Error(await extractError(res));
+  const body = (await res.json()) as { items: SelectOption[] };
+  return body.items;
+}
+
+export async function fetchBranches(customerId: string): Promise<SelectOption[]> {
+  const res = await fetch(
+    `${apiBaseUrl}/customers/${encodeURIComponent(customerId)}/branches`,
+  );
+  if (!res.ok) throw new Error(await extractError(res));
+  const body = (await res.json()) as { items: SelectOption[] };
+  return body.items;
+}
+
+export async function submitSessionImage(
+  file: File,
+  customerId: string,
+  branchId: string,
+  action: OrderAction,
+): Promise<SessionResult> {
   const form = new FormData();
   form.append("file", file);
+  form.append("customer_id", customerId);
+  form.append("branch_id", branchId);
+  form.append("action", action);
   form.append("participant_id", getParticipantId());
   const res = fetch(`${apiBaseUrl}/barcode/session`, {
     method: "POST",

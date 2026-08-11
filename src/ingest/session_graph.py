@@ -65,6 +65,9 @@ async def run_session_graph(
     max_retries: int = 0,
     retry_delay_seconds: float = 0.0,
     source: str | None = None,
+    customer_id: str | None = None,
+    branch_id: str | None = None,
+    action: str | None = None,
 ) -> SessionResult:
     """Process one image within an ingest session.
 
@@ -153,6 +156,9 @@ async def run_session_graph(
         expected_count = 0
     else:
         s = state["session"]
+        customer_id = s.get("customer_id", customer_id)
+        branch_id = s.get("branch_id", branch_id)
+        action = s.get("action", action)
         image_index = s.get("image_count", 0)
         existing_items = state["items"]
         existing_missing = [m for m in state["missing"] if not m.resolved]
@@ -186,13 +192,22 @@ async def run_session_graph(
                 if image_result.error
                 else "Audit failed"
             ),
+            customer_id=customer_id,
+            branch_id=branch_id,
+            action=action,
         )
         return result
 
     # Scan succeeded — create the session row if this is the first image.
     if is_new_session:
         await repo.create_session(
-            session_id, source=source, channel=channel, participant_id=participant_id
+            session_id,
+            source=source,
+            channel=channel,
+            participant_id=participant_id,
+            customer_id=customer_id,
+            branch_id=branch_id,
+            action=action,
         )
         expected_count = image_result.visible_label_count
     else:
@@ -387,6 +402,9 @@ async def run_session_graph(
         message=message,
         latest_image=image_result,
         candidates=candidates if needs_selection else [],
+        customer_id=customer_id,
+        branch_id=branch_id,
+        action=action,
     )
 
     logger.info(
@@ -422,6 +440,9 @@ async def select_candidate(
         raise ValueError(f"Session {session_id} not found")
 
     s = state["session"]
+    customer_id = s.get("customer_id")
+    branch_id = s.get("branch_id")
+    action = s.get("action")
     current_status = s.get("status", "active")
     if current_status != "needs_user_selection":
         raise ValueError(
@@ -514,6 +535,9 @@ async def select_candidate(
         message=message,
         latest_image=None,
         candidates=[],
+        customer_id=customer_id,
+        branch_id=branch_id,
+        action=action,
     )
 
     logger.info(

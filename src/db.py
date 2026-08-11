@@ -120,6 +120,56 @@ CREATE TABLE IF NOT EXISTS annotations (
 CREATE INDEX IF NOT EXISTS idx_annotations_status ON annotations(status);
 
 -- ---------------------------------------------------------------------------
+-- Local Priority-compatible catalog (temporary ERP stand-in)
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS priority_customers (
+    id                  TEXT PRIMARY KEY,
+    name                TEXT NOT NULL,
+    active              BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS priority_branches (
+    id                  TEXT PRIMARY KEY,
+    customer_id         TEXT NOT NULL REFERENCES priority_customers(id) ON DELETE CASCADE,
+    name                TEXT NOT NULL,
+    active              BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_priority_branches_customer
+    ON priority_branches(customer_id, active, name);
+
+CREATE TABLE IF NOT EXISTS priority_orders (
+    id                  BIGSERIAL PRIMARY KEY,
+    session_id          TEXT,
+    customer_id         TEXT NOT NULL REFERENCES priority_customers(id),
+    branch_id           TEXT NOT NULL REFERENCES priority_branches(id),
+    action              TEXT NOT NULL CHECK (
+        action IN ('create_order', 'verify_order_before_shipment')
+    ),
+    status              TEXT NOT NULL DEFAULT 'draft',
+    items               JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Development seed data. ON CONFLICT preserves edits made in the database.
+INSERT INTO priority_customers (id, name) VALUES
+    ('cust-acme', 'Acme Retail'),
+    ('cust-northstar', 'Northstar Shoes'),
+    ('cust-demo', 'Demo Customer')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO priority_branches (id, customer_id, name) VALUES
+    ('branch-acme-main', 'cust-acme', 'Acme Main Store'),
+    ('branch-acme-outlet', 'cust-acme', 'Acme Outlet'),
+    ('branch-northstar-central', 'cust-northstar', 'Northstar Central'),
+    ('branch-northstar-west', 'cust-northstar', 'Northstar West'),
+    ('branch-demo', 'cust-demo', 'Demo Branch')
+ON CONFLICT (id) DO NOTHING;
+
+-- ---------------------------------------------------------------------------
 -- Multi-image ingest sessions (M16)
 -- ---------------------------------------------------------------------------
 
@@ -134,6 +184,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     image_count         INTEGER NOT NULL DEFAULT 0,
     channel             TEXT,                          -- 'web', 'whatsapp'
     participant_id      TEXT,                          -- WhatsApp sender; null for web
+    customer_id         TEXT,
+    branch_id           TEXT,
+    action              TEXT,
     source              TEXT,                          -- legacy: 'web', 'whatsapp', 'cli'
     message             TEXT,                          -- prompt for next photo
     candidates          JSONB,                         -- pending candidates for user selection
@@ -149,6 +202,9 @@ ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMPTZ NOT N
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS channel TEXT;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS participant_id TEXT;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS customer_id TEXT;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS branch_id TEXT;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS action TEXT;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS candidates JSONB;
 
 -- Drop and recreate the status CHECK constraint to include 'closed'.

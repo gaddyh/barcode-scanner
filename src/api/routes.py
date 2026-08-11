@@ -10,15 +10,18 @@ from langsmith.schemas import Attachment
 from langsmith.utils import LangSmithError
 from PIL import Image, UnidentifiedImageError
 
+from src.api.feedback import submit_upload_feedback
 from src.config import Settings, get_settings
+from src.ingest.analyze import analyze_image_async
+from src.ingest.scanner import BarcodeScanner
+from src.integrations.priority import PriorityError, PriorityRepository
 from src.models.barcode import ScanResponse, ScanStatus
 from src.models.feedback import FeedbackRequest, FeedbackResponse
 from src.models.upload import generate_upload_id
-from src.ingest.analyze import analyze_image_async
-from src.ingest.scanner import BarcodeScanner
-from src.api.feedback import submit_upload_feedback
-from src.persistence import create_run as persist_create_run, complete_run_from_dict, fail_run as persist_fail_run
 from src.observability.versions import collect_versions
+from src.persistence import complete_run_from_dict
+from src.persistence import create_run as persist_create_run
+from src.persistence import fail_run as persist_fail_run
 
 logger = logging.getLogger(__name__)
 
@@ -525,6 +528,56 @@ async def analyze_barcode(
 
 
 # ---------------------------------------------------------------------------
+# Priority option endpoints
+# ---------------------------------------------------------------------------
+
+
+SUPPORTED_ORDER_ACTIONS = {
+    "create_order",
+    "verify_order_before_shipment",
+}
+
+
+def _get_priority_repo() -> PriorityRepository:
+    from src.main import _db_pool
+
+    if _db_pool is None:
+        raise PriorityError("PostgreSQL is not configured")
+    return PriorityRepository(_db_pool)
+
+
+@router.get("/customers", tags=["priority"])
+async def get_customers() -> dict[str, list[dict[str, str]]]:
+    try:
+        items = await _get_priority_repo().customers()
+    except PriorityError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"code": "priority_unavailable", "message": str(exc)},
+        ) from exc
+    return {"items": items}
+
+
+@router.get("/customers/{customer_id}/branches", tags=["priority"])
+async def get_customer_branches(
+    customer_id: str,
+) -> dict[str, list[dict[str, str]]]:
+    if not customer_id.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="customer_id is required",
+        )
+    try:
+        items = await _get_priority_repo().branches(customer_id)
+    except PriorityError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"code": "priority_unavailable", "message": str(exc)},
+        ) from exc
+    return {"items": items}
+
+
+# ---------------------------------------------------------------------------
 # Multi-image session endpoint (M16C)
 # ---------------------------------------------------------------------------
 
@@ -549,7 +602,13 @@ def _get_session_repo():
 )
 async def session_ingest(
     file: UploadFile = File(..., description="JPEG, PNG, or WebP product photo"),
-    participant_id: str = Form(..., description="Stable client ID (UUID in localStorage for web, phone number for WhatsApp)"),
+    participant_id: str = Form(
+        ...,
+        description="Stable client ID (UUID in localStorage for web, phone number for WhatsApp)",
+    ),
+    customer_id: str = Form(..., description="Priority customer ID"),
+    branch_id: str = Form(..., description="Priority branch ID for the selected customer"),
+    action: str = Form(..., description="create_order or verify_order_before_shipment"),
     settings: Settings = Depends(get_settings),
 ) -> dict:
     """Submit an image to a multi-image ingest session.
@@ -576,6 +635,20 @@ async def session_ingest(
 
     Requires ``GEMINI_API_KEY`` in the environment.
     """
+    if not customer_id.strip() or not branch_id.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "order_context_required",
+                "message": "customer_id and branch_id are required.",
+            },
+        )
+    if action not in SUPPORTED_ORDER_ACTIONS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "invalid_action", "message": "Unsupported order action."},
+        )
+
     content_type = (file.content_type or "").lower()
     if content_type not in settings.allowed_content_types:
         raise HTTPException(
@@ -609,7 +682,25 @@ async def session_ingest(
         source="web",
         channel="web",
         participant_id=participant_id,
+        customer_id=customer_id,
+        branch_id=branch_id,
+        action=action,
     )
+
+    if result.status.value == "complete":
+        try:
+            await _get_priority_repo().create_order(
+                session_id=result.session_id,
+                customer_id=customer_id,
+                branch_id=branch_id,
+                action=action,
+                items=[item.model_dump(mode="json") for item in result.items],
+            )
+        except PriorityError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={"code": "priority_order_failed", "message": str(exc)},
+            ) from exc
 
     return result.model_dump(mode="json")
 

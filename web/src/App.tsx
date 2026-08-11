@@ -1,9 +1,13 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   scanBarcode,
   submitSessionImage,
   selectCandidate,
   submitFeedback,
+  fetchCustomers,
+  fetchBranches,
+  type OrderAction,
+  type SelectOption,
   type ScanResponse,
   type SessionResult,
 } from "./api";
@@ -24,6 +28,15 @@ export default function App() {
   const [file, setFile] = useState<File | null>(null);
   const [source, setSource] = useState<Source | null>(null);
   const [mode, setMode] = useState<Mode>("session");
+  const [customers, setCustomers] = useState<SelectOption[]>([]);
+  const [branches, setBranches] = useState<SelectOption[]>([]);
+  const [customerId, setCustomerId] = useState("");
+  const [branchId, setBranchId] = useState("");
+  const [action, setAction] = useState<OrderAction | "">("");
+  const [optionsLoading, setOptionsLoading] = useState(false);
+  const [branchesLoading, setBranchesLoading] = useState(false);
+  const [optionsError, setOptionsError] = useState<string | null>(null);
+  const [branchesError, setBranchesError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [scanResult, setScanResult] = useState<ScanResponse | null>(null);
   const [sessionResult, setSessionResult] = useState<SessionResult | null>(null);
@@ -35,7 +48,63 @@ export default function App() {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    let cancelled = false;
+    setOptionsLoading(true);
+    setOptionsError(null);
+    fetchCustomers()
+      .then((items) => {
+        if (!cancelled) setCustomers(items);
+      })
+      .catch((err) => {
+        if (!cancelled) setOptionsError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setOptionsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    setBranchId("");
+    setBranches([]);
+    setBranchesError(null);
+    if (!customerId) return;
+
+    let cancelled = false;
+    setBranchesLoading(true);
+    fetchBranches(customerId)
+      .then((items) => {
+        if (!cancelled) setBranches(items);
+      })
+      .catch((err) => {
+        if (!cancelled) setBranchesError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setBranchesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [customerId]);
+
   if (route === "#/admin") return <AdminApp />;
+
+  function clearResults() {
+    setScanResult(null);
+    setSessionResult(null);
+    setTotalMs(null);
+    setError(null);
+    setFeedbackSent(false);
+    setFeedbackError(null);
+  }
+
+  function handleCustomerChange(value: string) {
+    setCustomerId(value);
+    clearResults();
+  }
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>, src: Source) {
     const f = e.target.files?.[0] ?? null;
@@ -51,7 +120,7 @@ export default function App() {
   }
 
   async function onAnalyze() {
-    if (!file) return;
+    if (!file || (mode === "session" && (!customerId || !branchId || !action))) return;
     setLoading(true);
     setError(null);
     setScanResult(null);
@@ -65,7 +134,7 @@ export default function App() {
         const res = await scanBarcode(file);
         setScanResult(res);
       } else {
-        const res = await submitSessionImage(file);
+        const res = await submitSessionImage(file, customerId, branchId, action as OrderAction);
         setSessionResult(res);
       }
       setTotalMs(performance.now() - t0);
@@ -132,6 +201,59 @@ export default function App() {
         </button>
       </div>
 
+      <div style={styles.selectGroup}>
+        <label style={styles.fieldLabel}>
+          Customer
+          <select
+            value={customerId}
+            onChange={(e) => handleCustomerChange(e.target.value)}
+            disabled={optionsLoading || loading}
+            style={styles.select}
+          >
+            <option value="">{optionsLoading ? "Loading customers…" : "Select customer"}</option>
+            {customers.map((customer) => (
+              <option key={customer.id} value={customer.id}>{customer.name}</option>
+            ))}
+          </select>
+        </label>
+        {optionsError && <p style={styles.fieldError}>Customer error: {optionsError}</p>}
+
+        <label style={styles.fieldLabel}>
+          Action
+          <select
+            value={action}
+            onChange={(e) => {
+              setAction(e.target.value as OrderAction | "");
+              clearResults();
+            }}
+            disabled={loading}
+            style={styles.select}
+          >
+            <option value="">Select action</option>
+            <option value="create_order">Create order</option>
+            <option value="verify_order_before_shipment">Verify order before shipment</option>
+          </select>
+        </label>
+
+        <label style={styles.fieldLabel}>
+          Branch
+          <select
+            value={branchId}
+            onChange={(e) => setBranchId(e.target.value)}
+            disabled={!customerId || branchesLoading || loading}
+            style={styles.select}
+          >
+            <option value="">
+              {branchesLoading ? "Loading branches…" : customerId ? "Select branch" : "Select a customer first"}
+            </option>
+            {branches.map((branch) => (
+              <option key={branch.id} value={branch.id}>{branch.name}</option>
+            ))}
+          </select>
+        </label>
+        {branchesError && <p style={styles.fieldError}>Branch error: {branchesError}</p>}
+      </div>
+
       <div style={styles.inputRow}>
         <label style={styles.button}>
           Take photo
@@ -166,10 +288,10 @@ export default function App() {
 
       <button
         onClick={onAnalyze}
-        disabled={!file || loading}
+        disabled={!file || loading || (mode === "session" && (!customerId || !branchId || !action))}
         style={{
           ...styles.analyze,
-          opacity: !file || loading ? 0.5 : 1,
+          opacity: !file || loading || (mode === "session" && (!customerId || !branchId || !action)) ? 0.5 : 1,
         }}
       >
         {loading ? "Analyzing…" : `Analyze (${mode === "session" ? "session" : "scanner"})`}
@@ -380,6 +502,18 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 500,
   },
   toggleActive: { background: "#3b82f6", color: "#fff", borderColor: "#3b82f6" },
+  selectGroup: { display: "grid", gap: 10, marginBottom: 16 },
+  fieldLabel: { display: "grid", gap: 5, fontSize: 13, fontWeight: 600 },
+  select: {
+    width: "100%",
+    padding: "10px 12px",
+    border: "1px solid #cbd5e1",
+    borderRadius: 8,
+    background: "#fff",
+    color: "#1e293b",
+    fontSize: 14,
+  },
+  fieldError: { margin: "-4px 0 0", color: "#dc2626", fontSize: 12 },
   inputRow: { display: "flex", gap: 8, marginBottom: 16 },
   button: {
     flex: 1,

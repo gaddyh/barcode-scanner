@@ -87,3 +87,42 @@ def test_health_endpoint(client: pytest.fixture) -> None:
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_customers_endpoint(monkeypatch: pytest.MonkeyPatch, client: pytest.fixture) -> None:
+    async def customers(_self):
+        return [{"id": "C1", "name": "Acme"}]
+
+    class FakePriorityRepository:
+        async def customers(self):
+            return await customers(self)
+
+    monkeypatch.setattr("src.api.routes._get_priority_repo", lambda: FakePriorityRepository())
+    response = client.get("/customers")
+    assert response.status_code == 200
+    assert response.json() == {"items": [{"id": "C1", "name": "Acme"}]}
+
+
+def test_branches_endpoint_is_customer_scoped(
+    monkeypatch: pytest.MonkeyPatch, client: pytest.fixture
+) -> None:
+    async def branches(_self, customer_id):
+        return [{"id": "B1", "name": f"Branch for {customer_id}"}]
+
+    class FakePriorityRepository:
+        async def branches(self, customer_id):
+            return await branches(self, customer_id)
+
+    monkeypatch.setattr("src.api.routes._get_priority_repo", lambda: FakePriorityRepository())
+    response = client.get("/customers/C1/branches")
+    assert response.status_code == 200
+    assert response.json() == {"items": [{"id": "B1", "name": "Branch for C1"}]}
+
+
+def test_session_requires_order_context(client: pytest.fixture) -> None:
+    response = client.post(
+        "/barcode/session",
+        files={"file": ("img.png", _png_bytes(), "image/png")},
+        data={"participant_id": "p1"},
+    )
+    assert response.status_code == 422

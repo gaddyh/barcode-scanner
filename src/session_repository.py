@@ -44,17 +44,24 @@ class SessionRepository:
         source: str | None = None,
         channel: str | None = None,
         participant_id: str | None = None,
+        customer_id: str | None = None,
+        branch_id: str | None = None,
+        action: str | None = None,
     ) -> None:
         """Create a new session row."""
         async with self._pool.acquire() as conn:
             await conn.execute(
-                """INSERT INTO sessions (id, source, channel, participant_id)
-                   VALUES ($1, $2, $3, $4)
+                """INSERT INTO sessions
+                       (id, source, channel, participant_id, customer_id, branch_id, action)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7)
                    ON CONFLICT (id) DO NOTHING""",
                 session_id,
                 source,
                 channel,
                 participant_id,
+                customer_id,
+                branch_id,
+                action,
             )
 
     async def get_session(self, session_id: str) -> dict[str, Any] | None:
@@ -316,6 +323,9 @@ class SessionRepository:
             missing=missing,
             image_count=s["image_count"],
             message=s["message"],
+            customer_id=s.get("customer_id"),
+            branch_id=s.get("branch_id"),
+            action=s.get("action"),
         )
 
 
@@ -328,6 +338,8 @@ class NoOpSessionRepository:
     async def create_session(
         self, session_id: str, *, source: str | None = None,
         channel: str | None = None, participant_id: str | None = None,
+        customer_id: str | None = None, branch_id: str | None = None,
+        action: str | None = None,
     ) -> None:
         if session_id not in self._sessions:
             from datetime import datetime
@@ -342,6 +354,9 @@ class NoOpSessionRepository:
                 "source": source,
                 "channel": channel,
                 "participant_id": participant_id,
+                "customer_id": customer_id,
+                "branch_id": branch_id,
+                "action": action,
                 "message": None,
                 "last_activity_at": datetime.now(UTC),
             }
@@ -445,4 +460,7 @@ class NoOpSessionRepository:
             missing=missing,
             image_count=s.get("image_count", 0),
             message=s.get("message"),
+            customer_id=s.get("customer_id"),
+            branch_id=s.get("branch_id"),
+            action=s.get("action"),
         )
