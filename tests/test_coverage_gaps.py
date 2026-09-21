@@ -238,13 +238,17 @@ class TestCliApp:
     def test_audit_path_file_not_found(self, tmp_path):
         from src.cli_app import audit_path
 
-        result = audit_path(
-            tmp_path / "missing.png",
-            model=None,
-            max_retries=0,
-            retry_delay_seconds=0.0,
-            full=False,
-        )
+        with patch(
+            "src.cli_app.audit_shoebox_labels",
+            side_effect=FileNotFoundError("Image does not exist"),
+        ):
+            result = audit_path(
+                tmp_path / "missing.png",
+                model=None,
+                max_retries=0,
+                retry_delay_seconds=0.0,
+                full=False,
+            )
         assert result["status"] == "error"
         assert result["error"]["code"] == "unreadable_file"
 

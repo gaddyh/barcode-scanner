@@ -116,5 +116,6 @@ module = [
     "asyncpg.*",
     "psycopg.*",
     "google.genai.*",
+    "numpy.*",
 ]
 ignore_missing_imports = true
