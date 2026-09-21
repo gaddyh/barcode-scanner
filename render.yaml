@@ -6,10 +6,6 @@ services:
     plan: free
     healthCheckPath: /health
     envVars:
-      - key: D360_API_KEY
-        value: dummy
-      - key: OPENAI_API_KEY
-        value: dummy
       - key: APP_ENV
         value: production
       - key: MAX_UPLOAD_BYTES
@@ -18,9 +14,10 @@ services:
         value: "image/jpeg,image/png,image/webp"
       - key: DATABASE_URL
         value: "postgresql://tami_one_postgre_user:K6Pqcojs1NvipyWCpkUHkEXV8tbtBkcv@dpg-d956p5gjs32c73fgj4t0-a.frankfurt-postgres.render.com/tami_one_postgre"
-      # Set these if you use WhatsApp webhooks later:
-      # - key: GEMINI_API_KEY
-      #   sync: false
+      # Required for the scanner pipeline:
+      - key: GEMINI_API_KEY
+        sync: false
+      # Optional — LangSmith tracing:
       # - key: LANGSMITH_API_KEY
       #   sync: false
       # - key: LANGSMITH_TRACING

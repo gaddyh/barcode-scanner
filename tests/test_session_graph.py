@@ -921,13 +921,13 @@ async def test_session_lazy_expiry(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# WhatsApp session tests (M16C)
+# Participant session tests (M16C)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_whatsapp_session_resolved_by_sender(tmp_path: Path) -> None:
-    """WhatsApp: session_id resolved by sender, not sent by client."""
+async def test_session_resolved_by_participant(tmp_path: Path) -> None:
+    """Session resolved by participant ID."""
     repo = NoOpSessionRepository()
     img = tmp_path / "img.png"
     img.write_bytes(b"fake")
@@ -956,7 +956,7 @@ async def test_whatsapp_session_resolved_by_sender(tmp_path: Path) -> None:
     # First photo — no session_id, resolved by sender.
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
         result1 = await run_session_graph(
-            img, repo=repo, channel="whatsapp", participant_id="+972501234567"
+            img, repo=repo, channel="web", participant_id="user-alpha"
         )
 
     assert result1.status == SessionStatus.ACTIVE
@@ -967,7 +967,7 @@ async def test_whatsapp_session_resolved_by_sender(tmp_path: Path) -> None:
     # Second photo — also no session_id, should resolve to same session.
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock2)):
         result2 = await run_session_graph(
-            img, repo=repo, channel="whatsapp", participant_id="+972501234567"
+            img, repo=repo, channel="web", participant_id="user-alpha"
         )
 
     assert result2.session_id == session_id  # same session
@@ -977,8 +977,8 @@ async def test_whatsapp_session_resolved_by_sender(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_whatsapp_complete_starts_new_session(tmp_path: Path) -> None:
-    """WhatsApp: when session is complete, next photo starts a new session."""
+async def test_complete_starts_new_session(tmp_path: Path) -> None:
+    """When session is complete, next photo starts a new session."""
     repo = NoOpSessionRepository()
     img = tmp_path / "img.png"
     img.write_bytes(b"fake")
@@ -998,7 +998,7 @@ async def test_whatsapp_complete_starts_new_session(tmp_path: Path) -> None:
     # First photo — completes the session.
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock_complete)):
         result1 = await run_session_graph(
-            img, repo=repo, channel="whatsapp", participant_id="+972501234567"
+            img, repo=repo, channel="web", participant_id="user-alpha"
         )
 
     assert result1.status == SessionStatus.COMPLETE
@@ -1007,7 +1007,7 @@ async def test_whatsapp_complete_starts_new_session(tmp_path: Path) -> None:
     # Second photo — session is complete, should start a new session.
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock_complete)):
         result2 = await run_session_graph(
-            img, repo=repo, channel="whatsapp", participant_id="+972501234567"
+            img, repo=repo, channel="web", participant_id="user-alpha"
         )
 
     assert result2.session_id != session1  # new session
@@ -1017,8 +1017,8 @@ async def test_whatsapp_complete_starts_new_session(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_whatsapp_different_senders_different_sessions(tmp_path: Path) -> None:
-    """WhatsApp: different senders get different sessions."""
+async def test_different_participants_different_sessions(tmp_path: Path) -> None:
+    """Different participants get different sessions."""
     repo = NoOpSessionRepository()
     img = tmp_path / "img.png"
     img.write_bytes(b"fake")
@@ -1037,10 +1037,10 @@ async def test_whatsapp_different_senders_different_sessions(tmp_path: Path) -> 
 
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock)):
         result1 = await run_session_graph(
-            img, repo=repo, channel="whatsapp", participant_id="+972111111111"
+            img, repo=repo, channel="web", participant_id="user-beta"
         )
         result2 = await run_session_graph(
-            img, repo=repo, channel="whatsapp", participant_id="+972222222222"
+            img, repo=repo, channel="web", participant_id="user-gamma"
         )
 
     assert result1.session_id != result2.session_id

@@ -1,6 +1,6 @@
 """Upload identity — stable, time-sortable IDs for every uploaded image.
 
-Every image that enters the system (web upload or WhatsApp) gets a ``upload_id``
+Every image that enters the system (web upload) gets a ``upload_id``
 (a ULID — 26-char Crockford base32, lexicographically sortable by timestamp).
 This ID is the join key for:
 
@@ -9,7 +9,7 @@ This ID is the join key for:
 - annotation queue entries (future)
 - offline dataset examples (future)
 
-``source`` distinguishes the ingress channel: ``"web"`` or ``"whatsapp"``.
+``source`` distinguishes the ingress channel: ``"web"`` or ``"cli"``.
 """
 
 from __future__ import annotations

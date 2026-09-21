@@ -20,8 +20,8 @@ class RunContext:
     Attributes:
         run_id: Application correlation ID (UUID4). Not the LangSmith run ID.
         session_id: ULID grouping related operations (one photo = one session).
-        user_id: Sender phone (WhatsApp) or None (web/cli/eval).
-        source: Ingress channel — "web", "whatsapp", "cli", or "eval".
+        user_id: Participant ID or None (anonymous).
+        source: Ingress channel — "web", "cli", or "eval".
         metadata: Extensible per-operation metadata.
     """
 

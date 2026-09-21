@@ -114,7 +114,7 @@ def _make_session_row(
     customer_id: str | None = "C1",
     branch_id: str | None = "B1",
     action: str | None = "create_order",
-    channel: str | None = "whatsapp",
+    channel: str | None = "web",
     participant_id: str | None = "user-1",
 ) -> dict:
     return {
@@ -147,7 +147,7 @@ async def test_pg_create_session():
     pool, conn = _make_pool()
     repo = SessionRepository(pool)
     await repo.create_session(
-        "sess-1", source="web", channel="whatsapp",
+        "sess-1", source="web", channel="web",
         participant_id="user-1", customer_id="C1",
         branch_id="B1", action="create_order",
     )
@@ -155,7 +155,7 @@ async def test_pg_create_session():
     args = conn.execute.call_args.args
     assert args[1] == "sess-1"
     assert args[2] == "web"
-    assert args[3] == "whatsapp"
+    assert args[3] == "web"
     assert args[4] == "user-1"
     assert args[5] == "C1"
     assert args[6] == "B1"
@@ -217,7 +217,7 @@ async def test_pg_find_active_by_participant_found():
     row = _make_session_row()
     pool, _ = _make_pool(fetchrow=row)
     repo = SessionRepository(pool)
-    result = await repo.find_active_by_participant("whatsapp", "user-1")
+    result = await repo.find_active_by_participant("web", "user-1")
     assert result is not None
     assert result["id"] == "sess-1"
 
@@ -225,7 +225,7 @@ async def test_pg_find_active_by_participant_found():
 async def test_pg_find_active_by_participant_not_found():
     pool, _ = _make_pool(fetchrow=None)
     repo = SessionRepository(pool)
-    result = await repo.find_active_by_participant("whatsapp", "nobody")
+    result = await repo.find_active_by_participant("web", "nobody")
     assert result is None
 
 
@@ -233,7 +233,7 @@ async def test_pg_find_active_by_participant_error_propagates():
     pool, _ = _make_pool_raising(asyncpg.PostgresError("boom"))
     repo = SessionRepository(pool)
     with pytest.raises(asyncpg.PostgresError, match="boom"):
-        await repo.find_active_by_participant("whatsapp", "user-1")
+        await repo.find_active_by_participant("web", "user-1")
 
 
 # ---------------------------------------------------------------------------
@@ -746,7 +746,7 @@ async def test_pg_to_result_filters_resolved_missing():
 async def test_noop_create_session():
     repo = NoOpSessionRepository()
     await repo.create_session(
-        "sess-1", source="web", channel="whatsapp",
+        "sess-1", source="web", channel="web",
         participant_id="user-1", customer_id="C1",
         branch_id="B1", action="create_order",
     )
@@ -755,7 +755,7 @@ async def test_noop_create_session():
     assert session["id"] == "sess-1"
     assert session["status"] == "active"
     assert session["source"] == "web"
-    assert session["channel"] == "whatsapp"
+    assert session["channel"] == "web"
     assert session["participant_id"] == "user-1"
     assert session["customer_id"] == "C1"
     assert session["branch_id"] == "B1"
@@ -775,7 +775,7 @@ async def test_noop_create_session_already_exists():
     assert first is not None
     assert first["source"] == "web"
     # Create again with different source — should NOT overwrite
-    await repo.create_session("sess-1", source="whatsapp")
+    await repo.create_session("sess-1", source="web")
     second = await repo.get_session("sess-1")
     assert second["source"] == "web"
 
@@ -816,9 +816,9 @@ async def test_noop_get_session_found():
 async def test_noop_find_active_by_participant_found():
     repo = NoOpSessionRepository()
     await repo.create_session(
-        "sess-1", channel="whatsapp", participant_id="user-1",
+        "sess-1", channel="web", participant_id="user-1",
     )
-    result = await repo.find_active_by_participant("whatsapp", "user-1")
+    result = await repo.find_active_by_participant("web", "user-1")
     assert result is not None
     assert result["id"] == "sess-1"
 
@@ -826,10 +826,10 @@ async def test_noop_find_active_by_participant_found():
 async def test_noop_find_active_by_participant_needs_user_selection():
     repo = NoOpSessionRepository()
     await repo.create_session(
-        "sess-1", channel="whatsapp", participant_id="user-1",
+        "sess-1", channel="web", participant_id="user-1",
     )
     await repo.update_session("sess-1", status=SessionStatus.NEEDS_USER_SELECTION)
-    result = await repo.find_active_by_participant("whatsapp", "user-1")
+    result = await repo.find_active_by_participant("web", "user-1")
     assert result is not None
     assert result["id"] == "sess-1"
 
@@ -837,28 +837,28 @@ async def test_noop_find_active_by_participant_needs_user_selection():
 async def test_noop_find_active_by_participant_not_found():
     repo = NoOpSessionRepository()
     await repo.create_session(
-        "sess-1", channel="whatsapp", participant_id="user-1",
+        "sess-1", channel="web", participant_id="user-1",
     )
-    result = await repo.find_active_by_participant("whatsapp", "nobody")
+    result = await repo.find_active_by_participant("web", "nobody")
     assert result is None
 
 
 async def test_noop_find_active_by_participant_wrong_channel():
     repo = NoOpSessionRepository()
     await repo.create_session(
-        "sess-1", channel="whatsapp", participant_id="user-1",
+        "sess-1", channel="web", participant_id="user-1",
     )
-    result = await repo.find_active_by_participant("web", "user-1")
+    result = await repo.find_active_by_participant("cli", "user-1")
     assert result is None
 
 
 async def test_noop_find_active_by_participant_closed_not_returned():
     repo = NoOpSessionRepository()
     await repo.create_session(
-        "sess-1", channel="whatsapp", participant_id="user-1",
+        "sess-1", channel="web", participant_id="user-1",
     )
     await repo.close_session("sess-1")
-    result = await repo.find_active_by_participant("whatsapp", "user-1")
+    result = await repo.find_active_by_participant("web", "user-1")
     assert result is None
 
 

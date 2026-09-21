@@ -8,7 +8,7 @@ Implementations:
     - ``NoOpRunRepository`` / ``NoOpAnnotationRepository`` — CLI/eval (no DB)
 
 ``ingest_one()`` stays pure — it never imports this module. The caller
-(route handler, CLI, WhatsApp processor) owns the persistence lifecycle:
+(route handler, CLI) owns the persistence lifecycle:
 
     await repo.create_run(run)          # status=pending
     await repo.mark_processing(run_id)  # status=processing

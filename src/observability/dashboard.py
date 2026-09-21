@@ -26,7 +26,7 @@ ROOT_TRACE_FILTER = (
     'or('
     'eq(name, "ingest_one"), '
     'eq(name, "web_analyze_barcode"), '
-    'eq(name, "process_whatsapp_message")'
+    'eq(name, "process_message")'
     ')'
 )
 
