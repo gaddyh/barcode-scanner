@@ -21,7 +21,6 @@ Error classification at the integration boundary (per PR #3 edit #4):
 from __future__ import annotations
 
 import json
-from typing import Any
 
 import asyncpg
 
@@ -164,69 +163,3 @@ class LocalPriorityGateway:
             session_id=str(row.get("session_id", request.session_id)),
             status=str(row.get("status", "draft")),
         )
-
-
-# ---------------------------------------------------------------------------
-# Backward-compatible shim: PriorityRepository
-# ---------------------------------------------------------------------------
-
-
-class PriorityRepository:
-    """Backward-compatible shim around ``LocalPriorityGateway``.
-
-    Existing callers (routes.py) use ``PriorityRepository`` with the old
-    dict-based ``create_order`` signature. This shim wraps the new
-    gateway and translates to/from the old shapes so PR #4 can land
-    without rewriting every caller. PR #5 will switch callers to the
-    new ``CreateDraftOrderRequest`` shape directly.
-    """
-
-    def __init__(self, pool: asyncpg.Pool) -> None:
-        self._gateway = LocalPriorityGateway(pool)
-
-    async def customers(self) -> list[dict[str, str]]:
-        items = await self._gateway.customers()
-        return [{"id": c.id, "name": c.name} for c in items]
-
-    async def branches(self, customer_id: str) -> list[dict[str, str]]:
-        items = await self._gateway.branches(customer_id)
-        return [{"id": b.id, "name": b.name} for b in items]
-
-    async def create_order(
-        self,
-        *,
-        session_id: str,
-        customer_id: str,
-        branch_id: str,
-        action: str,
-        items: list[dict[str, Any]],
-    ) -> int:
-        """Old dict-based create_order — returns the order id as int."""
-        from src.integrations.priority.models import OrderLineItem
-        from src.runtime.errors import (
-            IndeterminateError,
-            PermanentError,
-            RetryableError,
-        )
-
-        line_items = [
-            OrderLineItem(
-                barcode_value=str(item.get("barcode_value", item.get("barcode", ""))),
-                barcode_format=str(item.get("barcode_format", "")),
-                quantity=int(item.get("quantity", 1)),
-                label_index=item.get("label_index"),
-            )
-            for item in items
-        ]
-        request = CreateDraftOrderRequest(
-            session_id=session_id,
-            customer_id=customer_id,
-            branch_id=branch_id,
-            action=action,
-            items=line_items,
-        )
-        try:
-            result = await self._gateway.create_draft_order(request)
-        except (RetryableError, PermanentError, IndeterminateError) as exc:
-            raise PriorityError(str(exc)) from exc
-        return result.order_id

@@ -331,13 +331,21 @@ async def test_unexpected_error_reversible_wraps_as_permanent():
         await execute(op, 0, _ctx(), policy=NO_RETRY)
 
 
-async def test_unexpected_error_irreversible_wraps_as_indeterminate():
-    """An unexpected exception on an irreversible write is wrapped as IndeterminateError."""
+async def test_unexpected_error_irreversible_wraps_as_permanent():
+    """An unexpected exception on an irreversible write is wrapped as
+    PermanentError, NOT IndeterminateError.
+
+    Per AGENTS.md, the executor does NOT upgrade a generic unexpected
+    exception to IndeterminateError on its own — only adapter-classified
+    IndeterminateError and executor timeout/cancellation become indeterminate.
+    The adapter owns classifying pre-submit vs post-submit at the integration
+    boundary.
+    """
 
     async def op(_x, *, context, **kw):
         raise KeyError("boom")
 
-    with pytest.raises(IndeterminateError):
+    with pytest.raises(PermanentError):
         await execute(op, 0, _ctx(), policy=EXTERNAL_WRITE)
 
 
@@ -587,14 +595,20 @@ async def test_idempotent_execution_error_base_releases_claim():
     assert result == 99
 
 
-async def test_idempotent_unexpected_error_irreversible_stores_indeterminate():
-    """An unexpected exception on an irreversible write is stored as INDETERMINATE."""
+async def test_idempotent_unexpected_error_irreversible_stores_failure():
+    """An unexpected exception on an irreversible write is stored as FAILURE
+    (PermanentError), NOT INDETERMINATE.
+
+    Per AGENTS.md, the executor does NOT upgrade a generic unexpected
+    exception to IndeterminateError on its own — only adapter-classified
+    IndeterminateError and executor timeout/cancellation become indeterminate.
+    """
     store: InMemoryIdempotencyStore[int] = InMemoryIdempotencyStore()
 
     async def failing(_x, *, context, **kw):
         raise KeyError("boom")
 
-    with pytest.raises(IndeterminateError):
+    with pytest.raises(PermanentError):
         await execute(
             failing,
             0,
@@ -604,11 +618,11 @@ async def test_idempotent_unexpected_error_irreversible_stores_indeterminate():
             idempotency_store=store,
         )
 
-    # Re-call should replay indeterminate.
+    # Re-call should replay failure.
     async def ok(_x, *, context, **kw):
         return 99
 
-    with pytest.raises(IndeterminateError):
+    with pytest.raises(PermanentError):
         await execute(
             ok,
             0,

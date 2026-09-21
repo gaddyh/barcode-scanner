@@ -1,21 +1,25 @@
 import { useEffect, useRef, useState } from "react";
 import {
   scanBarcode,
-  submitSessionImage,
-  selectCandidate,
+  createReceivingSession,
+  uploadReceivingImage,
+  getReceivingSession,
+  submitReceivingSession,
   submitFeedback,
   fetchCustomers,
   fetchBranches,
   type OrderAction,
   type SelectOption,
   type ScanResponse,
-  type SessionResult,
+  type ReceivingSessionResponse,
+  type ReceivingImageResponse,
+  type ReceivingSubmitResponse,
 } from "./api";
 import { useHashRoute } from "./router";
 import { AdminApp } from "./admin/AdminApp";
 
 type Source = "camera" | "gallery";
-type Mode = "session" | "scanner";
+type Mode = "receiving" | "scanner";
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -27,7 +31,7 @@ export default function App() {
   const route = useHashRoute();
   const [file, setFile] = useState<File | null>(null);
   const [source, setSource] = useState<Source | null>(null);
-  const [mode, setMode] = useState<Mode>("session");
+  const [mode, setMode] = useState<Mode>("receiving");
   const [customers, setCustomers] = useState<SelectOption[]>([]);
   const [branches, setBranches] = useState<SelectOption[]>([]);
   const [customerId, setCustomerId] = useState("");
@@ -39,7 +43,12 @@ export default function App() {
   const [branchesError, setBranchesError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [scanResult, setScanResult] = useState<ScanResponse | null>(null);
-  const [sessionResult, setSessionResult] = useState<SessionResult | null>(null);
+  const [receivingSession, setReceivingSession] =
+    useState<ReceivingSessionResponse | null>(null);
+  const [imageResult, setImageResult] =
+    useState<ReceivingImageResponse | null>(null);
+  const [submitResult, setSubmitResult] =
+    useState<ReceivingSubmitResponse | null>(null);
   const [totalMs, setTotalMs] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [feedbackSent, setFeedbackSent] = useState(false);
@@ -94,7 +103,9 @@ export default function App() {
 
   function clearResults() {
     setScanResult(null);
-    setSessionResult(null);
+    setReceivingSession(null);
+    setImageResult(null);
+    setSubmitResult(null);
     setTotalMs(null);
     setError(null);
     setFeedbackSent(false);
@@ -112,31 +123,51 @@ export default function App() {
     setFile(f);
     setSource(src);
     setScanResult(null);
-    setSessionResult(null);
+    setImageResult(null);
+    setSubmitResult(null);
     setTotalMs(null);
     setError(null);
     setFeedbackSent(false);
     setFeedbackError(null);
   }
 
-  async function onAnalyze() {
-    if (!file || (mode === "session" && (!customerId || !branchId || !action))) return;
+  async function onCreateSession() {
+    if (!customerId || !branchId || !action) return;
     setLoading(true);
     setError(null);
-    setScanResult(null);
-    setSessionResult(null);
-    setTotalMs(null);
+    setReceivingSession(null);
+    setImageResult(null);
+    setSubmitResult(null);
     setFeedbackSent(false);
     setFeedbackError(null);
+    try {
+      const res = await createReceivingSession(
+        customerId,
+        branchId,
+        action as OrderAction,
+      );
+      setReceivingSession(res);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onUploadImage() {
+    if (!file || !receivingSession) return;
+    setLoading(true);
+    setError(null);
+    setImageResult(null);
+    setSubmitResult(null);
+    setTotalMs(null);
     const t0 = performance.now();
     try {
-      if (mode === "scanner") {
-        const res = await scanBarcode(file);
-        setScanResult(res);
-      } else {
-        const res = await submitSessionImage(file, customerId, branchId, action as OrderAction);
-        setSessionResult(res);
-      }
+      const res = await uploadReceivingImage(receivingSession.session_id, file);
+      setImageResult(res);
+      // Refresh session state from server.
+      const session = await getReceivingSession(receivingSession.session_id);
+      setReceivingSession(session);
       setTotalMs(performance.now() - t0);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -145,16 +176,43 @@ export default function App() {
     }
   }
 
-  async function onSelectCandidate(barcodeValue: string) {
+  async function onSubmitOrder() {
+    if (!receivingSession) return;
     setLoading(true);
     setError(null);
+    setSubmitResult(null);
     try {
-      const res = await selectCandidate(barcodeValue);
-      setSessionResult(res);
+      const res = await submitReceivingSession(receivingSession.session_id);
+      setSubmitResult(res);
+      // Refresh session state from server.
+      const session = await getReceivingSession(receivingSession.session_id);
+      setReceivingSession(session);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function onAnalyze() {
+    if (!file) return;
+    if (mode === "scanner") {
+      setLoading(true);
+      setError(null);
+      setScanResult(null);
+      setTotalMs(null);
+      setFeedbackSent(false);
+      setFeedbackError(null);
+      const t0 = performance.now();
+      try {
+        const res = await scanBarcode(file);
+        setScanResult(res);
+        setTotalMs(performance.now() - t0);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setLoading(false);
+      }
     }
   }
 
@@ -171,9 +229,10 @@ export default function App() {
 
   const traceId = scanResult?.trace_id ?? null;
 
-  const sessionActive = sessionResult?.status === "active";
-  const sessionComplete = sessionResult?.status === "complete";
-  const needsSelection = sessionResult?.status === "needs_user_selection";
+  const sessionActive = receivingSession?.status === "active";
+  const sessionSubmitted = receivingSession?.status === "submitted";
+  const sessionUnknown = receivingSession?.status === "submission_unknown";
+  const needsSelection = (imageResult?.candidates?.length ?? 0) > 0;
 
   return (
     <div style={styles.container}>
@@ -182,13 +241,13 @@ export default function App() {
       {/* Mode toggle */}
       <div style={styles.toggleRow}>
         <button
-          onClick={() => setMode("session")}
+          onClick={() => setMode("receiving")}
           style={{
             ...styles.toggleBtn,
-            ...(mode === "session" ? styles.toggleActive : {}),
+            ...(mode === "receiving" ? styles.toggleActive : {}),
           }}
         >
-          Session (multi-photo)
+          Receiving (multi-photo)
         </button>
         <button
           onClick={() => setMode("scanner")}
@@ -286,16 +345,55 @@ export default function App() {
         </div>
       )}
 
-      <button
-        onClick={onAnalyze}
-        disabled={!file || loading || (mode === "session" && (!customerId || !branchId || !action))}
-        style={{
-          ...styles.analyze,
-          opacity: !file || loading || (mode === "session" && (!customerId || !branchId || !action)) ? 0.5 : 1,
-        }}
-      >
-        {loading ? "Analyzing…" : `Analyze (${mode === "session" ? "session" : "scanner"})`}
-      </button>
+      {/* Receiving flow buttons */}
+      {mode === "receiving" && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button
+            onClick={onCreateSession}
+            disabled={!customerId || !branchId || !action || loading || !!receivingSession}
+            style={{
+              ...styles.analyze,
+              opacity: !customerId || !branchId || !action || loading || !!receivingSession ? 0.5 : 1,
+            }}
+          >
+            {receivingSession ? "Session created" : "Create session"}
+          </button>
+          <button
+            onClick={onUploadImage}
+            disabled={!file || !receivingSession || loading || !sessionActive}
+            style={{
+              ...styles.analyze,
+              opacity: !file || !receivingSession || loading || !sessionActive ? 0.5 : 1,
+            }}
+          >
+            {loading ? "Uploading…" : "Upload photo"}
+          </button>
+          <button
+            onClick={onSubmitOrder}
+            disabled={!receivingSession || loading || !sessionActive}
+            style={{
+              ...styles.analyze,
+              opacity: !receivingSession || loading || !sessionActive ? 0.5 : 1,
+            }}
+          >
+            {loading ? "Submitting…" : "Submit order"}
+          </button>
+        </div>
+      )}
+
+      {/* Scanner-only analyze button */}
+      {mode === "scanner" && (
+        <button
+          onClick={onAnalyze}
+          disabled={!file || loading}
+          style={{
+            ...styles.analyze,
+            opacity: !file || loading ? 0.5 : 1,
+          }}
+        >
+          {loading ? "Analyzing…" : "Analyze (scanner)"}
+        </button>
+      )}
 
       {error && (
         <div style={styles.error}>
@@ -334,94 +432,124 @@ export default function App() {
         </div>
       )}
 
-      {/* Session result */}
-      {sessionResult && (
+      {/* Receiving session result */}
+      {receivingSession && (
         <div style={styles.results}>
-          <h2 style={styles.h2}>Session</h2>
-          <Row label="Session ID" value={sessionResult.session_id} />
+          <h2 style={styles.h2}>Receiving Session</h2>
+          <Row label="Session ID" value={receivingSession.session_id} />
           <Row
             label="Status"
-            value={sessionResult.status}
-            highlight={sessionComplete ? "#16a34a" : needsSelection ? "#f59e0b" : undefined}
+            value={receivingSession.status}
+            highlight={
+              sessionSubmitted
+                ? "#16a34a"
+                : sessionUnknown
+                  ? "#dc2626"
+                  : sessionActive
+                    ? "#3b82f6"
+                    : undefined
+            }
           />
-          <Row label="Found" value={`${sessionResult.found_count} / ${sessionResult.expected_count}`} />
-          <Row label="Missing" value={String(sessionResult.missing_count)} />
-          <Row label="Images" value={String(sessionResult.image_count)} />
+          <Row label="Customer" value={receivingSession.customer_id} />
+          <Row label="Branch" value={receivingSession.branch_id} />
+          <Row label="Action" value={receivingSession.action} />
+          {receivingSession.external_order_id != null && (
+            <Row label="Order ID" value={String(receivingSession.external_order_id)} />
+          )}
+          <Row
+            label="Found"
+            value={`${receivingSession.box_count} / ${receivingSession.expected_count}`}
+          />
+          <Row
+            label="Missing"
+            value={String(receivingSession.discrepancy.missing)}
+          />
           {totalMs != null && <Row label="Last request" value={`${Math.round(totalMs)} ms`} />}
 
-          {/* Session message */}
-          {sessionResult.message && (
+          {/* Image upload message */}
+          {imageResult?.message && (
             <div style={styles.sessionMessage}>
-              {sessionResult.message}
+              {imageResult.message}
             </div>
           )}
 
           {/* Needs user selection — show candidate buttons */}
-          {needsSelection && sessionResult.candidates.length > 0 && (
+          {needsSelection && imageResult?.candidates && (
             <div style={styles.candidates}>
               <h3 style={styles.h3}>Select a barcode to add:</h3>
               <div style={styles.candidateRow}>
-                {sessionResult.candidates.map((c, i) => (
-                  <button
-                    key={i}
-                    onClick={() => onSelectCandidate(c.barcode_value)}
-                    disabled={loading}
-                    style={styles.candidateBtn}
-                  >
+                {imageResult.candidates.map((c, i) => (
+                  <span key={i} style={styles.candidateBtn}>
                     {c.barcode_value}
-                  </button>
+                  </span>
                 ))}
               </div>
+              <p style={styles.muted}>
+                Candidate selection is not yet wired in the receiving flow.
+              </p>
             </div>
           )}
 
           {/* Active — prompt for more photos */}
-          {sessionActive && sessionResult.missing_count > 0 && (
+          {sessionActive && receivingSession.discrepancy.missing > 0 && (
             <div style={styles.promptMore}>
               📸 Send another photo of the missing box(es).
             </div>
           )}
 
-          {/* Complete — show items */}
-          {sessionComplete && (
+          {/* Submitted — show success */}
+          {sessionSubmitted && (
             <div style={styles.completeBadge}>
-              ✅ All {sessionResult.expected_count} boxes scanned!
+              ✅ Order created (ID: {receivingSession.external_order_id})
+            </div>
+          )}
+
+          {/* Submission unknown — show warning */}
+          {sessionUnknown && (
+            <div style={{ ...styles.error, borderColor: "#f59e0b" }}>
+              ⚠️ Submission outcome unknown. Retry the submit to confirm.
+            </div>
+          )}
+
+          {/* Submit result */}
+          {submitResult && (
+            <div style={{ marginTop: 12, padding: 8, background: "#f8fafc", borderRadius: 4 }}>
+              <Row label="Submit status" value={submitResult.status} />
+              {submitResult.order_id != null && (
+                <Row label="Order ID" value={String(submitResult.order_id)} />
+              )}
+              {submitResult.idempotent && (
+                <Row label="Idempotent" value="yes (cached)" />
+              )}
+              {submitResult.error && (
+                <Row label="Error" value={submitResult.error.message} />
+              )}
+              {submitResult.retry_recommended && (
+                <div style={styles.promptMore}>
+                  🔄 Retry recommended — the order may or may not have been created.
+                </div>
+              )}
             </div>
           )}
 
           {/* Items list */}
-          {sessionResult.items.length > 0 && (
+          {receivingSession.items.length > 0 && (
             <>
-              <h3 style={styles.h3}>Scanned barcodes ({sessionResult.items.length})</h3>
+              <h3 style={styles.h3}>Scanned barcodes ({receivingSession.items.length})</h3>
               <ol style={styles.list}>
-                {sessionResult.items.map((item, i) => (
+                {receivingSession.items.map((item, i) => (
                   <li key={i} style={styles.listItem}>
                     <strong>{item.barcode_value}</strong>
                     {item.barcode_format ? ` (${item.barcode_format})` : ""}
-                    {item.label_index != null && ` — label ${item.label_index}`}
+                    {` — qty ${item.quantity}`}
                   </li>
                 ))}
               </ol>
             </>
           )}
 
-          {/* Missing labels */}
-          {sessionResult.missing.length > 0 && !sessionComplete && (
-            <>
-              <h3 style={styles.h3}>Missing labels ({sessionResult.missing.length})</h3>
-              <ul style={styles.list}>
-                {sessionResult.missing.map((m, i) => (
-                  <li key={i} style={styles.listItem}>
-                    Label {m.label_index ?? "?"} — {m.status}
-                    {m.resolved ? " (resolved)" : ""}
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-
-          {/* Feedback (only for complete sessions) */}
-          {sessionComplete && !feedbackSent && (
+          {/* Feedback (only for submitted sessions) */}
+          {sessionSubmitted && !feedbackSent && (
             <FeedbackRow onFeedback={sendFeedback} feedbackError={feedbackError} />
           )}
           {feedbackSent && <p style={styles.feedbackDone}>Feedback recorded.</p>}

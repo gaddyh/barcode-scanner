@@ -156,8 +156,17 @@ class ReceivingSession:
         self.frozen = True
 
     def mark_submitted(self, external_order_id: int) -> None:
-        """Transition to SUBMITTED after a successful draft-order create."""
-        if self.status != ReceivingSessionStatus.SUBMITTING:
+        """Transition to SUBMITTED after a successful draft-order create.
+
+        Accepts both SUBMITTING and SUBMISSION_UNKNOWN — a retry from an
+        indeterminate outcome can succeed if the idempotency store's lease
+        expired and the operation is re-attempted, or (future MVP) if
+        external reconciliation proves the order was already created.
+        """
+        if self.status not in (
+            ReceivingSessionStatus.SUBMITTING,
+            ReceivingSessionStatus.SUBMISSION_UNKNOWN,
+        ):
             raise ValueError(
                 f"Cannot mark submitted from status {self.status.value}"
             )

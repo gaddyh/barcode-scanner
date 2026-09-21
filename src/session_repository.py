@@ -6,10 +6,16 @@ session_missing (unresolved boxes). Uses the existing asyncpg pool.
 The repository is the persistence boundary — it does not contain business
 logic. The SessionGraph (M16B) calls these methods to load/save session
 state between images.
+
+``ReceivingSessionStore`` (PR A) extends this to the receiving submission
+state machine — translating DB rows ↔ ``src.domain.receiving.ReceivingSession``
+and persisting submission transitions via compare-and-set UPDATEs so
+concurrent submit attempts have exactly one winner.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from datetime import UTC
@@ -17,6 +23,11 @@ from typing import Any
 
 import asyncpg
 
+from src.domain.receiving import (
+    PhysicalBox,
+    ReceivingSession,
+    ReceivingSessionStatus,
+)
 from src.ingest.session_models import (
     MissingItem,
     SessionItem,
@@ -464,3 +475,242 @@ class NoOpSessionRepository:
             branch_id=s.get("branch_id"),
             action=s.get("action"),
         )
+
+
+# ---------------------------------------------------------------------------
+# Receiving session store (PR A) — submission state machine persistence
+# ---------------------------------------------------------------------------
+
+
+def _hash_payload(payload_json: str) -> str:
+    """SHA-256 hex digest of the frozen order payload JSON."""
+    return hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
+
+
+def _row_to_receiving_session(
+    row: dict[str, Any],
+    items: list[SessionItem],
+) -> ReceivingSession:
+    """Translate a sessions row + session_items into a ReceivingSession."""
+    submission_status = ReceivingSessionStatus(row.get("submission_status", "active"))
+    boxes = [
+        PhysicalBox(
+            barcode_value=item.barcode_value,
+            barcode_format=item.barcode_format or "",
+            label_index=item.label_index,
+        )
+        for item in items
+    ]
+    return ReceivingSession(
+        session_id=row["id"],
+        customer_id=row.get("customer_id") or "",
+        branch_id=row.get("branch_id") or "",
+        action=row.get("action") or "",
+        boxes=boxes,
+        status=submission_status,
+        external_order_id=row.get("external_order_id"),
+        expected_count=row.get("expected_count") or 0,
+        frozen=submission_status != ReceivingSessionStatus.ACTIVE,
+    )
+
+
+class ReceivingSessionStore:
+    """Postgres-backed persistence for the receiving submission state machine.
+
+    Translates DB rows ↔ ``src.domain.receiving.ReceivingSession``. All
+    submission transitions are compare-and-set UPDATEs guarded by the
+    expected ``submission_status`` — two concurrent submit clicks have
+    exactly one winner. The frozen order payload is persisted verbatim on
+    ACTIVE → SUBMITTING and reused on every retry; it is never rebuilt
+    from ``session_items``.
+    """
+
+    def __init__(self, pool: asyncpg.Pool) -> None:
+        self._pool = pool
+
+    async def create_receiving_session(
+        self,
+        session_id: str,
+        *,
+        customer_id: str,
+        branch_id: str,
+        action: str,
+        participant_id: str | None = None,
+        channel: str = "web",
+        source: str = "web",
+    ) -> None:
+        """Insert a new receiving session row with submission_status='active'."""
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO sessions
+                       (id, status, submission_status, channel, participant_id,
+                        customer_id, branch_id, action, source)
+                   VALUES ($1, 'active', 'active', $2, $3, $4, $5, $6, $7)
+                   ON CONFLICT (id) DO NOTHING""",
+                session_id,
+                channel,
+                participant_id,
+                customer_id,
+                branch_id,
+                action,
+                source,
+            )
+
+    async def get_receiving_session(self, session_id: str) -> ReceivingSession | None:
+        """Load a ReceivingSession by ID, or None if not found."""
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM sessions WHERE id = $1",
+                session_id,
+            )
+            if row is None:
+                return None
+            item_rows = await conn.fetch(
+                "SELECT * FROM session_items WHERE session_id = $1 ORDER BY id",
+                session_id,
+            )
+        items = [
+            SessionItem(
+                barcode_value=r["barcode_value"],
+                barcode_format=r["barcode_format"],
+                barcode_bbox=json.loads(r["barcode_bbox"]) if r["barcode_bbox"] else None,
+                label_bbox=json.loads(r["label_bbox"]) if r["label_bbox"] else None,
+                label_index=r["label_index"],
+                match_basis=r["match_basis"],
+                source_image=r["source_image"],
+            )
+            for r in item_rows
+        ]
+        return _row_to_receiving_session(dict(row), items)
+
+    async def find_open_submission_by_participant(
+        self, participant_id: str
+    ) -> ReceivingSession | None:
+        """Find an open (active or submission_unknown) receiving session for
+        a participant. Used to enforce one unresolved receiving session per
+        participant — a SUBMISSION_UNKNOWN session blocks new session creation
+        until the user retries/reconciles it.
+        """
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """SELECT * FROM sessions
+                   WHERE participant_id = $1
+                     AND submission_status IN ('active', 'submission_unknown')
+                   ORDER BY updated_at DESC
+                   LIMIT 1""",
+                participant_id,
+            )
+            if row is None:
+                return None
+            item_rows = await conn.fetch(
+                "SELECT * FROM session_items WHERE session_id = $1 ORDER BY id",
+                row["id"],
+            )
+        items = [
+            SessionItem(
+                barcode_value=r["barcode_value"],
+                barcode_format=r["barcode_format"],
+                barcode_bbox=json.loads(r["barcode_bbox"]) if r["barcode_bbox"] else None,
+                label_bbox=json.loads(r["label_bbox"]) if r["label_bbox"] else None,
+                label_index=r["label_index"],
+                match_basis=r["match_basis"],
+                source_image=r["source_image"],
+            )
+            for r in item_rows
+        ]
+        return _row_to_receiving_session(dict(row), items)
+
+    async def get_frozen_payload(self, session_id: str) -> dict[str, Any] | None:
+        """Load the frozen order payload for retry. Returns None if not frozen."""
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT frozen_order_payload FROM sessions WHERE id = $1",
+                session_id,
+            )
+            if row is None or row["frozen_order_payload"] is None:
+                return None
+            loaded: dict[str, Any] = json.loads(row["frozen_order_payload"])
+            return loaded
+
+    async def freeze_submission(
+        self,
+        session_id: str,
+        frozen_payload: dict[str, Any],
+    ) -> bool:
+        """CAS: ACTIVE → SUBMITTING. Persists the frozen order payload + hash.
+
+        Returns True if the transition succeeded, False if the session was
+        not in ACTIVE state (another caller won the race).
+        """
+        payload_json = json.dumps(frozen_payload, sort_keys=True)
+        payload_hash = _hash_payload(payload_json)
+        async with self._pool.acquire() as conn:
+            result = await conn.fetchval(
+                """UPDATE sessions
+                   SET submission_status = 'submitting',
+                       frozen_order_payload = $2::jsonb,
+                       frozen_payload_hash = $3,
+                       frozen_at = NOW(),
+                       updated_at = NOW()
+                   WHERE id = $1 AND submission_status = 'active'
+                   RETURNING id""",
+                session_id,
+                payload_json,
+                payload_hash,
+            )
+        return result is not None
+
+    async def mark_submitted(
+        self, session_id: str, external_order_id: int
+    ) -> bool:
+        """CAS: SUBMITTING/SUBMISSION_UNKNOWN → SUBMITTED.
+
+        Accepts both states because a retry from SUBMISSION_UNKNOWN can
+        succeed if the idempotency store's lease expired and the operation
+        is re-attempted, or if external reconciliation (future MVP) proves
+        the order was created. Returns True on success.
+        """
+        async with self._pool.acquire() as conn:
+            result = await conn.fetchval(
+                """UPDATE sessions
+                   SET submission_status = 'submitted',
+                       external_order_id = $2,
+                       updated_at = NOW()
+                   WHERE id = $1
+                     AND submission_status IN ('submitting', 'submission_unknown')
+                   RETURNING id""",
+                session_id,
+                external_order_id,
+            )
+        return result is not None
+
+    async def mark_submission_unknown(self, session_id: str) -> bool:
+        """CAS: SUBMITTING → SUBMISSION_UNKNOWN (idempotent on re-transition)."""
+        async with self._pool.acquire() as conn:
+            result = await conn.fetchval(
+                """UPDATE sessions
+                   SET submission_status = 'submission_unknown',
+                       updated_at = NOW()
+                   WHERE id = $1
+                     AND submission_status IN ('submitting', 'submission_unknown')
+                   RETURNING id""",
+                session_id,
+            )
+        return result is not None
+
+    async def revert_to_active(self, session_id: str) -> bool:
+        """CAS: SUBMITTING → ACTIVE. Clears frozen payload (pre-submit failure)."""
+        async with self._pool.acquire() as conn:
+            result = await conn.fetchval(
+                """UPDATE sessions
+                   SET submission_status = 'active',
+                       frozen_order_payload = NULL,
+                       frozen_payload_hash = NULL,
+                       frozen_at = NULL,
+                       external_order_id = NULL,
+                       updated_at = NOW()
+                   WHERE id = $1 AND submission_status = 'submitting'
+                   RETURNING id""",
+                session_id,
+            )
+        return result is not None

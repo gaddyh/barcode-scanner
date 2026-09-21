@@ -164,6 +164,10 @@ async def run_session_graph(
         existing_missing = [m for m in state["missing"] if not m.resolved]  # type: ignore[index]
         expected_count = s.get("expected_count", 0)
 
+    # Capture expected_count before any update, so the missing-items
+    # logic can tell whether this photo genuinely grew the target.
+    _expected_count_at_photo_start = expected_count
+
     # Run ScanGraph on this image (async — stays in the caller's event loop).
     raw = await analyze_image_async(
         image,
@@ -222,6 +226,16 @@ async def run_session_graph(
                 session_id, old_expected, expected_count, image_index,
             )
 
+    # Track whether expected_count genuinely grew on this photo (for the
+    # missing-items update below). Computed BEFORE the expected_count update
+    # above would have already happened — so we check against the value that
+    # was current at the start of this photo.
+    expected_count_grew = (
+        not is_new_session
+        and image_result.visible_label_count > 0
+        and image_result.visible_label_count > _expected_count_at_photo_start
+    )
+
     # Merge: add new items, resolve missing items.
     #
     # First image: add ALL found items (one per label). Set expected_count.
@@ -239,17 +253,22 @@ async def run_session_graph(
     unresolved_before = [m for m in existing_missing if not m.resolved]
     missing_before_count = len(unresolved_before)
 
-    # Filter to only NEW barcodes (not already in session), then dedup by value.
+    # Targeted-retry occurrence contract (PR A):
+    #
+    # A subsequent photo is a TARGETED RETRY — "photograph only the missing
+    # box(es)". Under this contract:
+    #
+    # - Filter out already-known barcodes (neighbors from a wider photo).
+    #   The remaining are candidates that could resolve missing labels.
+    # - Do NOT dedup candidates by barcode value. Duplicate EANs represent
+    #   separate physical occurrences (e.g. two size-42 boxes in the same
+    #   retry photo are 2 candidates, not 1).
+    # - If candidate count <= missing slots: add all, resolve missing FIFO.
+    # - If candidate count > missing slots: AMBIGUOUS — return candidates
+    #   for user selection, do NOT silently add all.
     known_barcodes = {i.barcode_value for i in existing_items}
     new_found = [f for f in image_result.found if f.barcode_value not in known_barcodes]
-    # Dedup by barcode_value — keep first occurrence per value.
-    seen_values: set[str] = set()
-    new_found_unique: list = []
-    for f in new_found:
-        if f.barcode_value not in seen_values:
-            seen_values.add(f.barcode_value)
-            new_found_unique.append(f)
-    new_count = len(new_found_unique)
+    new_count = len(new_found)
 
     candidates: list[SessionItem] = []
     needs_selection = False
@@ -273,8 +292,8 @@ async def run_session_graph(
         # Nothing new — ask for a better photo.
         pass
     elif new_count <= missing_before_count:
-        # Exact or fewer — accept all new items, resolve missing labels.
-        for found in new_found_unique:
+        # Exact or fewer — accept all new occurrences, resolve missing labels.
+        for found in new_found:
             item = SessionItem(
                 barcode_value=found.barcode_value,
                 barcode_format=found.barcode_format,
@@ -302,10 +321,10 @@ async def run_session_graph(
                         )
                         break
     else:
-        # More new than missing — ambiguous. Don't add anything.
+        # More candidates than missing slots — ambiguous. Don't add anything.
         # Return candidates for user selection.
         needs_selection = True
-        for found in new_found_unique:
+        for found in new_found:
             candidates.append(SessionItem(
                 barcode_value=found.barcode_value,
                 barcode_format=found.barcode_format,
@@ -318,9 +337,13 @@ async def run_session_graph(
 
     # Update missing items.
     # First image: record all missing labels.
-    # Subsequent images: if expected_count increased (photo saw more labels),
-    # add the new missing labels from this photo. Label indices are per-image,
-    # so we can't dedup across photos — we add all missing from this photo.
+    # Subsequent images (targeted-retry mode): keep the target fixed.
+    # The expected_count was established by the first photo (or the audit).
+    # A retry photo that sees "missing" labels is just seeing the same
+    # missing boxes from a different angle — we do NOT add new missing
+    # slots, because that would let every retry grow the target.
+    # The expected_count_grew check below only fires when the audit
+    # genuinely sees more labels than before (tracked explicitly).
     if is_new_session:
         for m in image_result.missing:
             missing_item = MissingItem(
@@ -332,8 +355,11 @@ async def run_session_graph(
             )
             await repo.add_missing(session_id, missing_item)
             existing_missing.append(missing_item)
-    elif image_result.visible_label_count > 0 and image_result.missing:
-        # expected_count grew — add new missing labels from this photo.
+    elif expected_count_grew and image_result.missing:
+        # expected_count genuinely grew (audit sees more labels than the
+        # previous expected_count) — add the new missing labels from this
+        # photo. This is NOT a retry; it's a photo that reveals more boxes
+        # than previously known.
         for m in image_result.missing:
             missing_item = MissingItem(
                 label_index=m.label_index,
@@ -346,8 +372,9 @@ async def run_session_graph(
             existing_missing.append(missing_item)
             logger.info(
                 "Session %s: new missing label %d added from image %d "
-                "(expected_count grew)",
+                "(expected_count grew from %d to %d)",
                 session_id, m.label_index, image_index,
+                _expected_count_at_photo_start, expected_count,
             )
 
     # Recompute counts.

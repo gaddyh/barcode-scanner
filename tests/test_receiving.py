@@ -1,22 +1,33 @@
-"""Tests for the end-to-end receiving flow (PR #5 vertical slice).
+"""Tests for the end-to-end receiving flow.
 
 Covers:
 - Domain layer: PhysicalBox, ReceivingSession, Discrepancy, aggregate
   quantities (multiset), state transitions, frozen enforcement.
 - Receiving router: create session, upload image, submit, double-submit
   idempotency, SUBMISSION_UNKNOWN, pre-submit failure, invalid state.
-- Hard edge cases: empty session submit, duplicate barcode values count
-  separately, frozen session rejects edits, indeterminate replay.
+- Hard edge cases: empty session submit rejected, duplicate barcode values
+  count separately, frozen session rejects edits, indeterminate replay.
+
+API tests require DATABASE_URL and are skipped otherwise — same pattern as
+``tests/runtime/test_postgres_idempotency.py``. Run locally with:
+
+    docker run -d --name pg-test -p 5433:5432 \\
+        -e POSTGRES_USER=scanner -e POSTGRES_PASSWORD=scanner \\
+        -e POSTGRES_DB=scanner postgres:16-alpine
+    DATABASE_URL=postgres://scanner:scanner@localhost:5433/scanner \\
+        pytest tests/test_receiving.py -v
 """
 
 from __future__ import annotations
 
+import os
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from src.api.receiving import _idempotency_store, _sessions
 from src.domain.receiving import (
     Discrepancy,
     PhysicalBox,
@@ -28,29 +39,92 @@ from src.integrations.priority.models import (
 )
 from src.runtime.errors import IndeterminateError, PermanentError, RetryableError
 
+TEST_DB_URL = os.getenv("DATABASE_URL", "")
+
+skip_no_db = pytest.mark.skipif(
+    not TEST_DB_URL,
+    reason="DATABASE_URL not set — skipping live Postgres API tests",
+)
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(autouse=True)
-def _clear_sessions():
-    """Clear the in-memory session store between tests."""
-    _sessions.clear()
-    _idempotency_store._outcomes.clear()
-    _idempotency_store._in_progress.clear()
-    yield
-    _sessions.clear()
-    _idempotency_store._outcomes.clear()
-    _idempotency_store._in_progress.clear()
-
-
 @pytest.fixture
 def client_no_raise():
-    """TestClient that doesn't re-raise server exceptions (for 500 paths)."""
+    """TestClient that doesn't re-raise server exceptions (for 500 paths).
+
+    Used by domain-level tests that don't hit the DB.
+    """
     from src.main import app
 
     return TestClient(app, raise_server_exceptions=False)
+
+
+@pytest.fixture
+async def db_pool():
+    """Create a Postgres pool for API tests, init schema, clean up between tests."""
+    if not TEST_DB_URL:
+        pytest.skip("DATABASE_URL not set")
+    from src.db import create_pool, init_db
+
+    p = await create_pool(TEST_DB_URL, min_size=1, max_size=3)
+    await init_db(p)
+    yield p
+    async with p.acquire() as conn:
+        await conn.execute("DELETE FROM session_missing")
+        await conn.execute("DELETE FROM session_items")
+        await conn.execute("DELETE FROM sessions")
+        await conn.execute("DELETE FROM idempotency_operations")
+    await p.close()
+
+
+@pytest.fixture
+def receiving_store(db_pool):
+    """ReceivingSessionStore backed by the test Postgres pool."""
+    from src.session_repository import ReceivingSessionStore
+
+    return ReceivingSessionStore(db_pool)
+
+
+@pytest.fixture
+def in_memory_idempotency_store():
+    """In-memory idempotency store for API tests.
+
+    The Postgres idempotency store has its own comprehensive tests in
+    ``tests/runtime/test_postgres_idempotency.py``. Here we use in-memory
+    to focus on the receiving state machine.
+    """
+    from src.runtime.idempotency import InMemoryIdempotencyStore
+
+    store = InMemoryIdempotencyStore[dict[str, Any]]()
+    return store
+
+
+@pytest.fixture
+async def async_client(receiving_store, in_memory_idempotency_store):
+    """httpx.AsyncClient with patched stores, using ASGI transport.
+
+    Using AsyncClient (not TestClient) ensures the same event loop is used
+    for both the test setup and the HTTP calls — asyncpg connections are
+    tied to their event loop.
+    """
+    from src.main import app
+
+    with patch(
+        "src.api.receiving._get_receiving_store",
+        return_value=receiving_store,
+    ), patch(
+        "src.api.receiving._get_idempotency_store",
+        return_value=in_memory_idempotency_store,
+    ):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client:
+            yield client
 
 
 def _make_session(
@@ -61,7 +135,8 @@ def _make_session(
     boxes: list[PhysicalBox] | None = None,
     status: ReceivingSessionStatus = ReceivingSessionStatus.ACTIVE,
 ) -> ReceivingSession:
-    session = ReceivingSession(
+    """Create a ReceivingSession domain object (for unit tests)."""
+    return ReceivingSession(
         session_id=session_id,
         customer_id=customer_id,
         branch_id=branch_id,
@@ -69,8 +144,49 @@ def _make_session(
         boxes=list(boxes) if boxes else [],
         status=status,
     )
-    _sessions[session_id] = session
-    return session
+
+
+async def _make_session_in_db(
+    store: Any,
+    session_id: str = "sess-1",
+    customer_id: str = "cust-acme",
+    branch_id: str = "branch-acme-main",
+    action: str = "create_order",
+    boxes: list[PhysicalBox] | None = None,
+    participant_id: str | None = None,
+) -> ReceivingSession:
+    """Create a receiving session in the Postgres store (for API tests).
+
+    Boxes are added by directly inserting session_items rows, since the
+    upload_image endpoint goes through analyze_image which needs real
+    barcode images. For submit/inspect tests we need boxes pre-populated.
+    """
+    await store.create_receiving_session(
+        session_id,
+        customer_id=customer_id,
+        branch_id=branch_id,
+        action=action,
+        participant_id=participant_id,
+    )
+
+    # Insert boxes directly into session_items.
+    if boxes:
+        async with store._pool.acquire() as conn:
+            for i, box in enumerate(boxes):
+                await conn.execute(
+                    """INSERT INTO session_items
+                           (session_id, barcode_value, barcode_format, label_index,
+                            source_image)
+                       VALUES ($1, $2, $3, $4, 0)""",
+                    session_id,
+                    box.barcode_value,
+                    box.barcode_format or None,
+                    box.label_index if box.label_index is not None else i,
+                )
+
+    session = await store.get_receiving_session(session_id)
+    assert session is not None
+    return session  # type: ignore[no-any-return]
 
 
 def _mock_gateway_success(order_id: int = 42):
@@ -81,6 +197,12 @@ def _mock_gateway_success(order_id: int = 42):
             order_id=order_id, session_id="sess-1", status="draft"
         )
     )
+    gateway.customers = AsyncMock(
+        return_value=[{"id": "cust-acme"}, {"id": "cust-northstar"}]
+    )
+    gateway.branches = AsyncMock(
+        return_value=[{"id": "branch-acme-main"}, {"id": "branch-acme-outlet"}]
+    )
     return gateway
 
 
@@ -89,6 +211,12 @@ def _mock_gateway_indeterminate():
     gateway = MagicMock()
     gateway.create_draft_order = AsyncMock(
         side_effect=IndeterminateError("connection lost after submit")
+    )
+    gateway.customers = AsyncMock(
+        return_value=[{"id": "cust-acme"}, {"id": "cust-northstar"}]
+    )
+    gateway.branches = AsyncMock(
+        return_value=[{"id": "branch-acme-main"}, {"id": "branch-acme-outlet"}]
     )
     return gateway
 
@@ -99,6 +227,12 @@ def _mock_gateway_retryable():
     gateway.create_draft_order = AsyncMock(
         side_effect=RetryableError("connection refused")
     )
+    gateway.customers = AsyncMock(
+        return_value=[{"id": "cust-acme"}, {"id": "cust-northstar"}]
+    )
+    gateway.branches = AsyncMock(
+        return_value=[{"id": "branch-acme-main"}, {"id": "branch-acme-outlet"}]
+    )
     return gateway
 
 
@@ -107,6 +241,12 @@ def _mock_gateway_permanent():
     gateway = MagicMock()
     gateway.create_draft_order = AsyncMock(
         side_effect=PermanentError("duplicate session_id")
+    )
+    gateway.customers = AsyncMock(
+        return_value=[{"id": "cust-acme"}, {"id": "cust-northstar"}]
+    )
+    gateway.branches = AsyncMock(
+        return_value=[{"id": "branch-acme-main"}, {"id": "branch-acme-outlet"}]
     )
     return gateway
 
@@ -198,6 +338,14 @@ class TestReceivingSessionTransitions:
         s = _make_session()
         with pytest.raises(ValueError, match="Cannot mark submitted"):
             s.mark_submitted(42)
+
+    def test_mark_submitted_from_submission_unknown(self):
+        s = _make_session()
+        s.freeze()
+        s.mark_submission_unknown()
+        s.mark_submitted(42)
+        assert s.status == ReceivingSessionStatus.SUBMITTED
+        assert s.external_order_id == 42
 
     def test_mark_submission_unknown(self):
         s = _make_session()
@@ -342,16 +490,21 @@ class TestSessionDiscrepancy:
 # ===========================================================================
 
 
+@skip_no_db
 class TestCreateSession:
-    def test_create_session_success(self, client_no_raise):
-        resp = client_no_raise.post(
-            "/receiving/sessions",
-            data={
-                "customer_id": "cust-acme",
-                "branch_id": "branch-acme-main",
-                "action": "create_order",
-            },
-        )
+    async def test_create_session_success(self, async_client):
+        with patch(
+            "src.api.receiving._get_priority_gateway",
+            return_value=_mock_gateway_success(),
+        ):
+            resp = await async_client.post(
+                "/receiving/sessions",
+                data={
+                    "customer_id": "cust-acme",
+                    "branch_id": "branch-acme-main",
+                    "action": "create_order",
+                },
+            )
         assert resp.status_code == 201
         body = resp.json()
         assert body["status"] == "active"
@@ -359,8 +512,8 @@ class TestCreateSession:
         assert body["box_count"] == 0
         assert "session_id" in body
 
-    def test_missing_customer_id(self, client_no_raise):
-        resp = client_no_raise.post(
+    async def test_missing_customer_id(self, async_client):
+        resp = await async_client.post(
             "/receiving/sessions",
             data={
                 "customer_id": "  ",
@@ -371,17 +524,82 @@ class TestCreateSession:
         assert resp.status_code == 422
         assert resp.json()["detail"]["code"] == "order_context_required"
 
-    def test_invalid_action(self, client_no_raise):
-        resp = client_no_raise.post(
-            "/receiving/sessions",
-            data={
-                "customer_id": "cust-acme",
-                "branch_id": "branch-acme-main",
-                "action": "invalid",
-            },
-        )
+    async def test_invalid_action(self, async_client):
+        with patch(
+            "src.api.receiving._get_priority_gateway",
+            return_value=_mock_gateway_success(),
+        ):
+            resp = await async_client.post(
+                "/receiving/sessions",
+                data={
+                    "customer_id": "cust-acme",
+                    "branch_id": "branch-acme-main",
+                    "action": "invalid",
+                },
+            )
         assert resp.status_code == 422
         assert resp.json()["detail"]["code"] == "invalid_action"
+
+    async def test_unknown_customer_rejected(self, async_client):
+        with patch(
+            "src.api.receiving._get_priority_gateway",
+            return_value=_mock_gateway_success(),
+        ):
+            resp = await async_client.post(
+                "/receiving/sessions",
+                data={
+                    "customer_id": "cust-nonexistent",
+                    "branch_id": "branch-acme-main",
+                    "action": "create_order",
+                },
+            )
+        assert resp.status_code == 422
+        assert resp.json()["detail"]["code"] == "unknown_customer"
+
+    async def test_unknown_branch_rejected(self, async_client):
+        with patch(
+            "src.api.receiving._get_priority_gateway",
+            return_value=_mock_gateway_success(),
+        ):
+            resp = await async_client.post(
+                "/receiving/sessions",
+                data={
+                    "customer_id": "cust-acme",
+                    "branch_id": "branch-nonexistent",
+                    "action": "create_order",
+                },
+            )
+        assert resp.status_code == 422
+        assert resp.json()["detail"]["code"] == "unknown_or_mismatched_branch"
+
+    async def test_open_session_blocks_new_for_same_participant(
+        self, async_client, receiving_store
+    ):
+        gateway = _mock_gateway_success()
+        with patch("src.api.receiving._get_priority_gateway", return_value=gateway):
+            resp1 = await async_client.post(
+                "/receiving/sessions",
+                data={
+                    "customer_id": "cust-acme",
+                    "branch_id": "branch-acme-main",
+                    "action": "create_order",
+                    "participant_id": "operator-1",
+                },
+            )
+            assert resp1.status_code == 201
+            # Same participant — should get 409.
+            resp2 = await async_client.post(
+                "/receiving/sessions",
+                data={
+                    "customer_id": "cust-acme",
+                    "branch_id": "branch-acme-main",
+                    "action": "create_order",
+                    "participant_id": "operator-1",
+                },
+            )
+        assert resp2.status_code == 409
+        assert resp2.json()["detail"]["code"] == "open_session_exists"
+        assert resp2.json()["detail"]["existing_session_id"] == resp1.json()["session_id"]
 
 
 # ===========================================================================
@@ -389,17 +607,23 @@ class TestCreateSession:
 # ===========================================================================
 
 
+@skip_no_db
 class TestUploadImage:
-    def test_session_not_found(self, client_no_raise):
-        resp = client_no_raise.post(
+    async def test_session_not_found(self, async_client):
+        resp = await async_client.post(
             "/receiving/sessions/nonexistent/images",
             files={"file": ("test.jpg", b"fake", "image/jpeg")},
         )
         assert resp.status_code == 404
 
-    def test_upload_when_submitting_rejects(self, client_no_raise):
-        _make_session(status=ReceivingSessionStatus.SUBMITTING)
-        resp = client_no_raise.post(
+    async def test_upload_when_submitting_rejects(
+        self, async_client, receiving_store
+    ):
+        # Create a session, then freeze it.
+        await _make_session_in_db(receiving_store, "sess-1")
+        await receiving_store.freeze_submission("sess-1", {"items": []})
+
+        resp = await async_client.post(
             "/receiving/sessions/sess-1/images",
             files={"file": ("test.jpg", b"fake", "image/jpeg")},
         )
@@ -412,37 +636,43 @@ class TestUploadImage:
 # ===========================================================================
 
 
+@skip_no_db
 class TestSubmitSession:
-    def test_session_not_found(self, client_no_raise):
-        resp = client_no_raise.post("/receiving/sessions/nonexistent/submit")
+    async def test_session_not_found(self, async_client):
+        resp = await async_client.post("/receiving/sessions/nonexistent/submit")
         assert resp.status_code == 404
 
-    def test_submit_empty_session(self, client_no_raise):
-        _make_session()
+    async def test_submit_empty_session_rejected(
+        self, async_client, receiving_store
+    ):
+        await _make_session_in_db(receiving_store, "sess-1")
+
         with patch(
             "src.api.receiving._get_priority_gateway",
             return_value=_mock_gateway_success(),
         ):
-            resp = client_no_raise.post("/receiving/sessions/sess-1/submit")
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["status"] == "submitted"
-        assert body["order_id"] == 42
-        assert body["items"] == []
+            resp = await async_client.post("/receiving/sessions/sess-1/submit")
+        assert resp.status_code == 422
+        assert resp.json()["detail"]["code"] == "empty_order"
 
-    def test_submit_with_boxes(self, client_no_raise):
-        _make_session(
+    async def test_submit_with_boxes(
+        self, async_client, receiving_store
+    ):
+        await _make_session_in_db(
+            receiving_store,
+            "sess-1",
             boxes=[
                 PhysicalBox(barcode_value="AAA", barcode_format="Code128"),
                 PhysicalBox(barcode_value="AAA", barcode_format="Code128"),
                 PhysicalBox(barcode_value="BBB", barcode_format="Code128"),
-            ]
+            ],
         )
+
         with patch(
             "src.api.receiving._get_priority_gateway",
             return_value=_mock_gateway_success(order_id=99),
         ):
-            resp = client_no_raise.post("/receiving/sessions/sess-1/submit")
+            resp = await async_client.post("/receiving/sessions/sess-1/submit")
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "submitted"
@@ -452,12 +682,19 @@ class TestSubmitSession:
             {"barcode_value": "BBB", "barcode_format": "Code128", "quantity": 1},
         ]
 
-    def test_double_submit_returns_same_order_id(self, client_no_raise):
-        _make_session(boxes=[PhysicalBox(barcode_value="AAA")])
+    async def test_double_submit_returns_same_order_id(
+        self, async_client, receiving_store
+    ):
+        await _make_session_in_db(
+            receiving_store,
+            "sess-1",
+            boxes=[PhysicalBox(barcode_value="AAA")],
+        )
+
         gateway = _mock_gateway_success(order_id=42)
         with patch("src.api.receiving._get_priority_gateway", return_value=gateway):
-            resp1 = client_no_raise.post("/receiving/sessions/sess-1/submit")
-            resp2 = client_no_raise.post("/receiving/sessions/sess-1/submit")
+            resp1 = await async_client.post("/receiving/sessions/sess-1/submit")
+            resp2 = await async_client.post("/receiving/sessions/sess-1/submit")
         assert resp1.status_code == 200
         assert resp2.status_code == 200
         assert resp1.json()["order_id"] == 42
@@ -466,27 +703,39 @@ class TestSubmitSession:
         # Gateway called only once (idempotency cache hit on second submit).
         assert gateway.create_draft_order.call_count == 1
 
-    def test_indeterminate_transitions_to_submission_unknown(self, client_no_raise):
-        _make_session(boxes=[PhysicalBox(barcode_value="AAA")])
+    async def test_indeterminate_transitions_to_submission_unknown(
+        self, async_client, receiving_store
+    ):
+        await _make_session_in_db(
+            receiving_store,
+            "sess-1",
+            boxes=[PhysicalBox(barcode_value="AAA")],
+        )
+
         with patch(
             "src.api.receiving._get_priority_gateway",
             return_value=_mock_gateway_indeterminate(),
         ):
-            resp = client_no_raise.post("/receiving/sessions/sess-1/submit")
+            resp = await async_client.post("/receiving/sessions/sess-1/submit")
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "submission_unknown"
         assert body["error"]["code"] == "submission_unknown"
         assert body["retry_recommended"] is True
 
-    def test_retry_after_indeterminate_replays_same_outcome(
-        self, client_no_raise
+    async def test_retry_after_indeterminate_replays_same_outcome(
+        self, async_client, receiving_store
     ):
-        _make_session(boxes=[PhysicalBox(barcode_value="AAA")])
+        await _make_session_in_db(
+            receiving_store,
+            "sess-1",
+            boxes=[PhysicalBox(barcode_value="AAA")],
+        )
+
         gateway = _mock_gateway_indeterminate()
         with patch("src.api.receiving._get_priority_gateway", return_value=gateway):
-            resp1 = client_no_raise.post("/receiving/sessions/sess-1/submit")
-            resp2 = client_no_raise.post("/receiving/sessions/sess-1/submit")
+            resp1 = await async_client.post("/receiving/sessions/sess-1/submit")
+            resp2 = await async_client.post("/receiving/sessions/sess-1/submit")
         assert resp1.status_code == 200
         assert resp1.json()["status"] == "submission_unknown"
         assert resp2.status_code == 200
@@ -494,68 +743,100 @@ class TestSubmitSession:
         # Gateway called once; second call replays the cached indeterminate.
         assert gateway.create_draft_order.call_count == 1
 
-    def test_new_session_succeeds_after_indeterminate(self, client_no_raise):
-        """After an indeterminate outcome, a NEW session can succeed.
+    async def test_new_session_after_indeterminate_is_rejected(
+        self, async_client, receiving_store
+    ):
+        """After an indeterminate outcome, creating a NEW session for the
+        same participant is rejected until the indeterminate session is
+        resolved. The user must retry the existing session.
 
-        The indeterminate session is stuck in SUBMISSION_UNKNOWN — the
-        idempotency store replays the indeterminate outcome on retry.
-        To create a new order, the user must create a new session (or
-        reconcile the indeterminate outcome, which is out of scope for
-        PR #5).
+        Full external-reference reconciliation is deferred to MVP — see
+        AGENTS.md "Known gaps".
         """
-        # First session: indeterminate.
-        _make_session(
-            session_id="sess-1", boxes=[PhysicalBox(barcode_value="AAA")]
+        await _make_session_in_db(
+            receiving_store,
+            "sess-1",
+            boxes=[PhysicalBox(barcode_value="AAA")],
+            participant_id="operator-1",
         )
-        gateway = MagicMock()
-        gateway.create_draft_order = AsyncMock(
-            side_effect=[
-                IndeterminateError("connection lost"),
-                # Second call (new session) succeeds.
-                CreateDraftOrderResult(
-                    order_id=77, session_id="sess-2", status="draft"
-                ),
-            ]
-        )
-        with patch("src.api.receiving._get_priority_gateway", return_value=gateway):
-            resp1 = client_no_raise.post("/receiving/sessions/sess-1/submit")
-            # Create a new session and submit.
-            _make_session(
-                session_id="sess-2", boxes=[PhysicalBox(barcode_value="BBB")]
-            )
-            resp2 = client_no_raise.post("/receiving/sessions/sess-2/submit")
-        assert resp1.json()["status"] == "submission_unknown"
-        assert resp2.json()["status"] == "submitted"
-        assert resp2.json()["order_id"] == 77
 
-    def test_retryable_error_reverts_to_active(self, client_no_raise):
-        _make_session(boxes=[PhysicalBox(barcode_value="AAA")])
+        gateway = _mock_gateway_indeterminate()
+        with patch("src.api.receiving._get_priority_gateway", return_value=gateway):
+            # First submit: indeterminate.
+            resp1 = await async_client.post("/receiving/sessions/sess-1/submit")
+            assert resp1.json()["status"] == "submission_unknown"
+
+            # Try to create a new session for the same participant: rejected.
+            resp2 = await async_client.post(
+                "/receiving/sessions",
+                data={
+                    "customer_id": "cust-acme",
+                    "branch_id": "branch-acme-main",
+                    "action": "create_order",
+                    "participant_id": "operator-1",
+                },
+            )
+        assert resp2.status_code == 409
+        assert resp2.json()["detail"]["code"] == "open_session_exists"
+        assert resp2.json()["detail"]["existing_status"] == "submission_unknown"
+
+    async def test_retryable_error_reverts_to_active(
+        self, async_client, receiving_store
+    ):
+        await _make_session_in_db(
+            receiving_store,
+            "sess-1",
+            boxes=[PhysicalBox(barcode_value="AAA")],
+        )
+
         with patch(
             "src.api.receiving._get_priority_gateway",
             return_value=_mock_gateway_retryable(),
         ):
-            resp = client_no_raise.post("/receiving/sessions/sess-1/submit")
+            resp = await async_client.post("/receiving/sessions/sess-1/submit")
         assert resp.status_code == 502
         assert resp.json()["detail"]["code"] == "submission_failed"
-        # Session should be back to ACTIVE.
-        assert _sessions["sess-1"].status == ReceivingSessionStatus.ACTIVE
 
-    def test_permanent_error_reverts_to_active(self, client_no_raise):
-        _make_session(boxes=[PhysicalBox(barcode_value="AAA")])
+        # Session should be back to ACTIVE.
+        session = await receiving_store.get_receiving_session("sess-1")
+        assert session is not None
+        assert session.status == ReceivingSessionStatus.ACTIVE
+
+    async def test_permanent_error_reverts_to_active(
+        self, async_client, receiving_store
+    ):
+        await _make_session_in_db(
+            receiving_store,
+            "sess-1",
+            boxes=[PhysicalBox(barcode_value="AAA")],
+        )
+
         with patch(
             "src.api.receiving._get_priority_gateway",
             return_value=_mock_gateway_permanent(),
         ):
-            resp = client_no_raise.post("/receiving/sessions/sess-1/submit")
+            resp = await async_client.post("/receiving/sessions/sess-1/submit")
         assert resp.status_code == 409
         assert resp.json()["detail"]["code"] == "submission_permanent_error"
-        assert _sessions["sess-1"].status == ReceivingSessionStatus.ACTIVE
 
-    def test_submit_from_submitted_returns_cached(self, client_no_raise):
-        s = _make_session(boxes=[PhysicalBox(barcode_value="AAA")])
-        s.freeze()
-        s.mark_submitted(55)
-        resp = client_no_raise.post("/receiving/sessions/sess-1/submit")
+        session = await receiving_store.get_receiving_session("sess-1")
+        assert session is not None
+        assert session.status == ReceivingSessionStatus.ACTIVE
+
+    async def test_submit_from_submitted_returns_cached(
+        self, async_client, receiving_store
+    ):
+        await _make_session_in_db(
+            receiving_store,
+            "sess-1",
+            boxes=[PhysicalBox(barcode_value="AAA")],
+        )
+        await receiving_store.freeze_submission(
+            "sess-1", {"items": [{"barcode_value": "AAA", "quantity": 1}]}
+        )
+        await receiving_store.mark_submitted("sess-1", 55)
+
+        resp = await async_client.post("/receiving/sessions/sess-1/submit")
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "submitted"
@@ -568,28 +849,52 @@ class TestSubmitSession:
 # ===========================================================================
 
 
+@skip_no_db
 class TestGetSession:
-    def test_get_active_session(self, client_no_raise):
-        s = _make_session(boxes=[PhysicalBox(barcode_value="AAA")])
-        s.expected_count = 3
-        resp = client_no_raise.get("/receiving/sessions/sess-1")
+    async def test_get_active_session(
+        self, async_client, receiving_store
+    ):
+        await _make_session_in_db(
+            receiving_store,
+            "sess-1",
+            boxes=[PhysicalBox(barcode_value="AAA")],
+        )
+        # Update expected_count.
+        async with receiving_store._pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE sessions SET expected_count = 3 WHERE id = $1",
+                "sess-1",
+            )
+
+        resp = await async_client.get("/receiving/sessions/sess-1")
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "active"
         assert body["box_count"] == 1
         assert body["expected_count"] == 3
-        assert body["items"] == [{"barcode_value": "AAA", "barcode_format": "", "quantity": 1}]
+        assert body["items"] == [
+            {"barcode_value": "AAA", "barcode_format": "", "quantity": 1}
+        ]
         assert body["discrepancy"]["missing"] == 2
 
-    def test_get_not_found(self, client_no_raise):
-        resp = client_no_raise.get("/receiving/sessions/nonexistent")
+    async def test_get_not_found(self, async_client):
+        resp = await async_client.get("/receiving/sessions/nonexistent")
         assert resp.status_code == 404
 
-    def test_get_submitted_session(self, client_no_raise):
-        s = _make_session(boxes=[PhysicalBox(barcode_value="AAA")])
-        s.freeze()
-        s.mark_submitted(42)
-        resp = client_no_raise.get("/receiving/sessions/sess-1")
+    async def test_get_submitted_session(
+        self, async_client, receiving_store
+    ):
+        await _make_session_in_db(
+            receiving_store,
+            "sess-1",
+            boxes=[PhysicalBox(barcode_value="AAA")],
+        )
+        await receiving_store.freeze_submission(
+            "sess-1", {"items": [{"barcode_value": "AAA", "quantity": 1}]}
+        )
+        await receiving_store.mark_submitted("sess-1", 42)
+
+        resp = await async_client.get("/receiving/sessions/sess-1")
         body = resp.json()
         assert body["status"] == "submitted"
         assert body["external_order_id"] == 42

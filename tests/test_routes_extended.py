@@ -542,7 +542,12 @@ def test_session_too_large(
 def test_session_verify_action_complete(
     client: pytest.fixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """verify_order_before_shipment action triggers create_order."""
+    """verify_order_before_shipment action does NOT auto-create an order.
+
+    Order creation is now handled exclusively via
+    POST /receiving/sessions/{id}/submit. The /barcode/session flow returns
+    the session result; the frontend creates the order via /receiving/submit.
+    """
     fake_priority = MagicMock()
     fake_priority.create_order = AsyncMock(return_value=1)
     monkeypatch.setattr(
@@ -569,9 +574,8 @@ def test_session_verify_action_complete(
         )
     assert response.status_code == 200
     assert response.json()["status"] == "complete"
-    fake_priority.create_order.assert_awaited_once()
-    call_kwargs = fake_priority.create_order.call_args.kwargs
-    assert call_kwargs["action"] == "verify_order_before_shipment"
+    # Order creation is NOT called — it's handled via /receiving/submit.
+    fake_priority.create_order.assert_not_awaited()
 
 
 def test_session_missing_branch_id(
