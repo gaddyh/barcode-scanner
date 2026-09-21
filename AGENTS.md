@@ -26,6 +26,12 @@ gate in CI. Tagged `v0.2.0-baseline`.
 - Push the feature branch, open a PR targeting `main`.
 - Enable GitHub auto-merge with squash: `gh pr merge --auto --squash <PR_NUMBER>`.
 - `main` requires CI checks; merge happens automatically after they pass.
+- **Do not push to a branch while CI is running and auto-merge is enabled.**
+  GitHub's auto-merge merges the commit CI already approved — it does NOT
+  re-run CI on the new push. A follow-up push while CI is running will be
+  orphaned when the original commit merges. Either wait for CI to finish,
+  or disable auto-merge (`gh pr merge --disable <PR_NUMBER>`), push, then
+  re-enable auto-merge.
 - Delete the feature branch after merge: `git switch main && git pull --ff-only origin main && git branch -d <branch-name>`.
 
 ## Verification before merge
