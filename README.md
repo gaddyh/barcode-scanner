@@ -682,6 +682,8 @@ src/
   ingest/
     scanner.py                  BarcodeScanner — tiling, preprocessing, dedup,
                                 Gemini-guided crop recovery (scan_label_crops)
+    barcode_policy.py           PrimaryShoeboxBarcodePolicy — EAN-13 product
+                                barcode contract (filters raw scanner detections)
     vision.py                   Gemini visual audit (counts + spatial labels + full)
     geometry.py                 Pixel bounding boxes, normalized→pixel conversion
     reconciliation.py           Match scanner detections to Gemini product labels;
@@ -716,7 +718,13 @@ tests/
     test_regression.py          Snapshot baseline + gated live test
   test_api.py                   API endpoint tests
   test_barcode_scanner.py       Scanner logic tests (monkeypatched zxing)
+  test_barcode_policy.py        PrimaryShoeboxBarcodePolicy tests (EAN-13)
   test_cli.py                   CLI unit tests + regression tests on samples
+  test_cli_runtime.py           Runtime ingest CLI tests (src.cli)
+  test_gemini_cache.py          Gemini audit cache tests
+  test_checkpoint.py           Postgres checkpointer singleton tests
+  test_modal_transcriber.py     Modal Whisper transcriber adapter tests
+  test_regression.py           Eval regression runner + acceptance target tests
   test_gemini_box_audit.py      Gemini schema, EXIF normalization, pixel conversion
   test_spatial_geometry.py      Pure coordinate mathematics
   test_spatial_reconciliation.py  Scanner↔label matching rules
@@ -729,8 +737,13 @@ This version does not:
 - call WhatsApp
 - call Priority ERP
 - run object detection to find box regions (tiling is a fixed grid, not adaptive)
-- validate barcode check digits
 - expose per-detection confidence scores
+
+The deterministic scanner decodes whatever barcodes it can find (generic).
+`PrimaryShoeboxBarcodePolicy` (`src/ingest/barcode_policy.py`) filters raw
+detections to primary shoebox EAN-13 barcodes (13 digits, valid mod-10
+checksum) before reconciliation — non-primary detections (Code128, UPC-A,
+noise) are rejected so they cannot become false positives.
 
 The Gemini visual audit is advisory only — it does not decode barcodes or
 replace the deterministic scanner. The pipeline reconciles the two spatially

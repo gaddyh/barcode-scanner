@@ -44,6 +44,36 @@ The offline regression gate uses occurrence-level multiset evaluators:
 The legacy set-based evaluators (`value_recall`, `value_precision`,
 `outcome_correct`, `count_exact`) remain for the live LangSmith harness.
 
+### Product barcode policy (PR B)
+
+The scanner-only eval applies `PrimaryShoeboxBarcodePolicy`
+(`src/ingest/barcode_policy.py`) to filter raw scanner detections to
+primary shoebox EAN-13 barcodes (13 digits, valid mod-10 checksum)
+before scoring. Non-primary detections (Code128 shipping codes,
+UPC-A, partial reads, noise) are rejected so they cannot become false
+positives in the product-level counts.
+
+The evaluators return explicit `matched_count`, `expected_count`, and
+`found_count` fields for instrumentation. The regression report
+includes:
+
+- `Matched/Expected` — total matched occurrences / total expected
+- `Matched/Found` — total matched occurrences / total found
+- `Raw scanner detections` — total raw detections before filtering
+- `Policy rejected` — total detections rejected by the policy
+
+### Acceptance target (PR B)
+
+In addition to "no regression against baseline", the eval enforces an
+absolute quality floor:
+
+- `mean_occurrence_recall >= 0.65`
+- `mean_occurrence_precision >= 0.90`
+
+The policy targets precision (reject non-product barcodes); the recall
+floor is set just below the current baseline to avoid gating on the
+pre-existing recall gap in difficult photos.
+
 ## Product API
 
 `src/ingest/analyze.py` exposes `analyze_image()` — the product hot path.

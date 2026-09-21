@@ -3,16 +3,29 @@
 ## Direct upload experiment (web/)
 
 Tiny Vite + React + TS mobile page that uploads the original phone photo
-(no canvas, no compression, no base64) to the existing `/barcode/scan`
-endpoint and shows dimensions, file size, barcodes, server scan latency,
-and total request latency. No WhatsApp, no Gemini, no chat UI, no auth.
+(no canvas, no compression, no base64) to the backend and shows
+dimensions, file size, barcodes, server scan latency, and total request
+latency. No WhatsApp, no Gemini, no chat UI, no auth.
+
+The frontend has two modes:
+
+- **Receiving (multi-photo)** — the product flow: create a receiving
+  session (`POST /receiving/sessions`), upload one or more photos
+  (`POST /receiving/sessions/{id}/images`), review the accumulated boxes
+  and discrepancy, then submit a draft order
+  (`POST /receiving/sessions/{id}/submit`).
+- **Scanner only** — uploads to `/barcode/scan` and shows decoded
+  barcodes for a single image. No session, no order.
 
 ### Run locally
 
-Backend (exposes `/health` and `/barcode/scan`):
+Backend (exposes `/health`, `/barcode/scan`, and `/receiving/*`):
 
 ```bash
 source .venv/bin/activate
+# Postgres is required for the receiving flow (image upload returns 503
+# without it). Start a local Postgres and set DATABASE_URL:
+export DATABASE_URL=postgres://scanner:scanner@localhost:5432/scanner
 uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
@@ -99,11 +112,16 @@ On Render:
    - `APP_ENV=production`
    - `MAX_UPLOAD_BYTES=15728640`
    - `ALLOWED_IMAGE_TYPES=image/jpeg,image/png,image/webp`
+   - `DATABASE_URL=postgres://...` — **required for the receiving flow.**
+     The receiving endpoints (`/receiving/sessions`, `/images`, `/submit`)
+     persist sessions, boxes, and submission state in Postgres. Without a
+     database, image upload returns `503` and session creation fails.
+     Scanner-only mode (`/barcode/scan`) does not need Postgres.
 3. Render assigns `$PORT` automatically — the CMD handles it.
 4. Health check: `/health`.
 
-The deployed URL serves the upload page at `/` and the API at
-`/barcode/scan`. Open the Render URL on your phone — it's HTTPS, no
+The deployed URL serves the upload page at `/` and the API at `/barcode/scan`
+and `/receiving/*`. Open the Render URL on your phone — it's HTTPS, no
 ngrok needed.
 
 ## LangSmith monitoring dashboard

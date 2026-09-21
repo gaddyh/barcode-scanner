@@ -141,8 +141,8 @@ def _patch_audit_error(error: dict) -> object:
 def test_complete_all_labels_found(tmp_path: Path) -> None:
     img = _png_path(tmp_path)
     detections = [
-        _detection("111", x1=110, y1=110, x2=190, y2=290),
-        _detection("222", x1=510, y1=110, x2=590, y2=290),
+        _detection("7297501098442", x1=110, y1=110, x2=190, y2=290),
+        _detection("7297500243423", x1=510, y1=110, x2=590, y2=290),
     ]
     spatial = _spatial([
         _label_pixels(1, label_box=(50, 50, 250, 350), barcode_box=(100, 100, 200, 300)),
@@ -160,7 +160,9 @@ def test_complete_all_labels_found(tmp_path: Path) -> None:
     assert result["summary"]["found_count"] == 2
     assert result["summary"]["missing_count"] == 0
     assert result["summary"]["all_found"] is True
-    assert {f["barcode_value"] for f in result["found"]} == {"111", "222"}
+    assert {f["barcode_value"] for f in result["found"]} == {
+        "7297501098442", "7297500243423"
+    }
     assert "annotated_image_b64" not in result
     assert "error" not in result
 
@@ -172,7 +174,7 @@ def test_complete_all_labels_found(tmp_path: Path) -> None:
 
 def test_needs_better_photo_one_label_missing(tmp_path: Path) -> None:
     img = _png_path(tmp_path)
-    detections = [_detection("111", x1=110, y1=110, x2=190, y2=290)]
+    detections = [_detection("7297501098442", x1=110, y1=110, x2=190, y2=290)]
     spatial = _spatial([
         _label_pixels(1, label_box=(50, 50, 250, 350), barcode_box=(100, 100, 200, 300)),
         _label_pixels(2, label_box=(450, 50, 650, 350), barcode_box=(500, 100, 600, 300)),
@@ -196,7 +198,7 @@ def test_needs_better_photo_one_label_missing(tmp_path: Path) -> None:
 
 def test_needs_better_photo_zero_labels(tmp_path: Path) -> None:
     img = _png_path(tmp_path)
-    detections = [_detection("111")]
+    detections = [_detection("7297501098442")]
     spatial = _spatial([])
 
     scanner = _mock_scan(detections)
@@ -217,7 +219,7 @@ def test_needs_better_photo_zero_labels(tmp_path: Path) -> None:
 
 def test_retryable_error_on_audit_failure(tmp_path: Path) -> None:
     img = _png_path(tmp_path)
-    detections = [_detection("111")]
+    detections = [_detection("7297501098442")]
     scanner = _mock_scan(detections)
     with _patch_audit_error({"type": "ShoeboxAuditError", "message": "boom"}):
         result = analyze_image(img, scanner=scanner)
@@ -227,7 +229,7 @@ def test_retryable_error_on_audit_failure(tmp_path: Path) -> None:
     assert result["error"] == {"type": "ShoeboxAuditError", "message": "boom"}
     # Scanner detections become unassigned.
     assert len(result["unassigned"]) == 1
-    assert result["unassigned"][0]["barcode_value"] == "111"
+    assert result["unassigned"][0]["barcode_value"] == "7297501098442"
     assert result["summary"]["found_count"] == 0
 
 
@@ -261,7 +263,7 @@ def test_analyze_image_accepts_bytes(tmp_path: Path) -> None:
     Image.new("RGB", (800, 600), (255, 255, 255)).save(buf, format="PNG")
     image_bytes = buf.getvalue()
 
-    detections = [_detection("111")]
+    detections = [_detection("7297501098442")]
     spatial = _spatial([
         _label_pixels(1, label_box=(50, 50, 250, 350), barcode_box=(100, 100, 200, 300)),
     ])
@@ -282,9 +284,12 @@ def test_analyze_image_accepts_bytes(tmp_path: Path) -> None:
 
 def test_unassigned_detection_reported(tmp_path: Path) -> None:
     img = _png_path(tmp_path)
+    # Use valid EAN-13 barcodes so they pass the PrimaryShoeboxBarcodePolicy.
+    # 7297501098442 is in the first label; 7297500243430 is outside all labels
+    # and should appear as an unassigned detection.
     detections = [
-        _detection("111", x1=110, y1=110, x2=190, y2=290),
-        _detection("999", x1=700, y1=500, x2=780, y2=580),
+        _detection("7297501098442", x1=110, y1=110, x2=190, y2=290),
+        _detection("7297500243430", x1=700, y1=500, x2=780, y2=580),
     ]
     spatial = _spatial([
         _label_pixels(1, label_box=(50, 50, 250, 350), barcode_box=(100, 100, 200, 300)),
@@ -297,4 +302,4 @@ def test_unassigned_detection_reported(tmp_path: Path) -> None:
     # One label found, one unassigned detection.
     assert result["summary"]["found_count"] == 1
     assert result["summary"]["unassigned_count"] == 1
-    assert result["unassigned"][0]["barcode_value"] == "999"
+    assert result["unassigned"][0]["barcode_value"] == "7297500243430"

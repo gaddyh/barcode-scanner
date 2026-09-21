@@ -20,6 +20,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+from langchain_core.runnables import RunnableConfig
 from PIL import Image
 
 import src.ingest.graph as _graph_module
@@ -177,8 +178,8 @@ async def test_contract_complete_all_found(tmp_path: Path) -> None:
     """Happy path: scan + audit both ok, all labels matched → complete summary."""
     img = _png_path(tmp_path)
     detections = [
-        _detection("111", x1=110, y1=110, x2=190, y2=290),
-        _detection("222", x1=510, y1=110, x2=590, y2=290),
+        _detection("7297501098442", x1=110, y1=110, x2=190, y2=290),
+        _detection("7297500243423", x1=510, y1=110, x2=590, y2=290),
     ]
     spatial = _spatial([
         _label_pixels(1, label_box=(50, 50, 250, 350), barcode_box=(100, 100, 200, 300)),
@@ -209,9 +210,9 @@ async def test_contract_recovery_cycle(tmp_path: Path) -> None:
     """Recovery: one label unmatched → recover → re-reconcile → resolved."""
     img = _png_path(tmp_path)
     # Scanner only finds 1 of 2 barcodes.
-    detections = [_detection("111", x1=110, y1=110, x2=190, y2=290)]
+    detections = [_detection("7297501098442", x1=110, y1=110, x2=190, y2=290)]
     # Recovery finds the missing one.
-    recovery_det = _detection("222", x1=510, y1=110, x2=590, y2=290)
+    recovery_det = _detection("7297500243423", x1=510, y1=110, x2=590, y2=290)
     spatial = _spatial([
         _label_pixels(1, label_box=(50, 50, 250, 350), barcode_box=(100, 100, 200, 300)),
         _label_pixels(2, label_box=(450, 50, 650, 350), barcode_box=(500, 100, 600, 300)),
@@ -264,7 +265,7 @@ async def test_contract_scan_error(tmp_path: Path) -> None:
 async def test_contract_audit_error(tmp_path: Path) -> None:
     """Audit error → ok=False, no reconciliation, audit_error present."""
     img = _png_path(tmp_path)
-    detections = [_detection("111", x1=110, y1=110, x2=190, y2=290)]
+    detections = [_detection("7297501098442", x1=110, y1=110, x2=190, y2=290)]
     scanner = _FakeScanner(detections)
 
     with _patch_audit_error({"type": "ShoeboxAuditError", "message": "boom"}):
@@ -290,8 +291,8 @@ def test_contract_pipeline_path_facade(tmp_path: Path) -> None:
     """pipeline_path() facade delegates to run_scan_graph and returns same shape."""
     img = _png_path(tmp_path)
     detections = [
-        _detection("111", x1=110, y1=110, x2=190, y2=290),
-        _detection("222", x1=510, y1=110, x2=590, y2=290),
+        _detection("7297501098442", x1=110, y1=110, x2=190, y2=290),
+        _detection("7297500243423", x1=510, y1=110, x2=590, y2=290),
     ]
     spatial = _spatial([
         _label_pixels(1, label_box=(50, 50, 250, 350), barcode_box=(100, 100, 200, 300)),
@@ -324,8 +325,8 @@ async def test_parallel_join_barrier_reconcile_needs_both(tmp_path: Path) -> Non
     """
     img = _png_path(tmp_path)
     detections = [
-        _detection("111", x1=110, y1=110, x2=190, y2=290),
-        _detection("222", x1=510, y1=110, x2=590, y2=290),
+        _detection("7297501098442", x1=110, y1=110, x2=190, y2=290),
+        _detection("7297500243423", x1=510, y1=110, x2=590, y2=290),
     ]
     spatial = _spatial([
         _label_pixels(1, label_box=(50, 50, 250, 350), barcode_box=(100, 100, 200, 300)),
@@ -337,9 +338,9 @@ async def test_parallel_join_barrier_reconcile_needs_both(tmp_path: Path) -> Non
     reconcile_states: list[dict] = []
     original_reconcile = _reconcile_node
 
-    async def _tracking_reconcile(state: ScanState) -> dict:
+    async def _tracking_reconcile(state: ScanState, config: RunnableConfig) -> dict:
         reconcile_states.append(dict(state))
-        return await original_reconcile(state)
+        return await original_reconcile(state, config)
 
     with _patch_audit_ok(spatial):
         with patch("src.ingest.graph._reconcile_node", _tracking_reconcile):
@@ -371,8 +372,8 @@ async def test_parallel_join_barrier_recovery_cycle(tmp_path: Path) -> None:
     present. This verifies that the recover→reconcile edge doesn't lose state.
     """
     img = _png_path(tmp_path)
-    detections = [_detection("111", x1=110, y1=110, x2=190, y2=290)]
-    recovery_det = _detection("222", x1=510, y1=110, x2=590, y2=290)
+    detections = [_detection("7297501098442", x1=110, y1=110, x2=190, y2=290)]
+    recovery_det = _detection("7297500243423", x1=510, y1=110, x2=590, y2=290)
     spatial = _spatial([
         _label_pixels(1, label_box=(50, 50, 250, 350), barcode_box=(100, 100, 200, 300)),
         _label_pixels(2, label_box=(450, 50, 650, 350), barcode_box=(500, 100, 600, 300)),
@@ -382,9 +383,9 @@ async def test_parallel_join_barrier_recovery_cycle(tmp_path: Path) -> None:
     reconcile_states: list[dict] = []
     original_reconcile = _reconcile_node
 
-    async def _tracking_reconcile(state: ScanState) -> dict:
+    async def _tracking_reconcile(state: ScanState, config: RunnableConfig) -> dict:
         reconcile_states.append(dict(state))
-        return await original_reconcile(state)
+        return await original_reconcile(state, config)
 
     with _patch_audit_ok(spatial):
         with patch("src.ingest.graph._reconcile_node", _tracking_reconcile):

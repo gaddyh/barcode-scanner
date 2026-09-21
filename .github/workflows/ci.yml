@@ -67,10 +67,8 @@ jobs:
           # Postgres for test_db.py, runtime idempotency tests, and
           # receiving persistence tests.
           DATABASE_URL: postgres://scanner:scanner@localhost:5432/scanner
-        # Source-only coverage (--cov=src) with a realistic floor of 90.
-        # The previous 95% floor was inflated by including test files in
-        # coverage. Source-only coverage is the honest metric.
-        run: pytest --cov=src --cov-report=term-missing --cov-fail-under=90
+        # Source-only coverage (--cov=src) with a 95% floor (AGENTS.md).
+        run: pytest --cov=src --cov-report=term-missing --cov-fail-under=95
 
   eval:
     name: Eval (deterministic scanner-only)

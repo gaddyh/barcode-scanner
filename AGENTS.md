@@ -13,7 +13,7 @@ donates runtime reliability patterns but remains independent. No fourth repo.
 vertical slice — real shoebox photos → multi-image scan → count duplicate
 physical boxes correctly → review → choose customer + branch → create one
 local Priority-compatible draft → safely retry without duplicate creation.
-Coverage gate at 90% (source-only, `--cov=src`), mypy gating, ruff clean, `make eval` deterministic
+Coverage gate at 95% (source-only, `--cov=src`), mypy gating, ruff clean, `make eval` deterministic
 gate in CI. Tagged `v0.2.0-baseline`.
 
 ## Git workflow
@@ -30,7 +30,7 @@ gate in CI. Tagged `v0.2.0-baseline`.
 
 ## Verification before merge
 
-- `pytest --cov=src --cov-fail-under=90` — all tests, no live Gemini
+- `pytest --cov=src --cov-fail-under=95` — all tests, no live Gemini
   (tests mock `zxingcpp.read_barcodes` and `graph._traced_audit`).
   Postgres service in CI runs DB tests and runtime idempotency tests.
 - `mypy` — gating (0 errors). Was non-gating in PR #0 via
@@ -153,6 +153,15 @@ SUBMISSION_UNKNOWN
 - Gate on per-image and aggregate occurrence recall + false positives. Do NOT
   gate on latency (workstation/CI latency fluctuates; record P50/P95 as
   informational).
+- **Product barcode policy (PR B):** `PrimaryShoeboxBarcodePolicy`
+  (`src/ingest/barcode_policy.py`) filters raw scanner detections to
+  EAN-13 (13 digits, valid checksum) before reconciliation. The scanner
+  stays generic; the policy lives in the graph layer. The eval applies
+  the policy and reports `Matched/Expected`, `Matched/Found`, raw
+  scanner detections, and policy-rejected counts.
+- **Acceptance target (PR B):** the eval enforces an absolute quality
+  floor (`mean_occurrence_recall >= 0.65`, `mean_occurrence_precision
+  >= 0.90`) in addition to "no regression against baseline".
 
 ## Pipeline overview
 
@@ -205,7 +214,7 @@ python -m src.cli_app audit ./samples/multi_clear_6_boxes.jpeg --time   # needs 
 python -m src.cli_app pipeline ./samples/multi_clear_6_boxes.jpeg --time --pretty
 
 # Verify
-pytest --cov=src --cov-fail-under=90
+pytest --cov=src --cov-fail-under=95
 ruff check .
 mypy
 make eval          # deterministic scanner-only (gates merges)
@@ -223,7 +232,10 @@ Run `ruff check .` — it is genuinely green.
 
 - Coverage gate: started at 74% in PR #0, ramped to 95% across PRs #0–#6
   (counting test files). PR A switched to source-only coverage
-  (`--cov=src`) with a floor of 90% — the honest metric.
+  (`--cov=src`) with a floor of 90% — the honest metric. PR B raised
+  the source-only floor back to 95% (the historical target) now that
+  the test suite covers the previously untested eval, CLI, checkpoint,
+  cache, and transcriber modules.
 - Strict mypy (gating once all errors fixed; was non-gating in PR #0).
 - WaitingListQueryService, SQLAlchemy/UoW notes.
 - Python 3.10/3.11 matrix (barcode-scanner requires Python >=3.12).

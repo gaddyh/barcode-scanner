@@ -29,6 +29,35 @@ path — the happy path is unaffected.
 `src/ingest/analyze.py` reshapes the pipeline summary into the product response
 (`complete` / `needs_better_photo` / `retryable_error`).
 
+## Product barcode contract (PR B)
+
+The deterministic scanner (`BarcodeScanner`) is intentionally generic — it
+decodes whatever barcodes it can find (Code128, EAN-13, UPC-A, etc.) and
+returns all of them. The product, however, only cares about **primary
+shoebox barcodes** — the EAN-13 product identifier printed on the shoebox
+label.
+
+`src/ingest/barcode_policy.py` defines `PrimaryShoeboxBarcodePolicy`, which
+filters raw scanner detections to primary shoebox EAN-13 barcodes:
+
+- exactly 13 digits
+- valid EAN-13 mod-10 checksum
+
+The policy is applied in the graph's `_reconcile_node` (before
+reconciliation), NOT inside the scanner. This keeps `BarcodeScanner`
+generic and reusable for non-shoebox use cases. Non-primary detections
+(Code128 shipping codes, UPC-A, partial reads, noise) are rejected
+before reconciliation so they cannot become false positives in the
+product-level counts or draft-order inputs.
+
+The policy is wired through `analyze_image` / `analyze_image_async`
+(default: `PrimaryShoeboxBarcodePolicy()`) → `pipeline_path` /
+`run_scan_graph` → `_reconcile_node`. Pass `barcode_policy=None` to
+disable filtering (e.g. for a non-shoebox use case).
+
+Duplicate EAN-13 values are preserved (multiset semantics) — two
+physical boxes with the same EAN-13 count as two occurrences, not one.
+
 ## Dependency direction
 
 ```
@@ -222,16 +251,66 @@ branch + set of photos + draft order. Physical boxes are occurrences
 
 ```
 POST /receiving/sessions          — create session (customer + branch + action)
-POST /receiving/sessions/{id}/images — upload photo, run analyze_image(), append boxes
-POST /receiving/sessions/{id}/submit   — freeze, create draft order via runtime
+POST /receiving/sessions/{id}/images — upload photo, run run_session_graph()
+POST /receiving/sessions/{id}/submit  — freeze, create draft order via runtime
 GET  /receiving/sessions/{id}     — inspect session state
 ```
+
+### Persistence (PR A)
+
+Receiving sessions are persisted in Postgres via `ReceivingSessionStore`
+(`src/session_repository.py`), which translates DB rows to and from the
+domain `ReceivingSession`. The `sessions` table carries:
+
+- `submission_status` — `active` / `submitting` / `submitted` / `submission_unknown`
+- `external_order_id` — the Priority order ID once known
+- `frozen_at` — timestamp of the freeze
+- `frozen_order_payload` (JSONB) — the exact aggregated order body
+- `frozen_payload_hash` (TEXT) — hash of the frozen payload
+
+Image accumulation (boxes, missing labels, expected_count) is persisted in
+`session_items` and `session_missing` rows by `run_session_graph` (see
+"Session graph" below). The receiving session and the ingest session share
+the same `session_id` row — the receiving `session_id` is used as the
+ingest `participant_id` so the two are 1:1.
+
+### Session graph — occurrence-based accumulation
+
+`src/ingest/session_graph.py` is the canonical accumulation engine. Each
+uploaded photo runs `run_session_graph`, which:
+
+1. Resolves the ingest session by `participant_id` (the receiving
+   `session_id`).
+2. Loads persisted `session_items` and `session_missing` rows.
+3. Runs `analyze_image_async` (ScanGraph) on the photo.
+4. Merges the result into accumulated state with the **targeted-retry
+   occurrence contract** (below).
+5. Persists updated state.
+
+**Targeted-retry occurrence contract (PR A):**
+
+- A subsequent photo is a targeted retry — "photograph only the missing
+  box(es)".
+- Already-known barcode values from earlier photos are filtered out as
+  neighbors. The remaining detections are candidates.
+- Candidates are NOT deduplicated by barcode value. Duplicate EANs in a
+  retry photo represent separate physical occurrences (e.g. two size-42
+  boxes are 2 candidates, not 1).
+- If candidate count <= missing slots: accept all, resolve missing FIFO.
+- If candidate count > missing slots: AMBIGUOUS — return candidates for
+  user selection, do NOT silently add all.
+- Once targeted-retry mode begins, the target stays fixed. Retry photos
+  do not add new missing slots unless `expected_count` genuinely grew
+  (tracked explicitly as `expected_count_grew`).
+- If a wider photo reveals more boxes than previously known
+  (`visible_label_count > expected_count`), only the newly expected
+  missing labels are added; existing targeted-retry slots are preserved.
 
 ### Session submission state machine
 
 ```
 ACTIVE
-   ↓ freeze payload
+   ↓ freeze payload (CAS UPDATE)
 SUBMITTING
    ↓ success
 SUBMITTED
@@ -241,9 +320,15 @@ SUBMITTING
 SUBMISSION_UNKNOWN
 ```
 
+- `ACTIVE → SUBMITTING` is a compare-and-set UPDATE guarded by
+  `WHERE submission_status = 'active'`. Two concurrent submit clicks have
+  exactly one winner. The aggregated order payload is built once and
+  persisted atomically (`frozen_order_payload` + `frozen_payload_hash` +
+  `frozen_at`) in the same UPDATE.
 - On entering `SUBMITTING`, session contents are FROZEN (immutable).
   Retrying uses the same `priority:draft:{session_id}` key and exactly
-  the same frozen payload.
+  the same frozen payload. The payload is never rebuilt from mutable
+  `session_items`.
 - On success: persist `external_order_id`, transition to `SUBMITTED`.
 - On indeterminate: transition to `SUBMISSION_UNKNOWN`. The idempotency
   store replays the indeterminate outcome on retry; the user must NOT
@@ -253,6 +338,26 @@ SUBMISSION_UNKNOWN
 - `priority_orders.session_id` has a UNIQUE partial index as
   defense-in-depth — even if the runtime idempotency layer has a bug, the
   fake ERP cannot create two draft orders for one submitted session.
+
+### Participant uniqueness
+
+One unresolved receiving session per participant. If a participant has
+an open (`active` or `submission_unknown`) session, creating a new
+session returns the existing one with `409`. `SUBMISSION_UNKNOWN` is
+treated as unresolved — the user must resolve it (retry submit) before
+starting a new session. Reconciliation of unknown external outcomes via
+ERP external-reference lookup is deferred to MVP.
+
+### API behavior
+
+- `/receiving/sessions` validates customer existence, branch existence,
+  and that the branch belongs to the customer (via `PriorityGateway`).
+- `/receiving/sessions/{id}/images` returns `503` if Postgres is not
+  configured in deployed mode. In-memory idempotency is for explicit
+  local/test use only.
+- `/receiving/sessions/{id}/submit` rejects empty orders with `422`.
+- `/barcode/session` no longer auto-creates Priority orders. Order
+  creation happens only through `/receiving/sessions/{id}/submit`.
 
 ## Evaluation
 
@@ -267,3 +372,15 @@ SUBMISSION_UNKNOWN
 - Gate on per-image and aggregate occurrence recall + false positives.
   Do NOT gate on latency (workstation/CI latency fluctuates; record
   P50/P95 as informational).
+- **Product barcode policy (PR B):** the scanner-only eval applies
+  `PrimaryShoeboxBarcodePolicy` to filter raw detections to EAN-13
+  before scoring. The report includes `Matched/Expected`,
+  `Matched/Found`, `Raw scanner detections`, and `Policy rejected`
+  instrumentation.
+- **Acceptance target (PR B):** in addition to "no regression against
+  baseline", the eval enforces an absolute quality floor:
+  `mean_occurrence_recall >= 0.65` and
+  `mean_occurrence_precision >= 0.90`. The policy targets precision
+  (reject non-product barcodes); the recall floor is set just below
+  the current baseline to avoid gating on the pre-existing recall gap
+  in difficult photos.
