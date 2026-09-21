@@ -34,4 +34,8 @@ jobs:
         run: mypy
 
       - name: Test with coverage
+        env:
+          # Dummy key so Settings.from_env() can import. Tests mock zxingcpp
+          # and genai.Client — no real WhatsApp/Gemini/barcode calls are made.
+          D360_API_KEY: dummy
         run: pytest --cov --cov-report=term-missing --cov-fail-under=74
