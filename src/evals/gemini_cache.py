@@ -5,8 +5,14 @@ detections across calls. This makes full-pipeline A/B comparison
 impossible: the variance from Gemini dominates any scanner improvement.
 
 This module provides a file-backed cache that records real Gemini audit
-results keyed by image content hash, then replays them on subsequent runs.
-This makes full-pipeline evaluation deterministic and reproducible.
+results keyed by (image content hash, prompt version, model), then
+replays them on subsequent runs. This makes full-pipeline evaluation
+deterministic and reproducible.
+
+The cache key includes the prompt version and model name so that
+changing the prompt or model invalidates stale entries — a cache miss
+forces a fresh Gemini call rather than silently replaying outdated
+results.
 
 Usage::
 
@@ -27,23 +33,34 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from src.ingest.vision import VISION_PROMPT_VERSION
+
 logger = logging.getLogger(__name__)
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_CACHE_PATH = _REPO_ROOT / "tests" / "eval" / "gemini_audit_cache.json"
 
 
-def _image_hash(image_path: str | Path) -> str:
-    """Compute SHA-256 of the image file content."""
+def _cache_key(image_path: str | Path, model: str) -> str:
+    """Compute cache key from image hash, prompt version, and model.
+
+    Including the prompt version and model in the key ensures that
+    changing the prompt or model invalidates stale cache entries —
+    a cache miss forces a fresh Gemini call rather than silently
+    replaying outdated results.
+    """
     with open(image_path, "rb") as f:
-        return hashlib.sha256(f.read()).hexdigest()
+        image_hash = hashlib.sha256(f.read()).hexdigest()
+    key_str = f"{image_hash}:{VISION_PROMPT_VERSION}:{model}"
+    return hashlib.sha256(key_str.encode()).hexdigest()[:16]
 
 
 class GeminiAuditCache:
     """File-backed cache for Gemini audit results.
 
-    Keyed by SHA-256 of the image file content. Values are the JSON-serialized
-    ``SpatialLabelAuditPixels`` dict (the ``spatial`` field of the audit result).
+    Keyed by (image content hash, prompt version, model). Values are the
+    JSON-serialized ``SpatialLabelAuditPixels`` dict (the ``spatial`` field
+    of the audit result).
     """
 
     def __init__(self, cache_path: Path = DEFAULT_CACHE_PATH) -> None:
@@ -58,22 +75,26 @@ class GeminiAuditCache:
             with self.cache_path.open() as f:
                 self._cache = json.load(f)
             logger.info(
-                "Gemini audit cache loaded: %d entries from %s",
+                "Gemini audit cache loaded: %d entries from %s "
+                "(prompt_version=%s)",
                 len(self._cache),
                 self.cache_path,
+                VISION_PROMPT_VERSION,
             )
         self._loaded = True
 
-    def get(self, image_path: str | Path) -> dict[str, Any] | None:
+    def get(self, image_path: str | Path, model: str = "") -> dict[str, Any] | None:
         """Return cached audit result for the image, or None if not cached."""
         self._load()
-        key = _image_hash(image_path)
+        key = _cache_key(image_path, model)
         return self._cache.get(key)
 
-    def put(self, image_path: str | Path, spatial: dict[str, Any]) -> None:
+    def put(
+        self, image_path: str | Path, spatial: dict[str, Any], model: str = ""
+    ) -> None:
         """Record an audit result for the image."""
         self._load()
-        key = _image_hash(image_path)
+        key = _cache_key(image_path, model)
         self._cache[key] = spatial
 
     def save(self) -> None:
@@ -83,9 +104,11 @@ class GeminiAuditCache:
             json.dump(self._cache, f, indent=2, sort_keys=True)
             f.write("\n")
         logger.info(
-            "Gemini audit cache saved: %d entries to %s",
+            "Gemini audit cache saved: %d entries to %s "
+            "(prompt_version=%s)",
             len(self._cache),
             self.cache_path,
+            VISION_PROMPT_VERSION,
         )
 
     def __len__(self) -> int:

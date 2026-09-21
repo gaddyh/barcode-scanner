@@ -180,11 +180,16 @@ def _aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
 
 def _format_results(results: list[dict[str, Any]], agg: dict[str, Any]) -> str:
     """Format results as a human-readable report."""
-    has_audit = any(r.get("audit_latency_ms", 0) > 0 for r in results)
+    has_audit = "audit_latency_ms" in results[0] if results else False
     lines = [
         "",
         "=== Barcode Scanner Regression Report ===",
         f"Cases: {agg['n']}",
+    ]
+    if has_audit:
+        from src.ingest.vision import VISION_PROMPT_VERSION
+        lines.append(f"Vision prompt: {VISION_PROMPT_VERSION}")
+    lines += [
         f"Mean occurrence recall:    {agg['mean_occurrence_recall']:.3f}",
         f"Mean occurrence precision: {agg['mean_occurrence_precision']:.3f}",
         f"Barcode accuracy (strict): {agg['barcode_accuracy']:.3f}",

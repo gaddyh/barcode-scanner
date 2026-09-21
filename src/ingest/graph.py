@@ -45,6 +45,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from src.ingest.reconciliation import match_scanner_to_labels
 from src.ingest.scanner import BarcodeScanner
 from src.ingest.vision import (
+    VISION_PROMPT_VERSION,
     ShoeboxAuditError,
     audit_shoebox_labels_async,
 )
@@ -172,9 +173,14 @@ async def _traced_audit(
     Uses the native async google-genai client (``audit_shoebox_labels_async``)
     so the audit node runs without blocking the event loop.
     """
+    # Resolve the model name for cache keying (must match what
+    # audit_shoebox_labels_async would resolve).
+    from src.ingest.vision import DEFAULT_MODEL
+    resolved_model = model or os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
+
     # Replay mode: return cached result if available.
     if _audit_cache_mode == "replay" and _audit_cache_store is not None:
-        cached = _audit_cache_store.get(str(path))
+        cached = _audit_cache_store.get(str(path), model=resolved_model)
         if cached is not None:
             logger.info("Gemini audit cache hit: %s", path.name)
             return {"status": "ok", "spatial": cached, "audit_latency_ms": 0}
@@ -215,7 +221,7 @@ async def _traced_audit(
 
     # Capture mode: save result to cache.
     if _audit_cache_mode == "capture" and _audit_cache_store is not None:
-        _audit_cache_store.put(str(path), result["spatial"])
+        _audit_cache_store.put(str(path), result["spatial"], model=resolved_model)
         logger.info("Gemini audit cache saved: %s", path.name)
 
     return result
@@ -610,6 +616,7 @@ async def _finalize_node(state: ScanState) -> dict[str, Any]:
         "scan_status": scan_result.get("status"),
         "audit_status": audit_result.get("status"),
         "audit_latency_ms": audit_result.get("audit_latency_ms", 0),
+        "vision_prompt_version": VISION_PROMPT_VERSION,
     }
 
     barcodes: list[dict] = []

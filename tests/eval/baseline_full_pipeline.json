@@ -1,14 +1,14 @@
 {
   "aggregate": {
     "n": 9,
-    "mean_occurrence_recall": 0.8148148148148148,
-    "mean_occurrence_precision": 0.9713804713804713,
-    "barcode_accuracy": 0.4444444444444444,
-    "total_matched_occurrences": 54.0,
+    "mean_occurrence_recall": 0.6759259259259259,
+    "mean_occurrence_precision": 0.8584175084175084,
+    "barcode_accuracy": 0.3333333333333333,
+    "total_matched_occurrences": 50.0,
     "total_expected_occurrences": 74,
-    "total_found_occurrences": 57,
-    "p50_latency_ms": 2588,
-    "p95_latency_ms": 3176,
+    "total_found_occurrences": 54,
+    "p50_latency_ms": 2411,
+    "p95_latency_ms": 2977,
     "p50_audit_latency_ms": 0,
     "p95_audit_latency_ms": 0
   },
@@ -17,10 +17,10 @@
       "id": "marny_brown_42",
       "expected_count": 1,
       "found_count": 1,
-      "occurrence_recall": 1.0,
-      "occurrence_precision": 1.0,
-      "barcode_accuracy": 1.0,
-      "elapsed_ms": 3176,
+      "occurrence_recall": 0.0,
+      "occurrence_precision": 0.0,
+      "barcode_accuracy": 0.0,
+      "elapsed_ms": 2411,
       "audit_latency_ms": 0
     },
     {
@@ -30,7 +30,7 @@
       "occurrence_recall": 1.0,
       "occurrence_precision": 1.0,
       "barcode_accuracy": 1.0,
-      "elapsed_ms": 1704,
+      "elapsed_ms": 1628,
       "audit_latency_ms": 0
     },
     {
@@ -40,7 +40,7 @@
       "occurrence_recall": 0.9166666666666666,
       "occurrence_precision": 0.9166666666666666,
       "barcode_accuracy": 0.0,
-      "elapsed_ms": 1873,
+      "elapsed_ms": 1801,
       "audit_latency_ms": 0
     },
     {
@@ -50,7 +50,7 @@
       "occurrence_recall": 1.0,
       "occurrence_precision": 1.0,
       "barcode_accuracy": 1.0,
-      "elapsed_ms": 1529,
+      "elapsed_ms": 1410,
       "audit_latency_ms": 0
     },
     {
@@ -60,27 +60,27 @@
       "occurrence_recall": 1.0,
       "occurrence_precision": 1.0,
       "barcode_accuracy": 1.0,
-      "elapsed_ms": 2185,
+      "elapsed_ms": 2042,
       "audit_latency_ms": 0
     },
     {
       "id": "topdown_12_labels_a",
       "expected_count": 12,
-      "found_count": 12,
-      "occurrence_recall": 0.9166666666666666,
-      "occurrence_precision": 0.9166666666666666,
+      "found_count": 11,
+      "occurrence_recall": 0.8333333333333334,
+      "occurrence_precision": 0.9090909090909091,
       "barcode_accuracy": 0.0,
-      "elapsed_ms": 2588,
+      "elapsed_ms": 2668,
       "audit_latency_ms": 0
     },
     {
       "id": "topdown_12_labels_b",
       "expected_count": 12,
-      "found_count": 11,
-      "occurrence_recall": 0.8333333333333334,
-      "occurrence_precision": 0.9090909090909091,
+      "found_count": 10,
+      "occurrence_recall": 0.75,
+      "occurrence_precision": 0.9,
       "barcode_accuracy": 0.0,
-      "elapsed_ms": 3050,
+      "elapsed_ms": 2618,
       "audit_latency_ms": 0
     },
     {
@@ -90,17 +90,17 @@
       "occurrence_recall": 0.4166666666666667,
       "occurrence_precision": 1.0,
       "barcode_accuracy": 0.0,
-      "elapsed_ms": 3472,
+      "elapsed_ms": 3186,
       "audit_latency_ms": 0
     },
     {
       "id": "vegan_12_labels_b",
       "expected_count": 12,
-      "found_count": 3,
-      "occurrence_recall": 0.25,
+      "found_count": 2,
+      "occurrence_recall": 0.16666666666666666,
       "occurrence_precision": 1.0,
       "barcode_accuracy": 0.0,
-      "elapsed_ms": 2997,
+      "elapsed_ms": 2977,
       "audit_latency_ms": 0
     }
   ]
