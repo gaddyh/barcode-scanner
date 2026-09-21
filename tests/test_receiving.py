@@ -106,12 +106,15 @@ def in_memory_idempotency_store():
 
 
 @pytest.fixture
-async def async_client(receiving_store, in_memory_idempotency_store):
+async def async_client(receiving_store, in_memory_idempotency_store, db_pool):
     """httpx.AsyncClient with patched stores, using ASGI transport.
 
     Using AsyncClient (not TestClient) ensures the same event loop is used
     for both the test setup and the HTTP calls — asyncpg connections are
     tied to their event loop.
+
+    Patches ``src.main._db_pool`` so the upload endpoint (which reads
+    ``_db_pool`` directly for ``SessionRepository``) uses the test pool.
     """
     from src.main import app
 
@@ -121,6 +124,9 @@ async def async_client(receiving_store, in_memory_idempotency_store):
     ), patch(
         "src.api.receiving._get_idempotency_store",
         return_value=in_memory_idempotency_store,
+    ), patch(
+        "src.main._db_pool",
+        db_pool,
     ):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(
@@ -659,6 +665,428 @@ class TestUploadImage:
         )
         assert resp.status_code == 409
         assert resp.json()["detail"]["code"] == "session_not_editable"
+
+
+# ===========================================================================
+# Full end-to-end web flow: create → upload → submit (mocked analyze_image)
+# ===========================================================================
+
+
+def _mock_analyze_complete(count: int = 3):
+    """Mock analyze_image_async result: all boxes found, session complete."""
+    return {
+        "outcome": "complete",
+        "audit_available": True,
+        "found": [
+            {
+                "barcode_value": f"72975002434{i:02d}",
+                "barcode_format": "Code128",
+                "barcode_bbox": {"x1": 100, "y1": 100, "x2": 200, "y2": 200},
+                "label_bbox": {"x1": 90, "y1": 90, "x2": 210, "y2": 210},
+                "label_index": i + 1,
+                "match_basis": "barcode_bbox",
+            }
+            for i in range(count)
+        ],
+        "missing": [],
+        "unassigned": [],
+        "summary": {
+            "visible_label_count": count,
+            "found_count": count,
+            "missing_count": 0,
+        },
+    }
+
+
+def _mock_analyze_partial(found: int, missing: int):
+    """Mock analyze_image_async result: some found, some missing."""
+    found_items = [
+        {
+            "barcode_value": f"72975002434{i:02d}",
+            "barcode_format": "Code128",
+            "barcode_bbox": {"x1": 100, "y1": 100, "x2": 200, "y2": 200},
+            "label_bbox": {"x1": 90, "y1": 90, "x2": 210, "y2": 210},
+            "label_index": i + 1,
+            "match_basis": "barcode_bbox",
+        }
+        for i in range(found)
+    ]
+    missing_items = [
+        {
+            "label_index": found + j + 1,
+            "label_bbox": {"x1": 300, "y1": 300, "x2": 400, "y2": 400},
+            "barcode_bbox": None,
+            "status": "not_visible",
+        }
+        for j in range(missing)
+    ]
+    total = found + missing
+    return {
+        "outcome": "needs_better_photo",
+        "audit_available": True,
+        "found": found_items,
+        "missing": missing_items,
+        "unassigned": [],
+        "summary": {
+            "visible_label_count": total,
+            "found_count": found,
+            "missing_count": missing,
+        },
+    }
+
+
+@skip_no_db
+class TestFullFlowCreateUploadSubmit:
+    """End-to-end: create session → upload photo → submit draft order.
+
+    These tests mock ``analyze_image_async`` (no real scanning/Gemini) but
+    exercise the real FastAPI endpoints, the real SessionRepository, the real
+    ReceivingSessionStore, and the real Postgres pool. They catch wiring bugs
+    that unit tests with direct DB inserts miss.
+    """
+
+    async def test_full_flow_create_upload_submit(
+        self, async_client, receiving_store
+    ):
+        """Create session → upload 3 boxes → submit → verify order created."""
+        with patch(
+            "src.api.receiving._get_priority_gateway",
+            return_value=_mock_gateway_success(order_id=99),
+        ):
+            # 1. Create session.
+            resp = await async_client.post(
+                "/receiving/sessions",
+                data={
+                    "customer_id": "cust-acme",
+                    "branch_id": "branch-acme-main",
+                    "action": "create_order",
+                },
+            )
+        assert resp.status_code == 201
+        session = resp.json()
+        session_id = session["session_id"]
+        assert session["status"] == "active"
+        assert session["box_count"] == 0
+        # Verify all fields the frontend expects are present.
+        for field in [
+            "participant_id", "expected_count", "external_order_id",
+            "frozen", "items", "discrepancy",
+        ]:
+            assert field in session, f"create response missing {field}"
+        assert "is_complete" in session["discrepancy"]
+
+        # 2. Upload image — mock analyze_image_async returning 3 found boxes.
+        mock_result = _mock_analyze_complete(count=3)
+        with patch(
+            "src.ingest.analyze.analyze_image_async",
+            new=AsyncMock(return_value=mock_result),
+        ):
+            resp = await async_client.post(
+                f"/receiving/sessions/{session_id}/images",
+                files={"file": ("boxes.jpg", b"fake-image", "image/jpeg")},
+            )
+        assert resp.status_code == 200
+        upload = resp.json()
+        assert upload["outcome"] == "complete"
+        assert upload["boxes_added"] == 3
+        assert upload["total_boxes"] == 3
+        assert upload["expected_count"] == 3
+        assert upload["missing_count"] == 0
+
+        # 3. GET session — verify items persisted.
+        resp = await async_client.get(f"/receiving/sessions/{session_id}")
+        assert resp.status_code == 200
+        session_after = resp.json()
+        assert session_after["box_count"] == 3
+        assert session_after["expected_count"] == 3
+        assert len(session_after["items"]) == 3
+        assert session_after["discrepancy"]["is_complete"] is True
+        assert session_after["status"] == "active"
+
+        # 4. Submit — create draft order.
+        with patch(
+            "src.api.receiving._get_priority_gateway",
+            return_value=_mock_gateway_success(order_id=99),
+        ):
+            resp = await async_client.post(
+                f"/receiving/sessions/{session_id}/submit"
+            )
+        assert resp.status_code == 200
+        submit = resp.json()
+        assert submit["status"] == "submitted"
+        assert submit["order_id"] == 99
+        assert len(submit["items"]) == 3
+
+        # 5. GET session — verify submitted state.
+        resp = await async_client.get(f"/receiving/sessions/{session_id}")
+        assert resp.status_code == 200
+        final = resp.json()
+        assert final["status"] == "submitted"
+        assert final["external_order_id"] == 99
+        assert final["frozen"] is True
+
+    async def test_full_flow_partial_then_retry_upload(
+        self, async_client, receiving_store
+    ):
+        """Upload finds 2/3 → second upload finds the missing 1 → complete."""
+        with patch(
+            "src.api.receiving._get_priority_gateway",
+            return_value=_mock_gateway_success(),
+        ):
+            resp = await async_client.post(
+                "/receiving/sessions",
+                data={
+                    "customer_id": "cust-acme",
+                    "branch_id": "branch-acme-main",
+                    "action": "create_order",
+                },
+            )
+        session_id = resp.json()["session_id"]
+
+        # First upload: 2 found, 1 missing.
+        mock1 = _mock_analyze_partial(found=2, missing=1)
+        with patch(
+            "src.ingest.analyze.analyze_image_async",
+            new=AsyncMock(return_value=mock1),
+        ):
+            resp = await async_client.post(
+                f"/receiving/sessions/{session_id}/images",
+                files={"file": ("photo1.jpg", b"fake", "image/jpeg")},
+            )
+        assert resp.status_code == 200
+        r1 = resp.json()
+        assert r1["boxes_added"] == 2
+        assert r1["total_boxes"] == 2
+        assert r1["expected_count"] == 3
+        assert r1["missing_count"] == 1
+
+        # Second upload: find the missing box (barcode 7297500243402).
+        mock2 = _mock_analyze_complete(count=1)
+        # Use a new barcode so it's not filtered as a known neighbor.
+        mock2["found"][0]["barcode_value"] = "7297500243402"
+        mock2["summary"]["visible_label_count"] = 1
+        with patch(
+            "src.ingest.analyze.analyze_image_async",
+            new=AsyncMock(return_value=mock2),
+        ):
+            resp = await async_client.post(
+                f"/receiving/sessions/{session_id}/images",
+                files={"file": ("photo2.jpg", b"fake", "image/jpeg")},
+            )
+        assert resp.status_code == 200
+        r2 = resp.json()
+        # boxes_added/total_boxes are total found count, not delta.
+        assert r2["total_boxes"] == 3
+        assert r2["missing_count"] == 0
+
+    async def test_full_flow_duplicate_barcodes_count_separately(
+        self, async_client, receiving_store
+    ):
+        """Two boxes with the same EAN → 2 items, quantity 2 in aggregate."""
+        with patch(
+            "src.api.receiving._get_priority_gateway",
+            return_value=_mock_gateway_success(),
+        ):
+            resp = await async_client.post(
+                "/receiving/sessions",
+                data={
+                    "customer_id": "cust-acme",
+                    "branch_id": "branch-acme-main",
+                    "action": "create_order",
+                },
+            )
+        session_id = resp.json()["session_id"]
+
+        # Upload: 2 boxes, same barcode value (duplicate EAN).
+        mock = _mock_analyze_complete(count=2)
+        mock["found"][0]["barcode_value"] = "7297500243416"
+        mock["found"][1]["barcode_value"] = "7297500243416"
+        mock["summary"]["visible_label_count"] = 2
+        with patch(
+            "src.ingest.analyze.analyze_image_async",
+            new=AsyncMock(return_value=mock),
+        ):
+            resp = await async_client.post(
+                f"/receiving/sessions/{session_id}/images",
+                files={"file": ("dup.jpg", b"fake", "image/jpeg")},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["boxes_added"] == 2
+
+        # GET session: 2 items in session_items, 1 unique barcode with qty 2.
+        resp = await async_client.get(f"/receiving/sessions/{session_id}")
+        session = resp.json()
+        assert session["box_count"] == 2
+        # Aggregate: 1 unique barcode with quantity 2.
+        items = session["items"]
+        assert len(items) == 1
+        assert items[0]["barcode_value"] == "7297500243416"
+        assert items[0]["quantity"] == 2
+
+    async def test_full_flow_create_response_has_all_frontend_fields(
+        self, async_client
+    ):
+        """The create-session response must include every field the
+        frontend's ReceivingSessionResponse type expects — missing fields
+        crash React to a blank page."""
+        with patch(
+            "src.api.receiving._get_priority_gateway",
+            return_value=_mock_gateway_success(),
+        ):
+            resp = await async_client.post(
+                "/receiving/sessions",
+                data={
+                    "customer_id": "cust-acme",
+                    "branch_id": "branch-acme-main",
+                    "action": "create_order",
+                },
+            )
+        assert resp.status_code == 201
+        body = resp.json()
+        required = [
+            "session_id", "status", "customer_id", "branch_id", "action",
+            "participant_id", "box_count", "expected_count",
+            "external_order_id", "frozen", "items", "discrepancy",
+        ]
+        for field in required:
+            assert field in body, f"create response missing {field}"
+        assert "is_complete" in body["discrepancy"]
+        assert "expected" in body["discrepancy"]
+        assert "found" in body["discrepancy"]
+        assert "missing" in body["discrepancy"]
+
+    async def test_full_flow_get_session_has_all_frontend_fields(
+        self, async_client, receiving_store
+    ):
+        """GET /sessions/{id} must include every field the frontend expects."""
+        with patch(
+            "src.api.receiving._get_priority_gateway",
+            return_value=_mock_gateway_success(),
+        ):
+            resp = await async_client.post(
+                "/receiving/sessions",
+                data={
+                    "customer_id": "cust-acme",
+                    "branch_id": "branch-acme-main",
+                    "action": "create_order",
+                },
+            )
+        session_id = resp.json()["session_id"]
+
+        resp = await async_client.get(f"/receiving/sessions/{session_id}")
+        assert resp.status_code == 200
+        body = resp.json()
+        required = [
+            "session_id", "status", "customer_id", "branch_id", "action",
+            "participant_id", "box_count", "expected_count",
+            "external_order_id", "frozen", "items", "discrepancy",
+        ]
+        for field in required:
+            assert field in body, f"GET session missing {field}"
+
+    async def test_full_flow_upload_after_submit_rejected(
+        self, async_client, receiving_store
+    ):
+        """Once submitted, uploading more images returns 409."""
+        with patch(
+            "src.api.receiving._get_priority_gateway",
+            return_value=_mock_gateway_success(order_id=7),
+        ):
+            resp = await async_client.post(
+                "/receiving/sessions",
+                data={
+                    "customer_id": "cust-acme",
+                    "branch_id": "branch-acme-main",
+                    "action": "create_order",
+                },
+            )
+        session_id = resp.json()["session_id"]
+
+        # Upload 2 boxes.
+        mock = _mock_analyze_complete(count=2)
+        with patch(
+            "src.ingest.analyze.analyze_image_async",
+            new=AsyncMock(return_value=mock),
+        ):
+            resp = await async_client.post(
+                f"/receiving/sessions/{session_id}/images",
+                files={"file": ("boxes.jpg", b"fake", "image/jpeg")},
+            )
+        assert resp.status_code == 200
+
+        # Submit.
+        with patch(
+            "src.api.receiving._get_priority_gateway",
+            return_value=_mock_gateway_success(order_id=7),
+        ):
+            resp = await async_client.post(
+                f"/receiving/sessions/{session_id}/submit"
+            )
+        assert resp.status_code == 200
+
+        # Try to upload again → 409.
+        mock2 = _mock_analyze_complete(count=1)
+        with patch(
+            "src.ingest.analyze.analyze_image_async",
+            new=AsyncMock(return_value=mock2),
+        ):
+            resp = await async_client.post(
+                f"/receiving/sessions/{session_id}/images",
+                files={"file": ("more.jpg", b"fake", "image/jpeg")},
+            )
+        assert resp.status_code == 409
+        assert resp.json()["detail"]["code"] == "session_not_editable"
+
+    async def test_full_flow_double_submit_same_order_id(
+        self, async_client, receiving_store
+    ):
+        """Submitting twice returns the same order_id (idempotency)."""
+        with patch(
+            "src.api.receiving._get_priority_gateway",
+            return_value=_mock_gateway_success(order_id=55),
+        ):
+            resp = await async_client.post(
+                "/receiving/sessions",
+                data={
+                    "customer_id": "cust-acme",
+                    "branch_id": "branch-acme-main",
+                    "action": "create_order",
+                },
+            )
+        session_id = resp.json()["session_id"]
+
+        mock = _mock_analyze_complete(count=2)
+        with patch(
+            "src.ingest.analyze.analyze_image_async",
+            new=AsyncMock(return_value=mock),
+        ):
+            resp = await async_client.post(
+                f"/receiving/sessions/{session_id}/images",
+                files={"file": ("boxes.jpg", b"fake", "image/jpeg")},
+            )
+        assert resp.status_code == 200
+
+        # First submit.
+        with patch(
+            "src.api.receiving._get_priority_gateway",
+            return_value=_mock_gateway_success(order_id=55),
+        ):
+            resp1 = await async_client.post(
+                f"/receiving/sessions/{session_id}/submit"
+            )
+        assert resp1.status_code == 200
+        assert resp1.json()["order_id"] == 55
+
+        # Second submit — same order_id.
+        with patch(
+            "src.api.receiving._get_priority_gateway",
+            return_value=_mock_gateway_success(order_id=55),
+        ):
+            resp2 = await async_client.post(
+                f"/receiving/sessions/{session_id}/submit"
+            )
+        assert resp2.status_code == 200
+        assert resp2.json()["order_id"] == 55
 
 
 # ===========================================================================
