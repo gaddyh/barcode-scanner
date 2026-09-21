@@ -1,0 +1,96 @@
+{
+  "aggregate": {
+    "n": 9,
+    "mean_occurrence_recall": 0.6666666666666666,
+    "mean_occurrence_precision": 0.8703703703703703,
+    "barcode_accuracy": 0.3333333333333333,
+    "total_matched_occurrences": 49.0,
+    "total_expected_occurrences": 74,
+    "total_found_occurrences": 52,
+    "p50_latency_ms": 4630,
+    "p95_latency_ms": 6917
+  },
+  "cases": [
+    {
+      "id": "marny_brown_42",
+      "expected_count": 1,
+      "found_count": 1,
+      "occurrence_recall": 0.0,
+      "occurrence_precision": 0.0,
+      "barcode_accuracy": 0.0,
+      "elapsed_ms": 2635
+    },
+    {
+      "id": "multi_clear_6_boxes",
+      "expected_count": 6,
+      "found_count": 6,
+      "occurrence_recall": 1.0,
+      "occurrence_precision": 1.0,
+      "barcode_accuracy": 1.0,
+      "elapsed_ms": 4042
+    },
+    {
+      "id": "multi_12_clean",
+      "expected_count": 12,
+      "found_count": 12,
+      "occurrence_recall": 0.9166666666666666,
+      "occurrence_precision": 0.9166666666666666,
+      "barcode_accuracy": 0.0,
+      "elapsed_ms": 4630
+    },
+    {
+      "id": "stacked_6_labels",
+      "expected_count": 6,
+      "found_count": 6,
+      "occurrence_recall": 1.0,
+      "occurrence_precision": 1.0,
+      "barcode_accuracy": 1.0,
+      "elapsed_ms": 3312
+    },
+    {
+      "id": "whatsapp_2026_08_03",
+      "expected_count": 1,
+      "found_count": 1,
+      "occurrence_recall": 1.0,
+      "occurrence_precision": 1.0,
+      "barcode_accuracy": 1.0,
+      "elapsed_ms": 3547
+    },
+    {
+      "id": "topdown_12_labels_a",
+      "expected_count": 12,
+      "found_count": 12,
+      "occurrence_recall": 0.9166666666666666,
+      "occurrence_precision": 0.9166666666666666,
+      "barcode_accuracy": 0.0,
+      "elapsed_ms": 4858
+    },
+    {
+      "id": "topdown_12_labels_b",
+      "expected_count": 12,
+      "found_count": 10,
+      "occurrence_recall": 0.8333333333333334,
+      "occurrence_precision": 1.0,
+      "barcode_accuracy": 0.0,
+      "elapsed_ms": 8130
+    },
+    {
+      "id": "vegan_12_labels_a",
+      "expected_count": 12,
+      "found_count": 4,
+      "occurrence_recall": 0.3333333333333333,
+      "occurrence_precision": 1.0,
+      "barcode_accuracy": 0.0,
+      "elapsed_ms": 6497
+    },
+    {
+      "id": "vegan_12_labels_b",
+      "expected_count": 12,
+      "found_count": 0,
+      "occurrence_recall": 0.0,
+      "occurrence_precision": 1.0,
+      "barcode_accuracy": 0.0,
+      "elapsed_ms": 6917
+    }
+  ]
+}

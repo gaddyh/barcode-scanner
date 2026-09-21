@@ -1,15 +1,26 @@
-"""Offline regression gate — scanner-only, no network, no Gemini, no LangSmith.
+"""Offline regression gate — scanner-only or full-pipeline.
 
-Runs ``BarcodeScanner().scan_bytes()`` on each image in the canonical
-dataset, scores with multiset evaluators, and compares against a frozen
-baseline. Exits non-zero on quality regression.
+Scanner-only mode runs ``BarcodeScanner().scan_bytes()`` on each image
+in the canonical dataset. No Gemini, no LangSmith, no network.
+
+Full-pipeline mode runs ``analyze_image()`` (scanner + Gemini audit +
+reconciliation + Gemini-guided recovery). Requires ``GEMINI_API_KEY``.
+Gemini is nondeterministic, so the full-pipeline baseline is
+observational — use it to track improvements, not as a hard gate.
+
+Both modes score with multiset evaluators and compare against a frozen
+baseline. Scanner-only exits non-zero on quality regression.
 
 Usage::
 
-    python -m src.evals.regression              # compare against baseline
-    python -m src.evals.regression --write-baseline  # freeze current results
+    python -m src.evals.regression                       # scanner-only, gate
+    python -m src.evals.regression --write-baseline       # freeze scanner-only
+    python -m src.evals.regression --full-pipeline         # full pipeline, observe
+    python -m src.evals.regression --full-pipeline --write-baseline  # freeze full
 
-The frozen baseline lives at ``tests/eval/baseline_frozen.json``.
+Baselines:
+    Scanner-only:      tests/eval/baseline_frozen.json
+    Full-pipeline:     tests/eval/baseline_full_pipeline.json
 """
 
 from __future__ import annotations
@@ -30,7 +41,8 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-BASELINE_PATH = _REPO_ROOT / "tests" / "eval" / "baseline_frozen.json"
+BASELINE_SCANNER_PATH = _REPO_ROOT / "tests" / "eval" / "baseline_frozen.json"
+BASELINE_FULL_PIPELINE_PATH = _REPO_ROOT / "tests" / "eval" / "baseline_full_pipeline.json"
 
 
 def _run_scanner(image_path: str) -> dict[str, Any]:
@@ -53,17 +65,37 @@ def _run_scanner(image_path: str) -> dict[str, Any]:
     }
 
 
-def run_regression() -> list[dict[str, Any]]:
-    """Run the scanner on every case and return per-case results."""
+def _run_full_pipeline(image_path: str) -> dict[str, Any]:
+    """Run the full pipeline (scanner + Gemini + recovery) on one image."""
+    from src.ingest.analyze import analyze_image
+
+    t0 = time.perf_counter()
+    result = analyze_image(image_path)
+    elapsed_ms = int((time.perf_counter() - t0) * 1000)
+
+    found = result.get("found", [])
+    return {
+        "items": [{"barcode_value": f.get("barcode_value", "")} for f in found],
+        "status": result.get("outcome", "failed"),
+        "metrics": {
+            "elapsed_ms": elapsed_ms,
+            "scanner_count": len(found),
+        },
+    }
+
+
+def run_regression(*, full_pipeline: bool = False) -> list[dict[str, Any]]:
+    """Run the scanner (or full pipeline) on every case and return per-case results."""
     examples = load_dataset()
     if not examples:
         print("No eval examples — samples/ missing or dataset empty.", file=sys.stderr)
         return []
 
+    runner = _run_full_pipeline if full_pipeline else _run_scanner
+
     results: list[dict[str, Any]] = []
     for ex in examples:
-        prediction = _run_scanner(ex["image_path"])
-        # Build a fake example for the evaluators (they read .inputs or ["inputs"])
+        prediction = runner(ex["image_path"])
         fake_example = {"inputs": ex}
 
         recall = occurrence_recall(prediction, fake_example)
@@ -141,7 +173,7 @@ def compare_against_baseline(
     results: list[dict[str, Any]],
     agg: dict[str, Any],
     *,
-    baseline_path: Path = BASELINE_PATH,
+    baseline_path: Path = BASELINE_SCANNER_PATH,
 ) -> int:
     """Compare current results against the frozen baseline.
 
@@ -205,7 +237,12 @@ def compare_against_baseline(
     return 0
 
 
-def write_baseline(results: list[dict[str, Any]], agg: dict[str, Any]) -> None:
+def write_baseline(
+    results: list[dict[str, Any]],
+    agg: dict[str, Any],
+    *,
+    baseline_path: Path = BASELINE_SCANNER_PATH,
+) -> None:
     """Write the current results as the frozen baseline."""
     baseline = {
         "aggregate": agg,
@@ -222,25 +259,35 @@ def write_baseline(results: list[dict[str, Any]], agg: dict[str, Any]) -> None:
             for r in results
         ],
     }
-    with BASELINE_PATH.open("w") as f:
+    with baseline_path.open("w") as f:
         json.dump(baseline, f, indent=2)
         f.write("\n")
-    print(f"Baseline written to {BASELINE_PATH}", file=sys.stderr)
+    print(f"Baseline written to {baseline_path}", file=sys.stderr)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="src.evals.regression",
-        description="Offline scanner-only regression gate (no Gemini, no LangSmith, no network).",
+        description="Offline regression gate (scanner-only or full-pipeline).",
     )
     parser.add_argument(
         "--write-baseline",
         action="store_true",
-        help="Freeze current results as the baseline (overwrites baseline_frozen.json).",
+        help="Freeze current results as the baseline.",
+    )
+    parser.add_argument(
+        "--full-pipeline",
+        action="store_true",
+        help="Run the full pipeline (scanner + Gemini + recovery). "
+        "Requires GEMINI_API_KEY. Observational — not a hard gate.",
     )
     args = parser.parse_args(argv)
 
-    results = run_regression()
+    baseline_path = (
+        BASELINE_FULL_PIPELINE_PATH if args.full_pipeline else BASELINE_SCANNER_PATH
+    )
+
+    results = run_regression(full_pipeline=args.full_pipeline)
     if not results:
         return 1
 
@@ -249,10 +296,10 @@ def main(argv: list[str] | None = None) -> int:
     print(report)
 
     if args.write_baseline:
-        write_baseline(results, agg)
+        write_baseline(results, agg, baseline_path=baseline_path)
         return 0
 
-    return compare_against_baseline(results, agg)
+    return compare_against_baseline(results, agg, baseline_path=baseline_path)
 
 
 if __name__ == "__main__":  # pragma: no cover

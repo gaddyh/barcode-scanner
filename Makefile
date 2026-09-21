@@ -17,9 +17,18 @@ test:
 eval:
 	python -m src.evals.regression
 
-# Freeze the current scanner results as the regression baseline.
+# Freeze the current scanner-only results as the regression baseline.
 eval-freeze:
 	python -m src.evals.regression --write-baseline
+
+# Full-pipeline evaluation (scanner + Gemini + recovery). Requires GEMINI_API_KEY.
+# Observational — Gemini is nondeterministic, so this is NOT a hard gate.
+eval-full:
+	python -m src.evals.regression --full-pipeline
+
+# Freeze the current full-pipeline results as an observational baseline.
+eval-full-freeze:
+	python -m src.evals.regression --full-pipeline --write-baseline
 
 # Live evaluation with Gemini + LangSmith (charged, needs GEMINI_API_KEY).
 eval-live:
