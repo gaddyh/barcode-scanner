@@ -144,7 +144,10 @@ async def run_session_graph(
 
     # Load or create the session.
     state = await repo.load_session_state(session_id)
-    is_new_session = state is None
+    # Treat a session with no items as a first image — the receiving API
+    # creates the session row before the first photo, so the row exists
+    # but has no accumulated items yet.
+    is_new_session = state is None or not state.get("items")
 
     if is_new_session:
         # Don't create the session row yet — wait until the scan succeeds.

@@ -2,3 +2,7 @@ node_modules/
 dist/
 .env
 .DS_Store
+# Compiled Vite config artifacts — Vite loads .ts directly.
+vite.config.js
+vite.config.d.ts
+*.tsbuildinfo

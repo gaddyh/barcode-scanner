@@ -9,10 +9,12 @@ export default defineConfig({
     proxy: {
       // Forward API requests to the backend in local dev.
       // In Docker/Render the frontend and API are same-origin (no proxy needed).
-      "/admin": "http://localhost:8000",
-      "/barcode": "http://localhost:8000",
-      "/feedback": "http://localhost:8000",
-      "/health": "http://localhost:8000",
+      "/admin": { target: "http://localhost:8000", changeOrigin: true },
+      "/barcode": { target: "http://localhost:8000", changeOrigin: true },
+      "/receiving": { target: "http://localhost:8000", changeOrigin: true },
+      "/customers": { target: "http://localhost:8000", changeOrigin: true },
+      "/feedback": { target: "http://localhost:8000", changeOrigin: true },
+      "/health": { target: "http://localhost:8000", changeOrigin: true },
     },
   },
 });
