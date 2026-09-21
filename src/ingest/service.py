@@ -31,17 +31,17 @@ from pathlib import Path
 from typing import Any
 
 from src.ingest.analyze import analyze_image
-from src.ingest.scanner import BarcodeScanner
-from src.ingest.vision import (
-    DEFAULT_MAX_RETRIES,
-    DEFAULT_RETRY_DELAY_SECONDS,
-)
 from src.ingest.models import (
     DetectedItem,
     IngestResult,
     IngestStatus,
     Issue,
     RunMetrics,
+)
+from src.ingest.scanner import BarcodeScanner
+from src.ingest.vision import (
+    DEFAULT_MAX_RETRIES,
+    DEFAULT_RETRY_DELAY_SECONDS,
 )
 from src.observability.tracing import emit_event, emit_metadata, push_feedback
 from src.runtime.context import RunContext

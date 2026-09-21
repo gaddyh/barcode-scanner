@@ -173,7 +173,7 @@ async def _traced_scan(
 
     # Persist completed scan run
     try:
-        from src.ingest.models import IngestResult, IngestStatus, DetectedItem, RunMetrics
+        from src.ingest.models import DetectedItem, IngestResult, IngestStatus, RunMetrics
         scan_result = IngestResult(
             status=IngestStatus.COMPLETE if barcodes else IngestStatus.NEEDS_USER_INPUT,
             items=[

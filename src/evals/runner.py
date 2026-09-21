@@ -26,7 +26,6 @@ from uuid import uuid4
 
 from langsmith import Client, evaluate
 
-from src.models.upload import generate_upload_id
 from src.evals.datasets import load_dataset
 from src.evals.evaluators import (
     aggregate_thresholds,
@@ -38,6 +37,7 @@ from src.evals.evaluators import (
     value_recall,
 )
 from src.ingest import ingest_one
+from src.models.upload import generate_upload_id
 from src.runtime import RunContext
 
 logger = logging.getLogger(__name__)

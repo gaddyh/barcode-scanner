@@ -50,12 +50,12 @@ from PIL import (
     UnidentifiedImageError,
 )
 
+from src.ingest.pipeline import pipeline_path
 from src.ingest.scanner import BarcodeScanner
 from src.ingest.vision import (
     DEFAULT_MAX_RETRIES,
     DEFAULT_RETRY_DELAY_SECONDS,
 )
-from src.ingest.pipeline import pipeline_path
 
 logger = logging.getLogger(__name__)
 

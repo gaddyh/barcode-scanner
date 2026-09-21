@@ -1,53 +1,152 @@
 # AGENTS.md
 
-Build, test, and lint commands for the barcode-scanner project.
+Rules for safely changing the barcode-scanner repository without breaking its
+important properties. Operational details live in `README.md` and `docs/`.
 
-## Environment
+## Repository status
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
+`barcode-scanner` is the **canonical product repo** for Visual Receiving /
+Order Intake. `naot-poc` is archived as reference after baseline. `echo-v2`
+donates runtime reliability patterns but remains independent. No fourth repo.
+
+## Git workflow
+
+- Never work directly on `main`.
+- Feature branch names must be unique and meaningful (e.g. `feature/eval-freeze`,
+  `fix/scanner-fp`).
+- Start from up-to-date main:
+  `git switch main && git pull --ff-only origin main && git switch -c feature/<short-name>`.
+- Push the feature branch, open a PR targeting `main`.
+- Enable GitHub auto-merge with squash: `gh pr merge --auto --squash <PR_NUMBER>`.
+- `main` requires CI checks; merge happens automatically after they pass.
+
+## Verification before merge
+
+- `pytest --cov --cov-fail-under=<current_floor>` — all tests, no live Gemini
+  (tests mock `zxingcpp.read_barcodes` and `graph._traced_audit`). Coverage
+  floor ramps from 74% (PR #0) to 95% (PR #6) as each PR rewrites a module.
+- `mypy` — non-gating in PR #0 via `continue-on-error`; ramp to gating as
+  errors are fixed (target: PR #6).
+- `ruff check .` — genuinely green (per-file ignores encoded in `pyproject.toml`).
+- After PR #1: `make eval` (deterministic scanner-only, gates merges).
+  `make eval-live` (scanner + Gemini) is observational, NOT a gate.
+- `make eval-freeze` is the only way to rewrite `baseline_frozen.json`.
+  Normal `make eval` runs must never silently rewrite the baseline.
+- **Hard rule:** Scanner/recovery changes must not merge unless the frozen
+  deterministic eval baseline passes.
+
+## Architecture invariants
+
+- `barcode-scanner` is the canonical product repo.
+- Deterministic scanning remains independent of Gemini (two parallel branches,
+  joined by reconciliation). Scanner-only operation must remain usable without
+  Gemini or Priority.
+- Physical boxes are occurrences (multiset), not unique barcode values. Duplicate
+  barcode values represent separate physical boxes and count separately.
+- The ingest pipeline must remain usable independently of Priority.
+- ERP access goes ONLY through `PriorityGateway` (after PR #4). No direct
+  Priority API calls from routes/UI/workflows.
+- The local fake Priority remains usable for tests/demo.
+- External irreversible writes must go through the runtime executor + idempotency
+  (after PR #3).
+- Do not maintain two production scanner implementations. Candidate algorithms
+  can exist only temporarily for A/B evaluation (PR #2).
+
+## Runtime safety rules
+
+Product-specific policies with timeouts derived from current P95 measurements
+(NOT copied from echo-v2):
+
+- `SCAN_COMPUTE` — local deterministic scanner. No retry (deterministic; retrying
+  the same image is pointless). Timeout = scanner P95 × 3.
+- `EXTERNAL_READ` — Gemini audit (retryable). `max_attempts=3`, bounded timeout.
+- `EXTERNAL_WRITE` — Priority draft order (irreversible). `max_attempts=1`,
+  `irreversible_write=True`, idempotency required.
+
+Unknown write outcome → `INDETERMINATE` (decided at the integration boundary by
+the adapter, not blindly by the executor), never blind retry.
+
+### INDETERMINATE classification
+
+- The executor does NOT upgrade a generic unexpected exception to
+  `IndeterminateError` on its own.
+- The adapter (e.g. `LocalPriorityGateway` / future `RealPriorityGateway`)
+  classifies: failure before submission → `RetryableError`/`PermanentError`;
+  timeout/disconnect after submission may have occurred → `IndeterminateError`.
+- The executor preserves and persists what the adapter raises.
+- **One exception:** an executor-enforced `asyncio.wait_for()` timeout around an
+  irreversible write is conservatively `IndeterminateError` — the executor cannot
+  prove the request did not cross the network boundary.
+- Better: let the Priority adapter own its HTTP timeout and classify pre-submit
+  vs post-submit failures; the executor timeout is a larger emergency bound.
+
+### Runtime layering
+
+```
+application/service
+    ↓ runtime.execute(policy=EXTERNAL_WRITE, idempotency_key=...)
+PriorityGateway (protocol)
+    ↓
+LocalPriorityGateway / RealPriorityGateway (adapter performs the op + classifies)
 ```
 
-## Run
+The gateway just performs the external operation and classifies errors. Runtime
+wrapping stays in the application/service layer, NOT inside the gateway.
 
-```bash
-python -m src.cli_app scan ./samples/multi_clear_6_boxes.jpeg
-python -m src.cli_app audit ./samples/multi_clear_6_boxes.jpeg --time
-python -m src.cli_app pipeline ./samples/multi_clear_6_boxes.jpeg --time --pretty
+### Session submission state machine
+
+```
+ACTIVE
+   ↓ freeze payload
+SUBMITTING
+   ↓ success
+SUBMITTED
+
+SUBMITTING
+   ↓ unknown external outcome
+SUBMISSION_UNKNOWN
 ```
 
-Requires `GEMINI_API_KEY` in `.env` or the environment for `audit` and `pipeline`.
+- On entering `SUBMITTING`, session contents are FROZEN (immutable). Retrying
+  uses the same `priority:draft:{session_id}` key and exactly the same frozen
+  payload.
+- On success: persist `external_order_id`, transition to `SUBMITTED`.
+- On indeterminate: transition to `SUBMISSION_UNKNOWN`. Do NOT let the user
+  create another session/order blindly — the idempotency store replays the
+  indeterminate outcome on retry.
+- If the call fails BEFORE submission: stay `ACTIVE`, return error, user can
+  retry/edit.
+- `priority_orders.session_id` has a UNIQUE constraint as defense-in-depth.
 
-## Architecture
+## Scanner/evaluation rules
 
-The pipeline is a **clean happy path** — two independent branches run in
-parallel on one image, then a single containment match joins them:
+- Barcode accuracy is occurrence/multiset based (duplicate values = separate
+  physical boxes). Use `collections.Counter`, not `set()`.
+- Zero false positives is a hard priority.
+- New scanner algorithms must be benchmarked against the canonical dataset
+  (`tests/eval/barcode_baseline.json` after PR #1).
+- `make eval` is deterministic scanner-only (no Gemini, no LangSmith, no
+  Postgres, no network). Gates merges. Exits non-zero on regression.
+- `make eval-live` is scanner + Gemini (observational, NOT a gate).
+- `make eval-freeze` / `--write-baseline` is the only way to update
+  `baseline_frozen.json`.
+- Gate on per-image and aggregate occurrence recall + false positives. Do NOT
+  gate on latency (workstation/CI latency fluctuates; record P50/P95 as
+  informational).
+
+## Pipeline overview
+
+Two independent branches run in parallel on one image, then a single
+containment match joins them:
 
 1. **Deterministic scanner** (`src/ingest/scanner.py`) — zxing-cpp + OpenCV
    label fallback. Decodes barcode values with full-resolution pixel bboxes.
 2. **Gemini Flash spatial audit** (`src/ingest/vision.py`) — locates every
    visible product label and its barcode region, returns pixel bboxes.
 
-`src/ingest/graph.py` orchestrates the pipeline as a LangGraph `StateGraph`
-(M15A). `scan` and `audit` run in parallel (LangGraph superstep fan-out),
-then `src.ingest.reconciliation.match_scanner_to_labels()` assigns each
-scanner detection to the Gemini label whose barcode region contains it.
-`src/ingest/pipeline.py` is now a thin traced facade that delegates to
-`run_scan_graph()` — the summary dict contract is unchanged.
-
-When labels remain unmatched after reconciliation, a **Gemini-guided
-recovery** step crops each missing label's `barcode_bbox` from the
-full-resolution image with 20% padding and scans it aggressively
-(`scan_crop_with_recovery` — CLAHE, Otsu, adaptive, aggressive sharpen,
-invert, plus an explicit 90° rotation attempt). Any newly decoded barcodes
-are merged back and reconciliation is re-run via a conditional edge cycle
-(`reconcile → recover → reconcile`). This only runs on the failure
-path — the happy path is unaffected.
-
-`src/ingest/analyze.py` reshapes the pipeline summary into the product response
-(`complete` / `needs_better_photo` / `retryable_error`).
+`src/ingest/graph.py` orchestrates as a LangGraph `StateGraph`. On the failure
+path, Gemini-guided recovery crops missing barcode regions and retries
+reconciliation. See `docs/architecture.md` for full detail.
 
 ### Dependency direction
 
@@ -62,256 +161,48 @@ vision.py ──→ geometry.py ←── reconciliation.py
 ```
 
 - `src/ingest/geometry.py` — generic coordinate math only (no Gemini/scanner imports).
-- `src/ingest/reconciliation.py` — imports only `src.ingest.geometry`. Receives
-  scanner detections and Gemini labels as plain dicts.
-- All Gemini audit functions consume EXIF-normalized RGB JPEG bytes via
-  `load_normalized_image()`. If the original exceeds 1600px on either side,
-  the Gemini copy is resized (LANCZOS, JPEG quality 85); smaller images are
-  left untouched. Gemini's normalized 0..1000 coordinates are
-  resolution-independent and convert directly to the original full-resolution
-  pixel frame. The scanner keeps full resolution independently.
+- `src/ingest/reconciliation.py` — imports only `src.ingest.geometry`.
 - Reconciliation uses padded center-in-box containment with global
-  nearest-first assignment. Target selection is strict: when `barcode_bbox`
-  is present, only it is used (no fallback to the larger `label_bbox`).
+  nearest-first assignment. When `barcode_bbox` is present, only it is used.
 
 ## Product API
 
 `src/ingest/analyze.py` exposes `analyze_image()` — the product hot path.
+Returns `complete` / `needs_better_photo` / `retryable_error`. Full response
+schema in `docs/evaluation.md`.
 
-```python
-from src.ingest.analyze import analyze_image
-
-result = analyze_image(image_bytes_or_path)
-
-if result["outcome"] == "complete":
-    for item in result["found"]:
-        print(item["barcode_value"], item["label_index"])
-elif result["outcome"] == "needs_better_photo":
-    for m in result["missing"]:
-        print(m["label_index"], m["label_bbox"], m["barcode_bbox"])
-else:  # "retryable_error"
-    print(result.get("error"))
-```
-
-### Response schema
-
-| Field | Type | Description |
-|---|---|---|
-| `ok` | bool | Function executed (false = invalid input / unhandled error). |
-| `outcome` | str | `complete` / `needs_better_photo` / `retryable_error`. |
-| `audit_available` | bool | Whether the Gemini audit succeeded. |
-| `image_width` / `image_height` | int | Original image dimensions (pixels). |
-| `found` | list | Barcodes matched to a Gemini label. Each entry: `label_index`, `barcode_value`, `barcode_format`, `barcode_bbox`, `label_bbox`, `match_basis`. |
-| `missing` | list | Gemini labels with no decoded barcode. Each entry: `label_index`, `status`, `label_bbox`, `barcode_bbox`. |
-| `unassigned` | list | Scanner detections not matched to any Gemini label. Each entry: `barcode_value`, `barcode_format`, `barcode_bbox`. |
-| `summary` | object | `visible_label_count`, `found_count`, `missing_count`, `unassigned_count`, `all_found`. |
-| `error` | object | Present on `retryable_error`: `{code, message}`. |
-| `annotated_image_b64` | str | Present on `needs_better_photo`: base64 PNG with red circles. |
-| `annotated_image_width` / `annotated_image_height` | int | Present on `needs_better_photo`. |
-| `message` | str | Present on `needs_better_photo`: human-readable prompt. |
-
-### Outcome decision
-
-- `complete` — valid audit, `visible_label_count > 0`, no missing labels.
-- `needs_better_photo` — valid audit, but labels remain missing (or zero
-  labels found). Do NOT ask for a better photo when Gemini itself failed.
-- `retryable_error` — scan error or Gemini audit failure. The client retries.
-
-## Test
+## Commands
 
 ```bash
-pytest                              # all tests
-pytest tests/test_barcode_scanner.py
-pytest tests/test_spatial_geometry.py
-pytest tests/test_spatial_reconciliation.py
-pytest tests/test_analyze.py
-pytest tests/test_cli.py
-pytest tests/test_api.py
-pytest tests/test_graph.py          # LangGraph orchestrator (M15A)
-pytest tests/eval/                  # eval harness scoring logic (offline)
-```
+# Environment
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
 
-Tests mock `zxingcpp.read_barcodes` and `graph._traced_audit` — no real
-barcode images or Gemini API calls are required.
+# Run
+python -m src.cli_app scan ./samples/multi_clear_6_boxes.jpeg
+python -m src.cli_app audit ./samples/multi_clear_6_boxes.jpeg --time   # needs GEMINI_API_KEY
+python -m src.cli_app pipeline ./samples/multi_clear_6_boxes.jpeg --time --pretty
 
-## Lint
-
-```bash
+# Verify
+pytest --cov --cov-fail-under=74
 ruff check .
+mypy
+make eval          # deterministic scanner-only (after PR #1)
+make eval-live     # scanner + Gemini, observational (after PR #1)
+make eval-freeze   # rewrite baseline_frozen.json (after PR #1)
 ```
 
-Pre-existing warnings in `src/api/routes.py` (B008),
-`src/ingest/scanner.py` (B905),
-`src/ingest/vision.py` (UP042),
-`src/messaging/modal_transcriber.py` (E501), and
-`src/messaging/transcribe.py` (UP022) are intentionally left to preserve
-existing style consistency.
+## Lint exceptions
 
-## Offline evaluation (LangSmith)
+Encoded as per-file ignores in `pyproject.toml` under
+`[tool.ruff.lint.per-file-ignores]` (machine-enforced, not a manual note).
+Run `ruff check .` — it is genuinely green.
 
-```bash
-python -m tests.eval.runner                 # live (charged, needs GEMINI_API_KEY)
-python -m tests.eval.runner --scanner-only  # scanner-only, no Gemini
-```
+## NOT imported from echo-v2
 
-Runs `analyze_image()` on the ground-truth dataset
-(`tests/eval/dataset.json`) and scores each result with LangSmith
-`evaluate()`:
-
-- **value_recall** — fraction of expected decoded barcodes found.
-- **value_precision** — fraction of found barcodes matching an expected value.
-- **outcome_correct** — did the pipeline report the right outcome?
-- **count_exact** — found_count == expected decoded count.
-
-A summary evaluator applies soft aggregate thresholds (mean recall >= 0.90,
-mean precision >= 0.95, outcome accuracy >= 0.80). Results upload to
-LangSmith as an experiment under `LANGSMITH_PROJECT`. Set
-`LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` to enable upload.
-
-`tests/eval/test_eval.py` is deterministic and runs in every CI — it asserts
-the dataset loads and the evaluators score correctly with stub predictions,
-without calling LangSmith or Gemini.
-
-## Direct upload experiment (web/)
-
-Tiny Vite + React + TS mobile page that uploads the original phone photo
-(no canvas, no compression, no base64) to the existing `/barcode/scan`
-endpoint and shows dimensions, file size, barcodes, server scan latency,
-and total request latency. No WhatsApp, no Gemini, no chat UI, no auth.
-
-### Run locally
-
-Backend (exposes `/health` and `/barcode/scan`):
-
-```bash
-source .venv/bin/activate
-uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-Frontend:
-
-```bash
-cd web
-npm install
-npm run dev -- --host 0.0.0.0
-```
-
-Open `http://localhost:5173`. Default API URL is `http://localhost:8000`
-(see `web/.env.example`).
-
-### With ngrok (phone needs HTTPS)
-
-Expose the frontend and API separately:
-
-```bash
-ngrok http 5173   # frontend
-ngrok http 8000   # API
-```
-
-Set the frontend API URL to the API tunnel:
-
-```bash
-# web/.env
-VITE_API_BASE_URL=https://<api-tunnel>.ngrok-free.app
-```
-
-Restart Vite after changing `.env`. Then open the frontend ngrok URL on
-the phone. ngrok free tier shows an interstitial page on first visit —
-tap through once.
-
-### Direct-vs-WhatsApp comparison
-
-Take one photo and preserve both versions. For each run, record:
-
-- source (direct / WhatsApp)
-- filename
-- dimensions
-- bytes
-- server scan latency (`elapsed_ms` from the response)
-- total request latency (`performance.now()` in the browser)
-- decoded count
-- decoded values
-
-Direct version: upload from the page above (Take photo or Choose
-existing photo).
-
-WhatsApp version: send the same image through WhatsApp, download the
-exact media received by the backend, then scan that file locally.
-
-Expected shape of the comparison:
-
-```
-Source       Dimensions    Bytes       Decoded
-Direct       4032×3024     4.6 MB      6
-WhatsApp     1005×1280     216 KB      1
-```
-
-### Deploy to Render (Docker)
-
-The Dockerfile is a multi-stage build: Node stage builds the React
-frontend, Python stage runs the backend and serves the built frontend at
-`/` via `StaticFiles`. One image, one URL, same-origin — no CORS or
-`VITE_API_BASE_URL` config needed in prod.
-
-```bash
-# Local Docker test (same as Render)
-docker build -t barcode-scanner .
-docker run --rm -p 8000:8000 -e D360_API_KEY=dummy barcode-scanner
-# Open http://localhost:8000 — both frontend and API are served from here
-```
-
-On Render:
-
-1. Create a **Web Service** from this repo (Render detects `render.yaml`
-   automatically, or point it to the Dockerfile).
-2. Set env vars (Render dashboard or `render.yaml`):
-   - `D360_API_KEY=dummy` — required to boot even for scanner-only use
-     (config.py raises without it). Set the real key when WhatsApp
-     webhooks are needed.
-   - `APP_ENV=production`
-   - `MAX_UPLOAD_BYTES=15728640`
-   - `ALLOWED_IMAGE_TYPES=image/jpeg,image/png,image/webp`
-3. Render assigns `$PORT` automatically — the CMD handles it.
-4. Health check: `/health`.
-
-The deployed URL serves the upload page at `/` and the API at
-`/barcode/scan`. Open the Render URL on your phone — it's HTTPS, no
-ngrok needed.
-
-## LangSmith monitoring dashboard
-
-The repository includes an idempotent provisioning script for the first
-scanner health dashboard. It uses the LangSmith REST API directly because the
-installed Python SDK does not expose custom dashboard helpers.
-
-Required environment variables:
-
-```bash
-LANGSMITH_API_KEY=...
-LANGSMITH_PROJECT_ID=<tracing-project-uuid>
-```
-
-Optional variables:
-
-```bash
-LANGSMITH_ENDPOINT=https://api.smith.langchain.com
-LANGSMITH_TENANT_ID=<langsmith-tenant-uuid>
-```
-
-Run from the repository root:
-
-```bash
-source .venv/bin/activate
-python scripts/provision_langsmith_dashboard.py --dry-run
-python scripts/provision_langsmith_dashboard.py
-python scripts/provision_langsmith_dashboard.py --check
-```
-
-The dashboard is named `Barcode Scanner Production Health` and currently
-contains upload volume by source, outcome distribution, recovery attempts,
-user-confirmed correctness, completed analyses, P50 analysis latency, and
-recovery labels resolved. The script creates or updates resources by
-stable dashboard/chart metadata and does not run as part of application
-startup.
-
-
+- 95% coverage gate on day one (ramp from 74% to 95% across PRs #0–#6).
+- Strict mypy on day one (non-gating in PR #0, ramp to gating by PR #6).
+- WaitingListQueryService, SQLAlchemy/UoW notes.
+- Python 3.10 matrix (barcode-scanner requires Python >=3.11).
+- Echo-specific timeout values (use product-specific P95-derived timeouts).

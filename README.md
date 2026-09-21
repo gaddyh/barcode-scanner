@@ -2,6 +2,8 @@
 
 Deterministic barcode-scanning service for product photos. It is intentionally independent of WhatsApp and Priority ERP.
 
+> **See also:** [`AGENTS.md`](AGENTS.md) for rules/invariants when changing this repo. Full architecture in [`docs/architecture.md`](docs/architecture.md), evaluation in [`docs/evaluation.md`](docs/evaluation.md), deployment in [`docs/deployment.md`](docs/deployment.md).
+
 ## Flow
 
 ```text
