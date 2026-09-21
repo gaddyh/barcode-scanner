@@ -25,12 +25,16 @@ from src.repository import (
 )
 
 # Use the provided Render Postgres instance for integration tests.
-TEST_DB_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://tami_one_postgre_user:K6Pqcojs1NvipyWCpkUHkEXV8tbtBkcv@dpg-d956p5gjs32c73fgj4t0-a.frankfurt-postgres.render.com/tami_one_postgre",
-)
+# In CI, DATABASE_URL is not set, so these tests are skipped (no real DB calls).
+TEST_DB_URL = os.getenv("DATABASE_URL", "")
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.skipif(
+        not TEST_DB_URL,
+        reason="DATABASE_URL not set — skipping live Postgres integration tests",
+    ),
+]
 
 
 @pytest.fixture
