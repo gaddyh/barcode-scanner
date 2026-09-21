@@ -21,12 +21,6 @@ import { AdminApp } from "./admin/AdminApp";
 type Source = "camera" | "gallery";
 type Mode = "receiving" | "scanner";
 
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(2)} MB`;
-}
-
 export default function App() {
   const route = useHashRoute();
   const [file, setFile] = useState<File | null>(null);
@@ -56,6 +50,10 @@ export default function App() {
 
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
+
+  // Retained for potential debug/diagnostics; not shown to end users.
+  void source;
+  void totalMs;
 
   useEffect(() => {
     let cancelled = false;
@@ -235,8 +233,9 @@ export default function App() {
   const needsSelection = (imageResult?.candidates?.length ?? 0) > 0;
 
   return (
-    <div style={styles.container}>
-      <h1 style={styles.h1}>Barcode Scanner</h1>
+    <div dir="rtl" lang="he" style={styles.container}>
+      <h1 style={styles.h1}>קליטת קופסאות</h1>
+      <p style={styles.subtitle}>צלם את הקופסאות, בדוק שהכול נקלט, וצור טיוטה ב־Priority</p>
 
       {/* Mode toggle */}
       <div style={styles.toggleRow}>
@@ -247,7 +246,7 @@ export default function App() {
             ...(mode === "receiving" ? styles.toggleActive : {}),
           }}
         >
-          Receiving (multi-photo)
+          קליטת סחורה
         </button>
         <button
           onClick={() => setMode("scanner")}
@@ -256,29 +255,29 @@ export default function App() {
             ...(mode === "scanner" ? styles.toggleActive : {}),
           }}
         >
-          Scanner only
+          סורק בלבד
         </button>
       </div>
 
       <div style={styles.selectGroup}>
         <label style={styles.fieldLabel}>
-          Customer
+          לקוח
           <select
             value={customerId}
             onChange={(e) => handleCustomerChange(e.target.value)}
             disabled={optionsLoading || loading}
             style={styles.select}
           >
-            <option value="">{optionsLoading ? "Loading customers…" : "Select customer"}</option>
+            <option value="">{optionsLoading ? "טוען לקוחות…" : "בחר לקוח"}</option>
             {customers.map((customer) => (
               <option key={customer.id} value={customer.id}>{customer.name}</option>
             ))}
           </select>
         </label>
-        {optionsError && <p style={styles.fieldError}>Customer error: {optionsError}</p>}
+        {optionsError && <p style={styles.fieldError}>שגיאה: {optionsError}</p>}
 
         <label style={styles.fieldLabel}>
-          Action
+          פעולה
           <select
             value={action}
             onChange={(e) => {
@@ -288,14 +287,14 @@ export default function App() {
             disabled={loading}
             style={styles.select}
           >
-            <option value="">Select action</option>
-            <option value="create_order">Create order</option>
-            <option value="verify_order_before_shipment">Verify order before shipment</option>
+            <option value="">בחר פעולה</option>
+            <option value="create_order">יצירת הזמנה</option>
+            <option value="verify_order_before_shipment">בדיקת הזמנה לפני משלוח</option>
           </select>
         </label>
 
         <label style={styles.fieldLabel}>
-          Branch
+          סניף / מחסן
           <select
             value={branchId}
             onChange={(e) => setBranchId(e.target.value)}
@@ -303,19 +302,19 @@ export default function App() {
             style={styles.select}
           >
             <option value="">
-              {branchesLoading ? "Loading branches…" : customerId ? "Select branch" : "Select a customer first"}
+              {branchesLoading ? "טוען סניפים…" : customerId ? "בחר סניף" : "בחר לקוח תחילה"}
             </option>
             {branches.map((branch) => (
               <option key={branch.id} value={branch.id}>{branch.name}</option>
             ))}
           </select>
         </label>
-        {branchesError && <p style={styles.fieldError}>Branch error: {branchesError}</p>}
+        {branchesError && <p style={styles.fieldError}>שגיאה: {branchesError}</p>}
       </div>
 
       <div style={styles.inputRow}>
         <label style={styles.button}>
-          Take photo
+          צלם קופסאות
           <input
             ref={cameraInputRef}
             hidden
@@ -326,7 +325,7 @@ export default function App() {
           />
         </label>
         <label style={styles.button}>
-          Choose existing photo
+          בחר תמונה
           <input
             ref={galleryInputRef}
             hidden
@@ -339,9 +338,7 @@ export default function App() {
 
       {file && (
         <div style={styles.fileInfo}>
-          <div><strong>Source:</strong> {source}</div>
-          <div><strong>Filename:</strong> {file.name}</div>
-          <div><strong>Client size:</strong> {formatBytes(file.size)} ({file.size} B)</div>
+          <div><strong>תמונה נבחרה:</strong> {file.name}</div>
         </div>
       )}
 
@@ -356,7 +353,7 @@ export default function App() {
               opacity: !customerId || !branchId || !action || loading || !!receivingSession ? 0.5 : 1,
             }}
           >
-            {receivingSession ? "Session created" : "Create session"}
+            {receivingSession ? "הסריקה התחילה" : "התחל סריקה"}
           </button>
           <button
             onClick={onUploadImage}
@@ -366,7 +363,7 @@ export default function App() {
               opacity: !file || !receivingSession || loading || !sessionActive ? 0.5 : 1,
             }}
           >
-            {loading ? "Uploading…" : "Upload photo"}
+            {loading ? "סורק…" : "סרוק את התמונה"}
           </button>
           <button
             onClick={onSubmitOrder}
@@ -376,7 +373,7 @@ export default function App() {
               opacity: !receivingSession || loading || !sessionActive ? 0.5 : 1,
             }}
           >
-            {loading ? "Submitting…" : "Submit order"}
+            {loading ? "יוצר טיוטה…" : "צור טיוטה ב־Priority"}
           </button>
         </div>
       )}
@@ -391,31 +388,27 @@ export default function App() {
             opacity: !file || loading ? 0.5 : 1,
           }}
         >
-          {loading ? "Analyzing…" : "Analyze (scanner)"}
+          {loading ? "מנתח…" : "נתח (סורק)"}
         </button>
       )}
 
       {error && (
         <div style={styles.error}>
-          <strong>Error:</strong> {error}
+          <strong>שגיאה:</strong> {error}
         </div>
       )}
 
       {/* Scanner-only result */}
       {scanResult && (
         <div style={styles.results}>
-          <h2 style={styles.h2}>Result</h2>
-          <Row label="Upload ID" value={scanResult.upload_id ?? "—"} />
-          <Row label="Trace ID" value={scanResult.trace_id ?? "—"} />
-          <Row label="Status" value={scanResult.status} />
-          <Row label="Count" value={String(scanResult.count)} />
-          <Row label="Dimensions" value={`${scanResult.image_width} × ${scanResult.image_height}`} />
-          <Row label="File size" value={`${formatBytes(scanResult.upload_bytes)} (${scanResult.upload_bytes} B)`} />
-          <Row label="Server scan" value={`${scanResult.elapsed_ms} ms`} />
-          <Row label="Total request" value={totalMs != null ? `${Math.round(totalMs)} ms` : "—"} />
-          <h3 style={styles.h3}>Barcodes</h3>
+          <h2 style={styles.h2}>תוצאות סריקה</h2>
+          <Row label="סטטוס" value={scanResult.status === "found" ? "נמצא" : "לא נמצא"} />
+          <Row label="כמות" value={String(scanResult.count)} />
+          <Row label="מידות" value={`${scanResult.image_width} × ${scanResult.image_height}`} />
+          <Row label="זמן סריקה" value={`${scanResult.elapsed_ms} מ״מ`} />
+          <h3 style={styles.h3}>ברקודים</h3>
           {scanResult.barcodes.length === 0 ? (
-            <p style={styles.muted}>None decoded.</p>
+            <p style={styles.muted}>לא זוהו ברקודים.</p>
           ) : (
             <ol style={styles.list}>
               {scanResult.barcodes.map((b, i) => (
@@ -428,43 +421,35 @@ export default function App() {
           {traceId && !feedbackSent && (
             <FeedbackRow onFeedback={sendFeedback} feedbackError={feedbackError} />
           )}
-          {feedbackSent && <p style={styles.feedbackDone}>Feedback recorded.</p>}
+          {feedbackSent && <p style={styles.feedbackDone}>תודה על המשוב.</p>}
         </div>
       )}
 
       {/* Receiving session result */}
       {receivingSession && (
         <div style={styles.results}>
-          <h2 style={styles.h2}>Receiving Session</h2>
-          <Row label="Session ID" value={receivingSession.session_id} />
-          <Row
-            label="Status"
-            value={receivingSession.status}
-            highlight={
-              sessionSubmitted
-                ? "#16a34a"
-                : sessionUnknown
-                  ? "#dc2626"
-                  : sessionActive
-                    ? "#3b82f6"
-                    : undefined
-            }
-          />
-          <Row label="Customer" value={receivingSession.customer_id} />
-          <Row label="Branch" value={receivingSession.branch_id} />
-          <Row label="Action" value={receivingSession.action} />
-          {receivingSession.external_order_id != null && (
-            <Row label="Order ID" value={String(receivingSession.external_order_id)} />
+          <h2 style={styles.h2}>מצב הקליטה</h2>
+
+          {/* Progress summary — friendly, no raw status */}
+          {sessionSubmitted ? (
+            <div style={styles.completeBadge}>
+              ✅ כל הקופסאות נקלטו — הטיוטה נוצרה בהצלחה ב־Priority
+            </div>
+          ) : receivingSession.discrepancy.missing > 0 ? (
+            <div style={styles.promptMore}>
+              נסרקו {receivingSession.box_count} מתוך {receivingSession.expected_count} קופסאות.
+              {" "}
+              {receivingSession.discrepancy.missing === 1
+                ? "חסרה קופסה אחת."
+                : `חסרות ${receivingSession.discrepancy.missing} קופסאות.`}
+            </div>
+          ) : receivingSession.box_count > 0 ? (
+            <div style={styles.completeBadge}>
+              ✅ כל הקופסאות נקלטו ({receivingSession.box_count}/{receivingSession.expected_count})
+            </div>
+          ) : (
+            <div style={styles.muted}>הסריקה התחילה — צלם את הקופסאות.</div>
           )}
-          <Row
-            label="Found"
-            value={`${receivingSession.box_count} / ${receivingSession.expected_count}`}
-          />
-          <Row
-            label="Missing"
-            value={String(receivingSession.discrepancy.missing)}
-          />
-          {totalMs != null && <Row label="Last request" value={`${Math.round(totalMs)} ms`} />}
 
           {/* Image upload message */}
           {imageResult?.message && (
@@ -476,7 +461,7 @@ export default function App() {
           {/* Needs user selection — show candidate buttons */}
           {needsSelection && imageResult?.candidates && (
             <div style={styles.candidates}>
-              <h3 style={styles.h3}>Select a barcode to add:</h3>
+              <h3 style={styles.h3}>בחר ברקוד להוספה:</h3>
               <div style={styles.candidateRow}>
                 {imageResult.candidates.map((c, i) => (
                   <span key={i} style={styles.candidateBtn}>
@@ -485,7 +470,7 @@ export default function App() {
                 ))}
               </div>
               <p style={styles.muted}>
-                Candidate selection is not yet wired in the receiving flow.
+                בחירת מועמדים עדיין לא מחוברת בזרימת הקליטה.
               </p>
             </div>
           )}
@@ -493,55 +478,39 @@ export default function App() {
           {/* Active — prompt for more photos */}
           {sessionActive && receivingSession.discrepancy.missing > 0 && (
             <div style={styles.promptMore}>
-              📸 Send another photo of the missing box(es).
-            </div>
-          )}
-
-          {/* Submitted — show success */}
-          {sessionSubmitted && (
-            <div style={styles.completeBadge}>
-              ✅ Order created (ID: {receivingSession.external_order_id})
+              📸 צלם עכשיו רק את הקופסה שחסרה.
             </div>
           )}
 
           {/* Submission unknown — show warning */}
           {sessionUnknown && (
             <div style={{ ...styles.error, borderColor: "#f59e0b" }}>
-              ⚠️ Submission outcome unknown. Retry the submit to confirm.
+              ⚠️ לא הצלחנו לוודא אם הטיוטה נוצרה. אל תתחיל קליטה חדשה — נסה שוב.
             </div>
           )}
 
-          {/* Submit result */}
-          {submitResult && (
-            <div style={{ marginTop: 12, padding: 8, background: "#f8fafc", borderRadius: 4 }}>
-              <Row label="Submit status" value={submitResult.status} />
-              {submitResult.order_id != null && (
-                <Row label="Order ID" value={String(submitResult.order_id)} />
-              )}
-              {submitResult.idempotent && (
-                <Row label="Idempotent" value="yes (cached)" />
-              )}
-              {submitResult.error && (
-                <Row label="Error" value={submitResult.error.message} />
-              )}
-              {submitResult.retry_recommended && (
-                <div style={styles.promptMore}>
-                  🔄 Retry recommended — the order may or may not have been created.
-                </div>
-              )}
+          {/* Submit result — friendly */}
+          {submitResult && submitResult.error && (
+            <div style={styles.error}>
+              <strong>שגיאה ביצירת הטיוטה:</strong> {submitResult.error.message}
+            </div>
+          )}
+          {submitResult && submitResult.retry_recommended && (
+            <div style={styles.promptMore}>
+              🔄 מומלץ לנסות שוב — ייתכן שההזמנה לא נוצרה.
             </div>
           )}
 
           {/* Items list */}
           {receivingSession.items.length > 0 && (
             <>
-              <h3 style={styles.h3}>Scanned barcodes ({receivingSession.items.length})</h3>
+              <h3 style={styles.h3}>פריטים שנקלטו ({receivingSession.items.length})</h3>
               <ol style={styles.list}>
                 {receivingSession.items.map((item, i) => (
                   <li key={i} style={styles.listItem}>
                     <strong>{item.barcode_value}</strong>
                     {item.barcode_format ? ` (${item.barcode_format})` : ""}
-                    {` — qty ${item.quantity}`}
+                    {` — כמות: ${item.quantity}`}
                   </li>
                 ))}
               </ol>
@@ -552,13 +521,13 @@ export default function App() {
           {sessionSubmitted && !feedbackSent && (
             <FeedbackRow onFeedback={sendFeedback} feedbackError={feedbackError} />
           )}
-          {feedbackSent && <p style={styles.feedbackDone}>Feedback recorded.</p>}
+          {feedbackSent && <p style={styles.feedbackDone}>תודה על המשוב.</p>}
         </div>
       )}
 
       <div style={{ marginTop: 32, paddingTop: 16, borderTop: "1px solid #e2e8f0" }}>
         <a href="#/admin" style={{ color: "#3b82f6", textDecoration: "none", fontSize: 14, fontWeight: 500 }}>
-          Admin dashboard →
+          לוח ניהול ←
         </a>
       </div>
     </div>
@@ -574,16 +543,16 @@ function FeedbackRow({
 }) {
   return (
     <div style={styles.feedback}>
-      <p style={styles.feedbackQ}>Did the scanner find all barcodes correctly?</p>
+      <p style={styles.feedbackQ}>האם כל הקופסאות זוהו נכון?</p>
       <div style={styles.feedbackRow}>
         <button onClick={() => onFeedback(true)} style={styles.feedbackBtn}>
-          Correct
+          כן
         </button>
         <button onClick={() => onFeedback(false)} style={styles.feedbackBtn}>
-          Incorrect
+          לא
         </button>
       </div>
-      {feedbackError && <p style={styles.error}>Feedback error: {feedbackError}</p>}
+      {feedbackError && <p style={styles.error}>שגיאה בשליחת משוב: {feedbackError}</p>}
     </div>
   );
 }
@@ -615,7 +584,8 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: "system-ui, -apple-system, sans-serif",
     color: "#1e293b",
   },
-  h1: { fontSize: 24, fontWeight: 700, marginBottom: 16 },
+  h1: { fontSize: 24, fontWeight: 700, marginBottom: 4 },
+  subtitle: { fontSize: 14, color: "#64748b", marginBottom: 16, marginTop: 0 },
   h2: { fontSize: 20, fontWeight: 600, marginBottom: 12 },
   h3: { fontSize: 16, fontWeight: 600, marginTop: 16, marginBottom: 8 },
   toggleRow: { display: "flex", gap: 8, marginBottom: 16 },
@@ -727,7 +697,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#166534",
     textAlign: "center",
   },
-  list: { margin: "8px 0", paddingLeft: 20, fontSize: 14, lineHeight: 1.8 },
+  list: { margin: "8px 0", paddingRight: 20, paddingLeft: 0, fontSize: 14, lineHeight: 1.8 },
   listItem: { marginBottom: 4 },
   muted: { color: "#94a3b8", fontSize: 14 },
   error: { color: "#dc2626", fontSize: 14, padding: 8, background: "#fef2f2", borderRadius: 8 },
