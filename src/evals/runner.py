@@ -26,7 +26,7 @@ from uuid import uuid4
 
 from langsmith import Client, evaluate
 
-from src.evals.datasets import load_dataset
+from src.evals.datasets import load_legacy_dataset
 from src.evals.evaluators import (
     aggregate_thresholds,
     count_exact,
@@ -89,7 +89,7 @@ def _target(inputs: dict[str, Any]) -> dict[str, Any]:
 
 def run_eval(*, scanner_only: bool = False, experiment_prefix: str = "barcode-scanner") -> Any:
     """Run the LangSmith evaluate() harness."""
-    examples = load_dataset()
+    examples = load_legacy_dataset()
     if not examples:
         print("No eval examples — samples/ missing or dataset.json empty.", file=sys.stderr)
         return None

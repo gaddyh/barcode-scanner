@@ -72,6 +72,7 @@ select = ["E", "F", "I", "UP", "B"]
 "src/messaging/modal_transcriber.py" = ["E501"]
 "src/messaging/transcribe.py" = ["UP022"]
 "src/repository.py" = ["E501"]
+"src/evals/regression.py" = ["E501"]
 "tests/test_session_graph.py" = ["E501"]
 
 [tool.mypy]

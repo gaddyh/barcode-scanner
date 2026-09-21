@@ -1,0 +1,120 @@
+{
+  "name": "barcode_baseline",
+  "_note": "Canonical merged dataset. Deduplicated union of barcode-scanner/tests/eval/dataset.json and naot-poc/src/naot_poc/evaluation/datasets/barcode_baseline.json. One case per image. reference_outputs.barcodes is a multiset (list) — duplicate values represent separate physical boxes and count separately. Naot ground truth is canonical for overlapping cases (primary left-side barcode only, secondary barcodes excluded). barcode-scanner metadata (visible_metadata, verification) is preserved where present.",
+  "cases": [
+    {
+      "id": "marny_brown_42",
+      "inputs": {"image": "samples/marny_brown_42.jpeg"},
+      "reference_outputs": {"barcodes": ["7297501098442"]},
+      "metadata": {
+        "source": ["barcode-scanner", "naot-poc"],
+        "ground_truth_status": "verified",
+        "expected_box_count": 1,
+        "notes": "Primary left barcode verified. 900439-42 is a secondary barcode and is intentionally excluded.",
+        "visible_metadata": {"size": "42", "style_code": "130207", "top_code": "11030010", "color_code": "617"}
+      }
+    },
+    {
+      "id": "multi_clear_6_boxes",
+      "inputs": {"image": "samples/multi_clear_6_boxes.jpeg"},
+      "reference_outputs": {"barcodes": ["7297500243423", "7297500243447", "7297500243423", "7297500243430", "7297500243416", "7297500243416"]},
+      "metadata": {
+        "source": ["barcode-scanner", "naot-poc"],
+        "ground_truth_status": "verified",
+        "expected_box_count": 6,
+        "notes": "Six visible boxes; all six primary barcodes verified."
+      }
+    },
+    {
+      "id": "multi_12_clean",
+      "inputs": {"image": "samples/multi_12_clean.jpeg"},
+      "reference_outputs": {"barcodes": ["7297501154056", "7297501195134", "7297501195257", "7297501154179", "7297501154056", "7297501153998", "7297501153936", "7297501154056", "7297501154230", "7297501154117", "7297501154292", "7297501154179"]},
+      "metadata": {
+        "source": ["barcode-scanner", "naot-poc"],
+        "ground_truth_status": "verified",
+        "expected_box_count": 12,
+        "notes": "Twelve visible boxes. Ground truth includes all 12 primary barcodes, including barcodes missed by the scanner.",
+        "verification": "OCR read 729750119525; matching label in topdown_12_labels_a_result.json identifies 7297501195257"
+      }
+    },
+    {
+      "id": "stacked_6_labels",
+      "inputs": {"image": "samples/stacked_6_labels.jpeg"},
+      "reference_outputs": {"barcodes": ["7297500243416", "7297500243416", "7297500243430", "7297500243423", "7297500243447", "7297500243423"]},
+      "metadata": {
+        "source": ["barcode-scanner", "naot-poc"],
+        "ground_truth_status": "verified",
+        "expected_box_count": 6,
+        "notes": "Six visible boxes. 217224-37/38/39/40 values on the right are secondary barcodes and are excluded."
+      }
+    },
+    {
+      "id": "whatsapp_2026_08_03",
+      "inputs": {"image": "samples/WhatsApp Image 2026-08-03 at 17.06.21 (2).jpeg"},
+      "reference_outputs": {"barcodes": ["7297501098442"]},
+      "metadata": {
+        "source": ["barcode-scanner", "naot-poc"],
+        "ground_truth_status": "verified",
+        "expected_box_count": 1,
+        "notes": "Primary left barcode verified. 900439-42 is the secondary barcode and is intentionally excluded."
+      }
+    },
+    {
+      "id": "topdown_12_labels_a",
+      "inputs": {"image": "samples/topdown_12_labels_a.jpeg"},
+      "reference_outputs": {"barcodes": ["7297501154117", "7297501154056", "7297501154179", "7297501154056", "7297501154292", "7297501154056", "7297501153936", "7297501195134", "7297501154179", "7297501154230", "7297501153998", "7297501195257"]},
+      "metadata": {
+        "source": ["naot-poc"],
+        "ground_truth_status": "verified",
+        "expected_box_count": 12,
+        "notes": "Twelve visible boxes. This image contains the same 12-item carton contents as topdown_12_labels_b, photographed separately."
+      }
+    },
+    {
+      "id": "topdown_12_labels_b",
+      "inputs": {"image": "samples/topdown_12_labels_b.jpeg"},
+      "reference_outputs": {"barcodes": ["7297501154117", "7297501154056", "7297501154179", "7297501154056", "7297501154292", "7297501154056", "7297501153936", "7297501195134", "7297501154179", "7297501154230", "7297501153998", "7297501195257"]},
+      "metadata": {
+        "source": ["naot-poc"],
+        "ground_truth_status": "verified",
+        "expected_box_count": 12,
+        "notes": "Same 12-item carton contents as topdown_12_labels_a. The previous seven decoded values were scanner output, not ground truth."
+      }
+    },
+    {
+      "id": "vegan_12_labels_a",
+      "inputs": {"image": "samples/vegan_12_labels_a.jpeg"},
+      "reference_outputs": {"barcodes": ["7297501154155", "7297501153974", "7297501154155", "7297501154155", "7297501154155", "7297501154155", "7297501154155", "7297501154155", "7297501153974", "7297501154155", "7297501154032", "7297501154094"]},
+      "metadata": {
+        "source": ["naot-poc"],
+        "ground_truth_status": "verified",
+        "expected_box_count": 12,
+        "notes": "Kawhia carton. Sizes visible are eight size-40 boxes, two size-37 boxes, one size-38 and one size-39."
+      }
+    },
+    {
+      "id": "vegan_12_labels_b",
+      "inputs": {"image": "samples/vegan_12_labels_b.jpeg"},
+      "reference_outputs": {"barcodes": ["7297501154155", "7297501153974", "7297501154155", "7297501154155", "7297501154155", "7297501154155", "7297501154155", "7297501154155", "7297501153974", "7297501154155", "7297501154032", "7297501154094"]},
+      "metadata": {
+        "source": ["naot-poc"],
+        "ground_truth_status": "verified",
+        "expected_box_count": 12,
+        "notes": "Same Kawhia 12-box carton as vegan_12_labels_a, photographed separately."
+      }
+    },
+    {
+      "id": "fuzzy_16_labels",
+      "inputs": {"image": "samples/fuzzy_16_labels.jpeg"},
+      "reference_outputs": {"barcodes": []},
+      "metadata": {
+        "source": ["naot-poc"],
+        "ground_truth_status": "unverified",
+        "exclude_from_eval": true,
+        "expected_box_count": 16,
+        "pipeline_visible_label_count": 17,
+        "notes": "The image contains 16 visible boxes/labels. The supplied pipeline reported 17. Primary barcode digits are too blurred to reliably establish full ground truth, so this case must not be scored yet."
+      }
+    }
+  ]
+}

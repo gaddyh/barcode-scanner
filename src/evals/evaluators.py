@@ -4,16 +4,24 @@ Each evaluator receives a LangSmith run (a ``Run`` object with ``.outputs``
 containing an ``IngestResult`` serialized as a dict) and an example, and
 returns ``{"score": float, "comment": str}``.
 
-Existing evaluators (moved from ``tests/eval/runner.py``):
+Legacy set-based evaluators (for the live LangSmith harness):
     value_recall, value_precision, outcome_correct, count_exact
 
-New evaluators:
-    recovery_gain — did recovery increase the match count?
-    latency — score = 1.0 if under threshold, else 0.0
+Recovery / latency evaluators:
+    recovery_gain, latency
+
+Occurrence-level multiset evaluators (for the offline regression gate):
+    occurrence_recall, occurrence_precision, barcode_accuracy
+
+The multiset evaluators use ``collections.Counter`` so duplicate barcode
+values count as separate physical box occurrences. Two boxes with the same
+barcode must both be found to score 1.0 — finding one of two identical
+barcodes scores 0.5, not 1.0.
 """
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
 # Latency threshold in milliseconds. Runs slower than this score 0.
@@ -155,4 +163,92 @@ def aggregate_thresholds(runs: list[dict[str, Any]]) -> dict[str, float | str]:
             f"mean_recall={mean_recall:.3f} mean_precision={mean_precision:.3f} "
             f"outcome_accuracy={outcome_accuracy:.3f} passed={passed}"
         ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Occurrence-level multiset evaluators (for the offline regression gate)
+# ---------------------------------------------------------------------------
+
+
+def _found_values_multiset(prediction: dict[str, Any]) -> Counter[str]:
+    """Extract barcode values as a Counter (multiset) from the prediction."""
+    items = prediction.get("items", prediction.get("found", []))
+    return Counter(f.get("barcode_value", "") for f in items)
+
+
+def _expected_values_multiset(example: Any) -> Counter[str]:
+    """Extract expected barcodes as a Counter (multiset) from the example.
+
+    Supports both the canonical schema (``expected_barcodes``) and the
+    legacy schema (``expected_values``).
+    """
+    if hasattr(example, "inputs"):
+        inputs = example.inputs
+    elif isinstance(example, dict):
+        inputs = example.get("inputs", example)
+    else:
+        inputs = example
+    barcodes = inputs.get("expected_barcodes", inputs.get("expected_values", []))
+    return Counter(barcodes)
+
+
+def occurrence_recall(run: Any, example: Any) -> dict[str, float | str]:
+    """Multiset recall: matched occurrences / expected occurrences.
+
+    If the ground truth has two identical barcodes (two physical boxes)
+    and the scanner finds only one, recall is 0.5 — not 1.0.
+    """
+    expected = _expected_values_multiset(example)
+    if not expected:
+        return {"score": 1.0, "comment": "no expected barcodes"}
+    found = _found_values_multiset(_outputs(run))
+    matched = sum((expected & found).values())
+    total_expected = sum(expected.values())
+    score = matched / total_expected if total_expected else 1.0
+    missing = expected - found
+    return {
+        "score": score,
+        "comment": (
+            f"matched {matched}/{total_expected} occurrences"
+            + (f", missing={dict(missing)}" if missing else "")
+        ),
+    }
+
+
+def occurrence_precision(run: Any, example: Any) -> dict[str, float | str]:
+    """Multiset precision: matched occurrences / found occurrences.
+
+    If the scanner finds three copies of a barcode but the ground truth
+    has only two, precision is 2/3 — the extra detection is a false positive.
+    """
+    expected = _expected_values_multiset(example)
+    found = _found_values_multiset(_outputs(run))
+    if not found:
+        return {"score": 1.0, "comment": "no found barcodes (vacuously precise)"}
+    matched = sum((expected & found).values())
+    total_found = sum(found.values())
+    score = matched / total_found if total_found else 1.0
+    fp = found - expected
+    return {
+        "score": score,
+        "comment": (
+            f"{matched}/{total_found} found occurrences match"
+            + (f", false_positives={dict(fp)}" if fp else "")
+        ),
+    }
+
+
+def barcode_accuracy(run: Any, example: Any) -> dict[str, float | str]:
+    """Per-image pass/fail: occurrence_recall == 1.0 AND occurrence_precision == 1.0.
+
+    This is the strict per-image gate. One missed barcode or one false
+    positive fails the image.
+    """
+    recall = occurrence_recall(run, example)["score"]
+    precision = occurrence_precision(run, example)["score"]
+    passed = recall == 1.0 and precision == 1.0
+    return {
+        "score": 1.0 if passed else 0.0,
+        "comment": f"recall={recall:.3f} precision={precision:.3f} passed={passed}",
     }

@@ -4,11 +4,45 @@
 
 Two evaluation modes exist with different purposes:
 
-- **`make eval`** — deterministic scanner-only regression. No Gemini, no
-  LangSmith, no Postgres, no network. Gates merges. Reproducible.
+- **`make eval`** — deterministic scanner-only regression gate. No Gemini, no
+  LangSmith, no Postgres, no network. Runs `BarcodeScanner().scan_bytes()` on
+  each image in the canonical dataset, scores with multiset evaluators, and
+  exits non-zero on quality regression against the frozen baseline.
+  Reproducible. Gates merges.
+- **`make eval-freeze`** — freeze the current scanner results as the
+  regression baseline. Overwrites `tests/eval/baseline_frozen.json`.
 - **`make eval-live`** — scanner + Gemini full-pipeline evaluation.
   Requires `GEMINI_API_KEY`. Observational, NOT a merge gate (Gemini is
   nondeterministic).
+
+## Canonical dataset
+
+`tests/eval/barcode_baseline.json` is the canonical ground-truth dataset.
+It is the deduplicated union of the original barcode-scanner dataset and
+the naot-poc ground truth. One case per image, 10 cases total (9 scorable
++ 1 excluded).
+
+`reference_outputs.barcodes` is a **multiset** (list). Duplicate values
+represent separate physical boxes and count separately. Two boxes with
+the same barcode must both be found to score 1.0 — finding one of two
+identical barcodes scores 0.5, not 1.0.
+
+Cases with `metadata.exclude_from_eval = true` are skipped (e.g.
+`fuzzy_16_labels` — ground truth not yet verified).
+
+## Multiset evaluators
+
+The offline regression gate uses occurrence-level multiset evaluators:
+
+- **occurrence_recall** — matched occurrences / expected occurrences.
+  Uses `collections.Counter` so duplicates count separately.
+- **occurrence_precision** — matched occurrences / found occurrences.
+  Extra detections of a barcode are false positives.
+- **barcode_accuracy** — strict per-image pass/fail: recall == 1.0 AND
+  precision == 1.0.
+
+The legacy set-based evaluators (`value_recall`, `value_precision`,
+`outcome_correct`, `count_exact`) remain for the live LangSmith harness.
 
 ## Product API
 
