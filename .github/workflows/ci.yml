@@ -71,3 +71,42 @@ jobs:
         # executor, idempotency, repository, session_repository, scanner,
         # routes, and smaller observability/eval/ingest gaps.
         run: pytest --cov --cov-report=term-missing --cov-fail-under=95
+
+  eval:
+    name: Eval (deterministic scanner-only)
+    runs-on: ubuntu-latest
+    # Deterministic scanner-only regression gate. No Gemini, no LangSmith,
+    # no Postgres, no network. Exits non-zero on quality regression against
+    # the frozen baseline (tests/eval/baseline_frozen.json). This enforces
+    # the AGENTS.md rule: scanner/recovery changes must not merge unless
+    # the frozen eval baseline passes.
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Cache installed dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.pythonLocation }}/lib/python*/site-packages
+            ${{ env.pythonLocation }}/bin
+          key: deps-3.12-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            deps-3.12-
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Eval (deterministic scanner-only)
+        env:
+          # Settings.from_env() requires D360_API_KEY to import, even though
+          # make eval never calls WhatsApp or Gemini.
+          D360_API_KEY: dummy
+        run: make eval

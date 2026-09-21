@@ -9,6 +9,13 @@ important properties. Operational details live in `README.md` and `docs/`.
 Order Intake. `naot-poc` is archived as reference after baseline. `echo-v2`
 donates runtime reliability patterns but remains independent. No fourth repo.
 
+**Baseline status:** PRs #0–#6 complete. The repo supports the full
+vertical slice — real shoebox photos → multi-image scan → count duplicate
+physical boxes correctly → review → choose customer + branch → create one
+local Priority-compatible draft → safely retry without duplicate creation.
+Coverage gate at 95%, mypy gating, ruff clean, `make eval` deterministic
+gate in CI. Tagged `v0.2.0-baseline`.
+
 ## Git workflow
 
 - Never work directly on `main`.
@@ -23,15 +30,13 @@ donates runtime reliability patterns but remains independent. No fourth repo.
 
 ## Verification before merge
 
-- `pytest --cov --cov-fail-under=<current_floor>` — all tests, no live Gemini
-  (tests mock `zxingcpp.read_barcodes` and `graph._traced_audit`). Coverage
-  floor ramps from 71% (PR #0, CI baseline with DB tests skipped) to 95%
-  (PR #6) as each PR rewrites a module. `test_db.py` is skipped in CI until PR #3
-  adds a real Postgres service.
+- `pytest --cov --cov-fail-under=95` — all tests, no live Gemini
+  (tests mock `zxingcpp.read_barcodes` and `graph._traced_audit`).
+  Postgres service in CI runs DB tests and runtime idempotency tests.
 - `mypy` — gating (0 errors). Was non-gating in PR #0 via
   `continue-on-error`; promoted to gating once all errors were fixed.
 - `ruff check .` — genuinely green (per-file ignores encoded in `pyproject.toml`).
-- After PR #1: `make eval` (deterministic scanner-only, gates merges).
+- `make eval` (deterministic scanner-only, gates merges).
   `make eval-live` (scanner + Gemini) is observational, NOT a gate.
 - `make eval-freeze` is the only way to rewrite `baseline_frozen.json`.
   Normal `make eval` runs must never silently rewrite the baseline.
@@ -191,9 +196,9 @@ python -m src.cli_app pipeline ./samples/multi_clear_6_boxes.jpeg --time --prett
 pytest --cov --cov-fail-under=95
 ruff check .
 mypy
-make eval          # deterministic scanner-only (after PR #1)
-make eval-live     # scanner + Gemini, observational (after PR #1)
-make eval-freeze   # rewrite baseline_frozen.json (after PR #1)
+make eval          # deterministic scanner-only (gates merges)
+make eval-live     # scanner + Gemini, observational (NOT a gate)
+make eval-freeze   # rewrite baseline_frozen.json (the ONLY way to update it)
 ```
 
 ## Lint exceptions
@@ -204,7 +209,8 @@ Run `ruff check .` — it is genuinely green.
 
 ## NOT imported from echo-v2
 
-- 95% coverage gate on day one (ramp from 74% to 95% across PRs #0–#6).
+- 95% coverage gate on day one (ramped from 74% to 95% across PRs #0–#6,
+  now at 95% baseline).
 - Strict mypy (gating once all errors fixed; was non-gating in PR #0).
 - WaitingListQueryService, SQLAlchemy/UoW notes.
 - Python 3.10/3.11 matrix (barcode-scanner requires Python >=3.12).
