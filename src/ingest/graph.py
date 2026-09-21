@@ -76,11 +76,19 @@ logger = logging.getLogger(__name__)
 
 # Version of the recovery logic (crop padding, scan_crop_with_recovery
 # variants, rotation attempt). Bumped when the recovery algorithm changes.
-RECOVERY_VERSION = "recovery-v1"
+RECOVERY_VERSION = "recovery-v2"
 
-# Padding ratio for recovery crops — wider than the label fallback (0.12) to
-# give the scanner more context around the barcode region.
-_RECOVERY_PADDING_RATIO = 0.20
+# Adaptive crop padding levels for targeted recovery. For each missing Gemini
+# region, recovery tries crops from tightest to loosest, stopping at the first
+# crop that yields a barcode. This isolates whether the bottleneck is crop
+# localization (padding helps) or ZXing decoding (padding irrelevant).
+# Ported from naot-poc's workflows/ingest_image/nodes.py.
+_RECOVERY_PADDINGS: tuple[tuple[str, float], ...] = (
+    ("exact", 0.0),
+    ("+10%", 0.10),
+    ("+25%", 0.25),
+    ("+40%", 0.40),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -212,32 +220,47 @@ def _gemini_guided_recovery(
         if w <= 0 or h <= 0:
             continue
 
-        pad_x = max(20, round(w * _RECOVERY_PADDING_RATIO))
-        pad_y = max(20, round(h * _RECOVERY_PADDING_RATIO))
+        # Adaptive padding: try tightest crop first, expand if no barcode found.
+        # Ported from naot-poc's workflows/ingest_image/nodes.py.
+        label_detections: list = []
+        successful_padding = ""
 
-        cx1 = max(0, x1 - pad_x)
-        cy1 = max(0, y1 - pad_y)
-        cx2 = min(image_width, x2 + pad_x)
-        cy2 = min(image_height, y2 + pad_y)
+        for padding_label, padding_frac in _RECOVERY_PADDINGS:
+            pad_x = round(w * padding_frac)
+            pad_y = round(h * padding_frac)
+            # Keep a minimum 20px pad so ZXing has context even at "exact".
+            pad_x = max(20, pad_x)
+            pad_y = max(20, pad_y)
 
-        crop = source.crop((cx1, cy1, cx2, cy2))
+            cx1 = max(0, x1 - pad_x)
+            cy1 = max(0, y1 - pad_y)
+            cx2 = min(image_width, x2 + pad_x)
+            cy2 = min(image_height, y2 + pad_y)
 
-        logger.info(
-            "Recovery: cropping label=%s bbox=(%d,%d,%d,%d) padded=(%d,%d,%d,%d) "
-            "crop_size=%dx%d",
-            ul.label_index,
-            x1, y1, x2, y2,
-            cx1, cy1, cx2, cy2,
-            crop.width, crop.height,
-        )
+            crop = source.crop((cx1, cy1, cx2, cy2))
 
-        detections = scanner.scan_crop_with_recovery(
-            crop,
-            offset_x=cx1,
-            offset_y=cy1,
-        )
+            logger.info(
+                "Recovery: cropping label=%s pad=%s bbox=(%d,%d,%d,%d) "
+                "padded=(%d,%d,%d,%d) crop_size=%dx%d",
+                ul.label_index,
+                padding_label,
+                x1, y1, x2, y2,
+                cx1, cy1, cx2, cy2,
+                crop.width, crop.height,
+            )
 
-        for det in detections:
+            detections = scanner.scan_crop_with_recovery(
+                crop,
+                offset_x=cx1,
+                offset_y=cy1,
+            )
+
+            if detections:
+                label_detections = detections
+                successful_padding = padding_label
+                break
+
+        for det in label_detections:
             recovery_detections.append(
                 {
                     "value": det.value,
@@ -256,12 +279,13 @@ def _gemini_guided_recovery(
                 }
             )
 
-        if detections:
+        if label_detections:
             logger.info(
-                "Recovery: label=%s decoded %d barcode(s): %s",
+                "Recovery: label=%s pad=%s decoded %d barcode(s): %s",
                 ul.label_index,
-                len(detections),
-                [d.value for d in detections],
+                successful_padding,
+                len(label_detections),
+                [d.value for d in label_detections],
             )
 
     return recovery_detections
