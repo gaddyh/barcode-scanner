@@ -24,7 +24,9 @@ donates runtime reliability patterns but remains independent. No fourth repo.
 
 - `pytest --cov --cov-fail-under=<current_floor>` — all tests, no live Gemini
   (tests mock `zxingcpp.read_barcodes` and `graph._traced_audit`). Coverage
-  floor ramps from 74% (PR #0) to 95% (PR #6) as each PR rewrites a module.
+  floor ramps from 71% (PR #0, CI baseline with DB tests skipped) to 95%
+  (PR #6) as each PR rewrites a module. `test_db.py` is skipped in CI until PR #3
+  adds a real Postgres service.
 - `mypy` — non-gating in PR #0 via `continue-on-error`; ramp to gating as
   errors are fixed (target: PR #6).
 - `ruff check .` — genuinely green (per-file ignores encoded in `pyproject.toml`).

@@ -49,6 +49,7 @@ include = ["src*"]
 testpaths = ["tests"]
 addopts = "-q"
 asyncio_mode = "auto"
+pythonpath = ["."]
 markers = [
     "live_gemini: hits the real Gemini API (slow, charged, network)",
     "asyncio: async tests using pytest-asyncio",
