@@ -40,9 +40,11 @@ user retries/reconciles it.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any
 
+import langsmith as ls
 from fastapi import (
     APIRouter,
     File,
@@ -52,6 +54,7 @@ from fastapi import (
     UploadFile,
     status,
 )
+from langsmith.schemas import Attachment
 
 from src.domain.receiving import (
     ALLOWED_ACTIONS,
@@ -71,6 +74,8 @@ from src.runtime.executor import execute
 from src.runtime.idempotency import InMemoryIdempotencyStore
 from src.runtime.policy import EXTERNAL_WRITE
 from src.session_repository import ReceivingSessionStore
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/receiving", tags=["receiving"])
 
@@ -212,48 +217,48 @@ def _session_response(session: ReceivingSession) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# POST /receiving/sessions — create or resume session (no context required)
+# Traced receiving operations — accept langsmith_extra at call time so the
+# route handler can assign an explicit run_id (trace_id) and metadata.
 # ---------------------------------------------------------------------------
 
 
-@router.post("/sessions")
-async def create_session(
+def _sanitize_upload_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
+    """Keep the filename out of the traced raw bytes."""
+    file = inputs.get("file")
+    return {
+        "filename": getattr(file, "filename", None),
+        "content_type": getattr(file, "content_type", None),
+    }
+
+
+def _attach_image_to_run(image_bytes: bytes, mime_type: str) -> None:
+    """Attach the uploaded image to the current LangSmith run as a viewable attachment."""
+    run = ls.get_current_run_tree()
+    if run is not None:
+        run.attachments = {  # type: ignore[assignment]
+            "uploaded_image": Attachment(mime_type=mime_type, data=image_bytes)
+        }
+
+
+@ls.traceable(
+    name="receiving_create_session",
+    run_type="chain",
+    tags=["barcode-scanner", "web", "receiving"],
+    metadata={
+        "channel": "web",
+        "endpoint": "/receiving/sessions",
+    },
+)
+async def _traced_create_session(
+    *,
+    store: ReceivingSessionStore,
+    participant_id: str,
+    customer_id: str | None,
+    branch_id: str | None,
+    action: str | None,
     response: Response,
-    participant_id: str = Form(
-        "", description="Operator/participant ID (one unresolved session per participant)"
-    ),
-    customer_id: str = Form(
-        "", description="Optional Priority customer ID (attach later via /context)"
-    ),
-    branch_id: str = Form(
-        "", description="Optional Priority branch ID (attach later via /context)"
-    ),
-    action: str = Form(
-        "",
-        description="Optional action (create_order or verify_order_before_shipment; "
-        "attach later via /context)",
-    ),
 ) -> dict[str, Any]:
-    """Create a new receiving session, or resume an existing ACTIVE one.
-
-    Scan-first: business context (customer/branch/action) is OPTIONAL at
-    creation. The session starts ACTIVE with no context; the user scans
-    first, then attaches context via ``POST /context`` before submitting.
-
-    One unresolved receiving session per participant:
-    - If the participant has an ACTIVE session, resume it (200) — the
-      caller treats 200 and 201 identically.
-    - If the participant has a SUBMISSION_UNKNOWN session, return 409
-      (must retry/resolve before creating a new one).
-
-    Returns 201 when a new session is created, 200 when an existing
-    ACTIVE session is resumed.
-    """
-    store = _get_receiving_store()
-
-    # Resume an existing ACTIVE session for this participant, or block
-    # on a SUBMISSION_UNKNOWN one. An empty participant_id skips the
-    # lookup (each call gets a fresh session — used by tests/CLI).
+    """Traced session creation/resume."""
     if participant_id.strip():
         existing = await store.find_open_submission_by_participant(participant_id)
         if existing is not None:
@@ -271,29 +276,25 @@ async def create_session(
                         "existing_status": existing.status.value,
                     },
                 )
-            # ACTIVE — resume it.
             resp = _session_response(existing)
-            # 200, not 201 — the session already existed.
             response.status_code = status.HTTP_200_OK
+            run = ls.get_current_run_tree()
+            if run is not None:
+                run.metadata.update({"resumed_session_id": existing.session_id})
             return resp
 
     session_id = str(uuid.uuid4())
-    # Use session_id as participant_id when none is provided, so the
-    # session graph can find the session row by participant_id.
     effective_participant_id = participant_id.strip() or session_id
 
-    # Context is optional at creation. If provided, validate it; if not,
-    # store None (the DB columns are nullable).
-    ctx_customer = customer_id.strip() or None
-    ctx_branch = branch_id.strip() or None
-    ctx_action = action.strip() or None
+    ctx_customer = customer_id.strip() or None if customer_id else None
+    ctx_branch = branch_id.strip() or None if branch_id else None
+    ctx_action = action.strip() or None if action else None
     if ctx_action is not None and ctx_action not in ALLOWED_ACTIONS:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"code": "invalid_action", "message": "Unsupported action."},
         )
     if ctx_customer is not None or ctx_branch is not None:
-        # If any context field is provided, require all three and validate.
         if ctx_customer is None or ctx_branch is None or ctx_action is None:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -316,9 +317,360 @@ async def create_session(
     )
 
     session = await store.get_receiving_session(session_id)
-    assert session is not None  # just created
+    assert session is not None
     response.status_code = status.HTTP_201_CREATED
+    run = ls.get_current_run_tree()
+    if run is not None:
+        run.metadata.update({"new_session_id": session_id})
     return _session_response(session)
+
+
+@ls.traceable(
+    name="receiving_upload_image",
+    run_type="chain",
+    tags=["barcode-scanner", "web", "receiving", "image-upload"],
+    metadata={
+        "channel": "web",
+        "endpoint": "/receiving/sessions/images",
+    },
+    process_inputs=_sanitize_upload_inputs,
+)
+async def _traced_upload_image(
+    *,
+    session_id: str,
+    file: UploadFile,
+    session: ReceivingSession,
+    image_bytes: bytes,
+) -> dict[str, Any]:
+    """Traced image upload + scan-graph accumulation."""
+    _attach_image_to_run(image_bytes, (file.content_type or "image/jpeg"))
+
+    from src.ingest.session_graph import run_session_graph
+    from src.main import _db_pool
+    from src.session_repository import SessionRepository
+
+    if _db_pool is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "persistence_unavailable",
+                "message": "Postgres is not configured; image upload is disabled.",
+            },
+        )
+    repo = SessionRepository(_db_pool)
+
+    ingest_participant_id = session.participant_id or session_id
+
+    result = await run_session_graph(
+        image_bytes,
+        repo=repo,
+        source="web",
+        channel="web",
+        participant_id=ingest_participant_id,
+        customer_id=session.customer_id,
+        branch_id=session.branch_id,
+        action=session.action,
+    )
+
+    run = ls.get_current_run_tree()
+    if run is not None:
+        run.metadata.update(
+            {
+                "outcome": result.status.value,
+                "boxes_added": result.found_count,
+                "expected_count": result.expected_count,
+                "missing_count": result.missing_count,
+                "image_count": result.image_count,
+            }
+        )
+
+    if result.status.value == "failed":
+        latest = result.latest_image
+        if latest and latest.error:
+            msg = latest.error.get("message", "Analysis failed.")
+        else:
+            msg = "Analysis failed."
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"code": "analysis_failed", "message": msg},
+        )
+
+    return {
+        "session_id": session_id,
+        "status": "active",
+        "outcome": result.status.value,
+        "boxes_added": result.found_count,
+        "total_boxes": result.found_count,
+        "expected_count": result.expected_count,
+        "missing_count": result.missing_count,
+        "discrepancy": {
+            "expected": result.expected_count,
+            "found": result.found_count,
+            "missing": result.missing_count,
+            "is_complete": result.missing_count == 0 and result.expected_count > 0,
+        },
+        "candidates": [c.model_dump(mode="json") for c in result.candidates],
+        "message": result.message,
+    }
+
+
+@ls.traceable(
+    name="receiving_attach_context",
+    run_type="chain",
+    tags=["barcode-scanner", "web", "receiving"],
+    metadata={
+        "channel": "web",
+        "endpoint": "/receiving/sessions/context",
+    },
+)
+async def _traced_attach_context(
+    *,
+    session_id: str,
+    customer_id: str,
+    branch_id: str,
+    action: str,
+    store: ReceivingSessionStore,
+) -> dict[str, Any]:
+    """Traced context attachment."""
+    await _validate_customer_and_branch(customer_id, branch_id)
+
+    session = await store.get_receiving_session(session_id)
+    if session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "session_not_found", "message": "Session not found."},
+        )
+    if session.status != ReceivingSessionStatus.ACTIVE:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "session_not_editable",
+                "message": f"Session is {session.status.value}; cannot attach context.",
+            },
+        )
+
+    ok = await store.update_session_context(
+        session_id,
+        customer_id=customer_id,
+        branch_id=branch_id,
+        action=action,
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "session_not_editable", "message": "Session is no longer active."},
+        )
+
+    session = await store.get_receiving_session(session_id)
+    assert session is not None
+    run = ls.get_current_run_tree()
+    if run is not None:
+        run.metadata.update({"customer_id": customer_id, "branch_id": branch_id, "action": action})
+    return _session_response(session)
+
+
+@ls.traceable(
+    name="receiving_submit",
+    run_type="chain",
+    tags=["barcode-scanner", "web", "receiving", "submit"],
+    metadata={
+        "channel": "web",
+        "endpoint": "/receiving/sessions/submit",
+    },
+)
+async def _traced_submit(
+    *,
+    session_id: str,
+    session: ReceivingSession,
+    store: ReceivingSessionStore,
+) -> dict[str, Any]:
+    """Traced session submission — freeze + create draft order."""
+    if session.status == ReceivingSessionStatus.SUBMITTED:
+        run = ls.get_current_run_tree()
+        if run is not None:
+            run.metadata.update({"idempotent": True, "order_id": session.external_order_id})
+        return {
+            "session_id": session_id,
+            "status": session.status.value,
+            "order_id": session.external_order_id,
+            "idempotent": True,
+        }
+
+    if session.status == ReceivingSessionStatus.SUBMITTING:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "submission_in_progress",
+                "message": "Submission is already in progress.",
+            },
+        )
+
+    if (
+        session.status != ReceivingSessionStatus.ACTIVE
+        and session.status != ReceivingSessionStatus.SUBMISSION_UNKNOWN
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "invalid_state",
+                "message": f"Session is {session.status.value}; cannot submit.",
+            },
+        )
+
+    if not session.boxes:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "empty_order", "message": "Cannot submit an empty draft order."},
+        )
+
+    if not session.has_context:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "order_context_required",
+                "message": "Choose a customer, branch, and action before submitting.",
+            },
+        )
+
+    if session.status == ReceivingSessionStatus.ACTIVE:
+        quantities = session.aggregate_quantities()
+        frozen_payload: dict[str, Any] = {
+            "session_id": session.session_id,
+            "customer_id": session.customer_id,
+            "branch_id": session.branch_id,
+            "action": session.action,
+            "items": [
+                {"barcode_value": value, "barcode_format": fmt, "quantity": qty}
+                for value, fmt, qty in quantities
+            ],
+        }
+        ok = await store.freeze_submission(session_id, frozen_payload)
+        if not ok:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "submission_in_progress",
+                    "message": "Another submission is already in progress.",
+                },
+            )
+    else:
+        frozen = await store.get_frozen_payload(session_id)
+        if frozen is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={
+                    "code": "frozen_payload_missing",
+                    "message": "No frozen payload found for retry.",
+                },
+            )
+        frozen_payload = frozen
+
+    request = CreateDraftOrderRequest.from_payload(frozen_payload)
+
+    context = RunContext(
+        run_id=str(uuid.uuid4()),
+        session_id=session.session_id,
+        source="web",
+    )
+
+    try:
+        result = await execute(
+            _create_draft_order_operation,
+            request,
+            context,
+            name="priority_create_draft_order",
+            policy=EXTERNAL_WRITE,
+            idempotency_key=f"priority:draft:{session_id}",
+            idempotency_store=_get_idempotency_store(),
+        )
+    except IndeterminateError as exc:
+        await store.mark_submission_unknown(session_id)
+        run = ls.get_current_run_tree()
+        if run is not None:
+            run.metadata.update({"submission_status": "unknown"})
+        return {
+            "session_id": session_id,
+            "status": ReceivingSessionStatus.SUBMISSION_UNKNOWN.value,
+            "error": {"code": "submission_unknown", "message": str(exc)},
+            "retry_recommended": True,
+        }
+    except RetryableError as exc:
+        await store.revert_to_active(session_id)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"code": "submission_failed", "message": str(exc)},
+        ) from exc
+    except PermanentError as exc:
+        await store.revert_to_active(session_id)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "submission_permanent_error", "message": str(exc)},
+        ) from exc
+
+    order_id = result["order_id"]
+    await store.mark_submitted(session_id, order_id)
+
+    run = ls.get_current_run_tree()
+    if run is not None:
+        run.metadata.update({"order_id": order_id, "submission_status": "submitted"})
+
+    return {
+        "session_id": session_id,
+        "status": ReceivingSessionStatus.SUBMITTED.value,
+        "order_id": order_id,
+        "items": [
+            {
+                "barcode_value": item.barcode_value,
+                "barcode_format": item.barcode_format,
+                "quantity": item.quantity,
+            }
+            for item in request.items
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# POST /receiving/sessions — create or resume session (no context required)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/sessions")
+async def create_session(
+    response: Response,
+    participant_id: str = Form(
+        "", description="Operator/participant ID (one unresolved session per participant)"
+    ),
+    customer_id: str = Form(
+        "", description="Optional Priority customer ID (attach later via /context)"
+    ),
+    branch_id: str = Form(
+        "", description="Optional Priority branch ID (attach later via /context)"
+    ),
+    action: str = Form(
+        "",
+        description="Optional action (create_order or verify_order_before_shipment; "
+        "attach later via /context)",
+    ),
+) -> dict[str, Any]:
+    """Create a new receiving session, or resume an existing ACTIVE one."""
+    store = _get_receiving_store()
+    trace_id = str(uuid.uuid4())
+
+    return await _traced_create_session(
+        store=store,
+        participant_id=participant_id,
+        customer_id=customer_id,
+        branch_id=branch_id,
+        action=action,
+        response=response,
+        langsmith_extra={
+            "run_id": trace_id,
+            "metadata": {
+                "session_id": None,
+                "participant_id": participant_id or None,
+            },
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -356,46 +708,27 @@ async def attach_context(
             detail={"code": "invalid_action", "message": "Unsupported action."},
         )
 
-    await _validate_customer_and_branch(customer_id, branch_id)
-
     store = _get_receiving_store()
-    session = await store.get_receiving_session(session_id)
-    if session is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"code": "session_not_found", "message": "Session not found."},
-        )
-    if session.status != ReceivingSessionStatus.ACTIVE:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "session_not_editable",
-                "message": (
-                    f"Session is {session.status.value}; "
-                    f"cannot attach context."
-                ),
-            },
-        )
+    trace_id = str(uuid.uuid4())
 
-    ok = await store.update_session_context(
-        session_id,
+    # Fetch session to get participant_id for tracing.
+    session = await store.get_receiving_session(session_id)
+    participant_id = session.participant_id if session else None
+
+    return await _traced_attach_context(
+        session_id=session_id,
         customer_id=customer_id,
         branch_id=branch_id,
         action=action,
-    )
-    if not ok:
-        # Lost the race — another caller moved the session out of ACTIVE.
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "session_not_editable",
-                "message": "Session is no longer active.",
+        store=store,
+        langsmith_extra={
+            "run_id": trace_id,
+            "metadata": {
+                "session_id": session_id,
+                "participant_id": participant_id,
             },
-        )
-
-    session = await store.get_receiving_session(session_id)
-    assert session is not None
-    return _session_response(session)
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -427,81 +760,29 @@ async def upload_image(
             status_code=status.HTTP_409_CONFLICT,
             detail={
                 "code": "session_not_editable",
-                "message": (
-                    f"Session is {session.status.value}; "
-                    f"cannot add images."
-                ),
+                "message": f"Session is {session.status.value}; cannot add images.",
             },
         )
 
     image_bytes = await file.read()
+    trace_id = str(uuid.uuid4())
 
-    # Use the persisted SessionRepository for cross-image accumulation.
-    # run_session_graph reads/writes session_items and session_missing
-    # rows, applies the targeted-retry occurrence contract, and updates
-    # expected_count/found_count/missing_count.
-    from src.ingest.session_graph import run_session_graph
-    from src.main import _db_pool
-    from src.session_repository import SessionRepository
-
-    if _db_pool is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                "code": "persistence_unavailable",
-                "message": "Postgres is not configured; image upload is disabled.",
+    return await _traced_upload_image(
+        session_id=session_id,
+        file=file,
+        session=session,
+        image_bytes=image_bytes,
+        langsmith_extra={
+            "run_id": trace_id,
+            "metadata": {
+                "session_id": session_id,
+                "participant_id": session.participant_id,
+                "upload_bytes": len(image_bytes),
+                "filename": file.filename,
             },
-        )
-    repo = SessionRepository(_db_pool)
-
-    # Use the receiving session's participant_id so the ingest session
-    # is 1:1 with the receiving session. The ingest session accumulates
-    # boxes; the receiving session tracks submission state. They share
-    # the same session_id row in the sessions table.
-    ingest_participant_id = session.participant_id or session_id
-
-    result = await run_session_graph(
-        image_bytes,
-        repo=repo,
-        source="web",
-        channel="web",
-        participant_id=ingest_participant_id,
-        customer_id=session.customer_id,
-        branch_id=session.branch_id,
-        action=session.action,
-    )
-
-    if result.status.value == "failed":
-        latest = result.latest_image
-        if latest and latest.error:
-            msg = latest.error.get("message", "Analysis failed.")
-        else:
-            msg = "Analysis failed."
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail={
-                "code": "analysis_failed",
-                "message": msg,
-            },
-        )
-
-    return {
-        "session_id": session_id,
-        "status": "active",  # receiving session stays active until submit
-        "outcome": result.status.value,
-        "boxes_added": result.found_count,
-        "total_boxes": result.found_count,
-        "expected_count": result.expected_count,
-        "missing_count": result.missing_count,
-        "discrepancy": {
-            "expected": result.expected_count,
-            "found": result.found_count,
-            "missing": result.missing_count,
-            "is_complete": result.missing_count == 0 and result.expected_count > 0,
+            "tags": ["source:web", "image-upload"],
         },
-        "candidates": [c.model_dump(mode="json") for c in result.candidates],
-        "message": result.message,
-    }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -551,171 +832,59 @@ async def submit_session(session_id: str) -> dict[str, Any]:
             detail={"code": "session_not_found", "message": "Session not found."},
         )
 
-    # Already submitted — return the cached result.
-    if session.status == ReceivingSessionStatus.SUBMITTED:
-        return {
-            "session_id": session_id,
-            "status": session.status.value,
-            "order_id": session.external_order_id,
-            "idempotent": True,
-        }
+    trace_id = str(uuid.uuid4())
 
-    if session.status == ReceivingSessionStatus.SUBMITTING:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "submission_in_progress",
-                "message": "Submission is already in progress.",
+    return await _traced_submit(
+        session_id=session_id,
+        session=session,
+        store=store,
+        langsmith_extra={
+            "run_id": trace_id,
+            "metadata": {
+                "session_id": session_id,
+                "participant_id": session.participant_id,
+                "box_count": len(session.boxes),
+                "has_context": session.has_context,
             },
-        )
-
-    if (
-        session.status != ReceivingSessionStatus.ACTIVE
-        and session.status != ReceivingSessionStatus.SUBMISSION_UNKNOWN
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "invalid_state",
-                "message": f"Session is {session.status.value}; cannot submit.",
-            },
-        )
-
-    # Reject empty orders.
-    if not session.boxes:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={
-                "code": "empty_order",
-                "message": "Cannot submit an empty draft order.",
-            },
-        )
-
-    # Require business context before submitting. The scan-first flow
-    # creates sessions without context; it must be attached via
-    # POST /context before the draft order can be created.
-    if not session.has_context:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={
-                "code": "order_context_required",
-                "message": (
-                    "Choose a customer, branch, and action before submitting."
-                ),
-            },
-        )
-
-    # Build the frozen order payload from the current session contents
-    # (ACTIVE path). On retry from SUBMISSION_UNKNOWN, the frozen
-    # payload is already persisted — reuse it verbatim. The request
-    # passed to execute() is then rebuilt FROM the final payload, so
-    # the same idempotency key always pairs with the exact same payload.
-    if session.status == ReceivingSessionStatus.ACTIVE:
-        quantities = session.aggregate_quantities()
-        frozen_payload: dict[str, Any] = {
-            "session_id": session.session_id,
-            "customer_id": session.customer_id,
-            "branch_id": session.branch_id,
-            "action": session.action,
-            "items": [
-                {
-                    "barcode_value": value,
-                    "barcode_format": fmt,
-                    "quantity": qty,
-                }
-                for value, fmt, qty in quantities
-            ],
-        }
-        ok = await store.freeze_submission(session_id, frozen_payload)
-        if not ok:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "code": "submission_in_progress",
-                    "message": "Another submission is already in progress.",
-                },
-            )
-    else:
-        # Retry from SUBMISSION_UNKNOWN — use the already-frozen payload.
-        frozen = await store.get_frozen_payload(session_id)
-        if frozen is None:
-            # Defensive: SUBMISSION_UNKNOWN without a frozen payload
-            # shouldn't happen (freeze_submission persists it before the
-            # indeterminate transition). Treat as a server error.
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={
-                    "code": "frozen_payload_missing",
-                    "message": "No frozen payload found for retry.",
-                },
-            )
-        frozen_payload = frozen
-
-    # Rebuild the request from the final payload — the same dict that
-    # is persisted and paired with the idempotency key. This restores
-    # the invariant: same key → exact same payload, even on retry.
-    request = CreateDraftOrderRequest.from_payload(frozen_payload)
-
-    context = RunContext(
-        run_id=str(uuid.uuid4()),
-        session_id=session.session_id,
-        source="web",
+        },
     )
 
-    try:
-        result = await execute(
-            _create_draft_order_operation,
-            request,
-            context,
-            name="priority_create_draft_order",
-            policy=EXTERNAL_WRITE,
-            idempotency_key=f"priority:draft:{session_id}",
-            idempotency_store=_get_idempotency_store(),
+
+# ---------------------------------------------------------------------------
+# GET /receiving/sessions/{id} — inspect session
+# ---------------------------------------------------------------------------
+
+
+@ls.traceable(
+    name="receiving_get_session",
+    run_type="chain",
+    tags=["barcode-scanner", "web", "receiving"],
+    metadata={
+        "channel": "web",
+        "endpoint": "/receiving/sessions",
+    },
+)
+async def _traced_get_session(
+    *,
+    session_id: str,
+    store: ReceivingSessionStore,
+) -> dict[str, Any]:
+    """Traced session inspection."""
+    session = await store.get_receiving_session(session_id)
+    if session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "session_not_found", "message": "Session not found."},
         )
-    except IndeterminateError as exc:
-        await store.mark_submission_unknown(session_id)
-        return {
+    run = ls.get_current_run_tree()
+    if run is not None:
+        run.metadata.update({
             "session_id": session_id,
-            "status": ReceivingSessionStatus.SUBMISSION_UNKNOWN.value,
-            "error": {"code": "submission_unknown", "message": str(exc)},
-            "retry_recommended": True,
-        }
-    except RetryableError as exc:
-        # Pre-submit failure — revert to ACTIVE so the user can retry/edit.
-        await store.revert_to_active(session_id)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail={
-                "code": "submission_failed",
-                "message": str(exc),
-            },
-        ) from exc
-    except PermanentError as exc:
-        await store.revert_to_active(session_id)
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "submission_permanent_error",
-                "message": str(exc),
-            },
-        ) from exc
-
-    order_id = result["order_id"]
-    await store.mark_submitted(session_id, order_id)
-
-    return {
-        "session_id": session_id,
-        "status": ReceivingSessionStatus.SUBMITTED.value,
-        "order_id": order_id,
-        "items": [
-            {
-                "barcode_value": item.barcode_value,
-                "barcode_format": item.barcode_format,
-                "quantity": item.quantity,
-            }
-            for item in request.items
-        ],
-    }
+            "participant_id": session.participant_id,
+            "status": session.status.value,
+            "box_count": len(session.boxes),
+        })
+    return _session_response(session)
 
 
 # ---------------------------------------------------------------------------
@@ -727,10 +896,13 @@ async def submit_session(session_id: str) -> dict[str, Any]:
 async def get_session(session_id: str) -> dict[str, Any]:
     """Get the current state of a receiving session."""
     store = _get_receiving_store()
-    session = await store.get_receiving_session(session_id)
-    if session is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"code": "session_not_found", "message": "Session not found."},
-        )
-    return _session_response(session)
+    trace_id = str(uuid.uuid4())
+
+    return await _traced_get_session(
+        session_id=session_id,
+        store=store,
+        langsmith_extra={
+            "run_id": trace_id,
+            "metadata": {"session_id": session_id},
+        },
+    )
