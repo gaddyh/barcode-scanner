@@ -12,12 +12,22 @@ from src.evals.annotation_store import (
     list_reviewed,
     submit_review,
 )
-from src.evals.datasets import DATASET_PATH, SAMPLES_DIR, load_dataset
+from src.evals.datasets import (
+    CANONICAL_DATASET_PATH,
+    DATASET_PATH,
+    LEGACY_DATASET_PATH,
+    SAMPLES_DIR,
+    load_dataset,
+    load_legacy_dataset,
+)
 from src.evals.evaluators import (
     LATENCY_THRESHOLD_MS,
     aggregate_thresholds,
+    barcode_accuracy,
     count_exact,
     latency,
+    occurrence_precision,
+    occurrence_recall,
     outcome_correct,
     recovery_gain,
     value_precision,
@@ -29,7 +39,10 @@ from src.evals.runner import run_eval
 
 __all__ = [
     "load_dataset",
+    "load_legacy_dataset",
+    "CANONICAL_DATASET_PATH",
     "DATASET_PATH",
+    "LEGACY_DATASET_PATH",
     "SAMPLES_DIR",
     "value_recall",
     "value_precision",
@@ -38,6 +51,9 @@ __all__ = [
     "recovery_gain",
     "latency",
     "aggregate_thresholds",
+    "occurrence_recall",
+    "occurrence_precision",
+    "barcode_accuracy",
     "LATENCY_THRESHOLD_MS",
     "run_eval",
     "evaluate_production_run",
