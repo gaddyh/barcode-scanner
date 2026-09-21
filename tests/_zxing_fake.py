@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import zxingcpp
+
 
 @dataclass(frozen=True)
 class FakePoint:
@@ -33,7 +35,7 @@ class FakeReadResult:
 
     text: str
     position: FakePosition
-    format: int = 0  # zxingcpp.BarcodeFormat.Code128
+    format: zxingcpp.BarcodeFormat = zxingcpp.BarcodeFormat.Code128
     content_type: str = "Text"
     orientation: int = 0
 
