@@ -121,6 +121,21 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("No DATABASE_URL — using NoOp repository (no persistence)")
 
+    # Optional Gemini audit cache mode for deterministic full-pipeline runs
+    # (sanity script, eval replay). When set to "replay", the graph uses
+    # the frozen cached Gemini results from tests/eval/gemini_audit_cache.json
+    # instead of calling Gemini live — making the full pipeline deterministic.
+    audit_cache_mode = os.getenv("GEMINI_AUDIT_CACHE_MODE", "").strip().lower()
+    if audit_cache_mode in ("replay", "capture"):
+        from src.evals.gemini_cache import GeminiAuditCache
+        from src.ingest import graph
+
+        cache = GeminiAuditCache()
+        graph.set_audit_cache_mode(audit_cache_mode, cache)
+        logger.info(
+            "Gemini audit cache mode=%s entries=%d", audit_cache_mode, len(cache)
+        )
+
     yield
 
     if _db_pool is not None:

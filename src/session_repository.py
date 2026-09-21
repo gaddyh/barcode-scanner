@@ -503,9 +503,9 @@ def _row_to_receiving_session(
     ]
     return ReceivingSession(
         session_id=row["id"],
-        customer_id=row.get("customer_id") or "",
-        branch_id=row.get("branch_id") or "",
-        action=row.get("action") or "",
+        customer_id=row.get("customer_id"),
+        branch_id=row.get("branch_id"),
+        action=row.get("action"),
         participant_id=row.get("participant_id"),
         boxes=boxes,
         status=submission_status,
@@ -533,14 +533,20 @@ class ReceivingSessionStore:
         self,
         session_id: str,
         *,
-        customer_id: str,
-        branch_id: str,
-        action: str,
+        customer_id: str | None,
+        branch_id: str | None,
+        action: str | None,
         participant_id: str | None = None,
         channel: str = "web",
         source: str = "web",
     ) -> None:
-        """Insert a new receiving session row with submission_status='active'."""
+        """Insert a new receiving session row with submission_status='active'.
+
+        Business context (customer_id/branch_id/action) is optional —
+        the scan-first flow creates sessions before the user has chosen
+        a customer/branch/action. They are attached later via
+        ``update_session_context``.
+        """
         async with self._pool.acquire() as conn:
             await conn.execute(
                 """INSERT INTO sessions
@@ -632,6 +638,37 @@ class ReceivingSessionStore:
                 return None
             loaded: dict[str, Any] = json.loads(row["frozen_order_payload"])
             return loaded
+
+    async def update_session_context(
+        self,
+        session_id: str,
+        *,
+        customer_id: str,
+        branch_id: str,
+        action: str,
+    ) -> bool:
+        """CAS: attach business context to an ACTIVE session.
+
+        Only updates when ``submission_status = 'active'`` — context
+        cannot be changed once submission has started (frozen). Returns
+        True on success, False if the session was not found or was not
+        active.
+        """
+        async with self._pool.acquire() as conn:
+            result = await conn.fetchval(
+                """UPDATE sessions
+                   SET customer_id = $2,
+                       branch_id = $3,
+                       action = $4,
+                       updated_at = NOW()
+                   WHERE id = $1 AND submission_status = 'active'
+                   RETURNING id""",
+                session_id,
+                customer_id,
+                branch_id,
+                action,
+            )
+        return result is not None
 
     async def freeze_submission(
         self,

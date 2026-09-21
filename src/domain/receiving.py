@@ -102,10 +102,26 @@ class Discrepancy:
         return self.expected > 0 and self.found >= self.expected
 
 
+# Allowed business actions for a receiving session. The action is
+# attached AFTER scanning (see ``attach_context``), so it starts as
+# None and is set before submitting to Priority.
+ALLOWED_ACTIONS: frozenset[str] = frozenset(
+    {"create_order", "verify_order_before_shipment"}
+)
+
+
 @dataclass
 class ReceivingSession:
-    """A receiving session — the product-level model of one customer +
-    branch + set of photos + draft order.
+    """A receiving session — the product-level model of one set of photos
+    plus an optional business context (customer + branch + action) and
+    draft order.
+
+    Business context (``customer_id`` / ``branch_id`` / ``action``) is
+    OPTIONAL at creation: a session is created when the user starts
+    scanning, before they have chosen what to do with the scan result.
+    ``attach_context`` sets them later, before submitting to Priority.
+    All three are ``None`` until attached — never empty strings — so
+    "not yet chosen" is unambiguous and matches DB null semantics.
 
     ``boxes`` is a list of physical box occurrences (multiset). The same
     barcode value may appear multiple times — each occurrence is a
@@ -120,9 +136,9 @@ class ReceivingSession:
     """
 
     session_id: str
-    customer_id: str
-    branch_id: str
-    action: str
+    customer_id: str | None = None
+    branch_id: str | None = None
+    action: str | None = None
     participant_id: str | None = None
     boxes: list[PhysicalBox] = field(default_factory=list)
     status: ReceivingSessionStatus = ReceivingSessionStatus.ACTIVE
@@ -141,6 +157,38 @@ class ReceivingSession:
         if self.frozen:
             raise self._frozen_error()
         self.boxes.extend(boxes)
+
+    @property
+    def has_context(self) -> bool:
+        """True once customer + branch + action have all been attached."""
+        return (
+            self.customer_id is not None
+            and self.branch_id is not None
+            and self.action is not None
+        )
+
+    def attach_context(
+        self, customer_id: str, branch_id: str, action: str
+    ) -> None:
+        """Attach the business context (customer + branch + action).
+
+        Called after scanning, before submitting to Priority. All three
+        are required and must be non-empty. ``action`` must be one of
+        ``ALLOWED_ACTIONS``. Raises if the session is frozen (not
+        ACTIVE) — context cannot be changed once submission has started.
+        """
+        if self.frozen:
+            raise self._frozen_error()
+        if not customer_id.strip() or not branch_id.strip():
+            raise ValueError("customer_id and branch_id are required.")
+        if action not in ALLOWED_ACTIONS:
+            raise ValueError(
+                f"Unsupported action '{action}'. "
+                f"Allowed: {sorted(ALLOWED_ACTIONS)}."
+            )
+        self.customer_id = customer_id
+        self.branch_id = branch_id
+        self.action = action
 
     def freeze(self) -> None:
         """Transition to SUBMITTING and freeze contents.

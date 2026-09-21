@@ -72,6 +72,32 @@ class CreateDraftOrderRequest:
             for item in self.items
         ]
 
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> CreateDraftOrderRequest:
+        """Reconstruct a request from a persisted frozen payload dict.
+
+        The frozen payload is the exact dict persisted at ACTIVE →
+        SUBMITTING and reused on every retry. Rebuilding the request
+        from it (rather than from the live session) guarantees the
+        invariant: same idempotency key → exact same payload.
+        """
+        items = [
+            OrderLineItem(
+                barcode_value=item["barcode_value"],
+                barcode_format=item.get("barcode_format", ""),
+                quantity=item["quantity"],
+                label_index=item.get("label_index"),
+            )
+            for item in payload.get("items", [])
+        ]
+        return cls(
+            session_id=payload["session_id"],
+            customer_id=payload["customer_id"],
+            branch_id=payload["branch_id"],
+            action=payload["action"],
+            items=items,
+        )
+
 
 @dataclass(frozen=True)
 class CreateDraftOrderResult:

@@ -250,9 +250,9 @@ export async function selectCandidate(
 export interface ReceivingSessionResponse {
   session_id: string;
   status: "active" | "submitting" | "submitted" | "submission_unknown";
-  customer_id: string;
-  branch_id: string;
-  action: OrderAction;
+  customer_id: string | null;
+  branch_id: string | null;
+  action: OrderAction | null;
   participant_id: string | null;
   box_count: number;
   expected_count: number;
@@ -297,20 +297,40 @@ export interface ReceivingSubmitResponse {
 }
 
 export async function createReceivingSession(
+  participantId?: string,
+  customerId?: string,
+  branchId?: string,
+  action?: OrderAction,
+): Promise<ReceivingSessionResponse> {
+  const form = new FormData();
+  if (participantId) form.append("participant_id", participantId);
+  if (customerId) form.append("customer_id", customerId);
+  if (branchId) form.append("branch_id", branchId);
+  if (action) form.append("action", action);
+  const res = await fetch(`${apiBaseUrl}/receiving/sessions`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    throw new Error(await extractError(res));
+  }
+  return (await res.json()) as ReceivingSessionResponse;
+}
+
+export async function attachReceivingSessionContext(
+  sessionId: string,
   customerId: string,
   branchId: string,
   action: OrderAction,
-  participantId?: string,
 ): Promise<ReceivingSessionResponse> {
   const form = new FormData();
   form.append("customer_id", customerId);
   form.append("branch_id", branchId);
   form.append("action", action);
-  if (participantId) form.append("participant_id", participantId);
-  const res = await fetch(`${apiBaseUrl}/receiving/sessions`, {
-    method: "POST",
-    body: form,
-  });
+  const res = await fetch(
+    `${apiBaseUrl}/receiving/sessions/${encodeURIComponent(sessionId)}/context`,
+    { method: "POST", body: form },
+  );
   if (!res.ok) {
     throw new Error(await extractError(res));
   }
