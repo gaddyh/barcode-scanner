@@ -414,6 +414,7 @@ def _reshape(
             "missing_count": missing_count,
             "unassigned_count": unassigned_count,
             "all_found": all_found,
+            "audit_latency_ms": summary.get("audit_latency_ms", 0),
             "recovery": summary.get("recovery", {
                 "attempted": False,
                 "labels_tried": 0,

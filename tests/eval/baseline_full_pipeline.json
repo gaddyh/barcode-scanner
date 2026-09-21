@@ -1,24 +1,27 @@
 {
   "aggregate": {
     "n": 9,
-    "mean_occurrence_recall": 0.6666666666666666,
-    "mean_occurrence_precision": 0.8703703703703703,
-    "barcode_accuracy": 0.3333333333333333,
-    "total_matched_occurrences": 49.0,
+    "mean_occurrence_recall": 0.8148148148148148,
+    "mean_occurrence_precision": 0.9713804713804713,
+    "barcode_accuracy": 0.4444444444444444,
+    "total_matched_occurrences": 54.0,
     "total_expected_occurrences": 74,
-    "total_found_occurrences": 52,
-    "p50_latency_ms": 4630,
-    "p95_latency_ms": 6917
+    "total_found_occurrences": 57,
+    "p50_latency_ms": 2588,
+    "p95_latency_ms": 3176,
+    "p50_audit_latency_ms": 0,
+    "p95_audit_latency_ms": 0
   },
   "cases": [
     {
       "id": "marny_brown_42",
       "expected_count": 1,
       "found_count": 1,
-      "occurrence_recall": 0.0,
-      "occurrence_precision": 0.0,
-      "barcode_accuracy": 0.0,
-      "elapsed_ms": 2635
+      "occurrence_recall": 1.0,
+      "occurrence_precision": 1.0,
+      "barcode_accuracy": 1.0,
+      "elapsed_ms": 3176,
+      "audit_latency_ms": 0
     },
     {
       "id": "multi_clear_6_boxes",
@@ -27,7 +30,8 @@
       "occurrence_recall": 1.0,
       "occurrence_precision": 1.0,
       "barcode_accuracy": 1.0,
-      "elapsed_ms": 4042
+      "elapsed_ms": 1704,
+      "audit_latency_ms": 0
     },
     {
       "id": "multi_12_clean",
@@ -36,7 +40,8 @@
       "occurrence_recall": 0.9166666666666666,
       "occurrence_precision": 0.9166666666666666,
       "barcode_accuracy": 0.0,
-      "elapsed_ms": 4630
+      "elapsed_ms": 1873,
+      "audit_latency_ms": 0
     },
     {
       "id": "stacked_6_labels",
@@ -45,7 +50,8 @@
       "occurrence_recall": 1.0,
       "occurrence_precision": 1.0,
       "barcode_accuracy": 1.0,
-      "elapsed_ms": 3312
+      "elapsed_ms": 1529,
+      "audit_latency_ms": 0
     },
     {
       "id": "whatsapp_2026_08_03",
@@ -54,7 +60,8 @@
       "occurrence_recall": 1.0,
       "occurrence_precision": 1.0,
       "barcode_accuracy": 1.0,
-      "elapsed_ms": 3547
+      "elapsed_ms": 2185,
+      "audit_latency_ms": 0
     },
     {
       "id": "topdown_12_labels_a",
@@ -63,34 +70,38 @@
       "occurrence_recall": 0.9166666666666666,
       "occurrence_precision": 0.9166666666666666,
       "barcode_accuracy": 0.0,
-      "elapsed_ms": 4858
+      "elapsed_ms": 2588,
+      "audit_latency_ms": 0
     },
     {
       "id": "topdown_12_labels_b",
       "expected_count": 12,
-      "found_count": 10,
+      "found_count": 11,
       "occurrence_recall": 0.8333333333333334,
-      "occurrence_precision": 1.0,
+      "occurrence_precision": 0.9090909090909091,
       "barcode_accuracy": 0.0,
-      "elapsed_ms": 8130
+      "elapsed_ms": 3050,
+      "audit_latency_ms": 0
     },
     {
       "id": "vegan_12_labels_a",
       "expected_count": 12,
-      "found_count": 4,
-      "occurrence_recall": 0.3333333333333333,
+      "found_count": 5,
+      "occurrence_recall": 0.4166666666666667,
       "occurrence_precision": 1.0,
       "barcode_accuracy": 0.0,
-      "elapsed_ms": 6497
+      "elapsed_ms": 3472,
+      "audit_latency_ms": 0
     },
     {
       "id": "vegan_12_labels_b",
       "expected_count": 12,
-      "found_count": 0,
-      "occurrence_recall": 0.0,
+      "found_count": 3,
+      "occurrence_recall": 0.25,
       "occurrence_precision": 1.0,
       "barcode_accuracy": 0.0,
-      "elapsed_ms": 6917
+      "elapsed_ms": 2997,
+      "audit_latency_ms": 0
     }
   ]
 }

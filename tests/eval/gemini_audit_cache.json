@@ -1,0 +1,1326 @@
+{
+  "07dfe70e0ad5a3b2aa540de91de827aed1511957122ecde09f9ed77de0a44cf2": {
+    "image_height": 2000,
+    "image_width": 1500,
+    "labels": [
+      {
+        "barcode_bbox": {
+          "x1": 258,
+          "x2": 386,
+          "y1": 558,
+          "y2": 592
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 234,
+          "x2": 416,
+          "y1": 542,
+          "y2": 824
+        },
+        "label_index": 1,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 570,
+          "x2": 698,
+          "y1": 546,
+          "y2": 582
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 548,
+          "x2": 735,
+          "y1": 522,
+          "y2": 812
+        },
+        "label_index": 2,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 870,
+          "x2": 993,
+          "y1": 530,
+          "y2": 562
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 849,
+          "x2": 1028,
+          "y1": 514,
+          "y2": 796
+        },
+        "label_index": 3,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 1185,
+          "x2": 1310,
+          "y1": 518,
+          "y2": 552
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 1161,
+          "x2": 1347,
+          "y1": 500,
+          "y2": 778
+        },
+        "label_index": 4,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 276,
+          "x2": 404,
+          "y1": 1024,
+          "y2": 1058
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 250,
+          "x2": 428,
+          "y1": 1008,
+          "y2": 1290
+        },
+        "label_index": 5,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 582,
+          "x2": 706,
+          "y1": 1006,
+          "y2": 1040
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 558,
+          "x2": 735,
+          "y1": 988,
+          "y2": 1274
+        },
+        "label_index": 6,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 886,
+          "x2": 1011,
+          "y1": 996,
+          "y2": 1030
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 861,
+          "x2": 1046,
+          "y1": 980,
+          "y2": 1256
+        },
+        "label_index": 7,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 1202,
+          "x2": 1322,
+          "y1": 992,
+          "y2": 1028
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 1173,
+          "x2": 1364,
+          "y1": 966,
+          "y2": 1254
+        },
+        "label_index": 8,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 276,
+          "x2": 405,
+          "y1": 1514,
+          "y2": 1550
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 254,
+          "x2": 435,
+          "y1": 1490,
+          "y2": 1780
+        },
+        "label_index": 9,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 586,
+          "x2": 710,
+          "y1": 1490,
+          "y2": 1526
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 558,
+          "x2": 750,
+          "y1": 1464,
+          "y2": 1760
+        },
+        "label_index": 10,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 914,
+          "x2": 1036,
+          "y1": 1460,
+          "y2": 1494
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 886,
+          "x2": 1083,
+          "y1": 1436,
+          "y2": 1732
+        },
+        "label_index": 11,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 1227,
+          "x2": 1347,
+          "y1": 1462,
+          "y2": 1496
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 1197,
+          "x2": 1376,
+          "y1": 1438,
+          "y2": 1718
+        },
+        "label_index": 12,
+        "status": "clear"
+      }
+    ]
+  },
+  "0cbb82162432bdd689c54119a8855e4828a14a594a54d215514fe99b911dbada": {
+    "image_height": 2000,
+    "image_width": 1500,
+    "labels": [
+      {
+        "barcode_bbox": {
+          "x1": 1101,
+          "x2": 1143,
+          "y1": 272,
+          "y2": 436
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 789,
+          "x2": 1167,
+          "y1": 236,
+          "y2": 484
+        },
+        "label_index": 1,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 1120,
+          "x2": 1166,
+          "y1": 686,
+          "y2": 864
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 800,
+          "x2": 1188,
+          "y1": 650,
+          "y2": 900
+        },
+        "label_index": 2,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 471,
+          "x2": 512,
+          "y1": 1108,
+          "y2": 1276
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 190,
+          "x2": 536,
+          "y1": 1068,
+          "y2": 1298
+        },
+        "label_index": 3,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 1120,
+          "x2": 1166,
+          "y1": 1126,
+          "y2": 1298
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 806,
+          "x2": 1191,
+          "y1": 1092,
+          "y2": 1324
+        },
+        "label_index": 4,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 490,
+          "x2": 528,
+          "y1": 1534,
+          "y2": 1702
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 200,
+          "x2": 549,
+          "y1": 1490,
+          "y2": 1726
+        },
+        "label_index": 5,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 1107,
+          "x2": 1158,
+          "y1": 1564,
+          "y2": 1734
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 808,
+          "x2": 1179,
+          "y1": 1548,
+          "y2": 1760
+        },
+        "label_index": 6,
+        "status": "clear"
+      }
+    ]
+  },
+  "15529e14a07a02fe1e3538c558a2d6bbef9964e6a7ffa7a43e0e2f4a139a354b": {
+    "image_height": 2000,
+    "image_width": 1500,
+    "labels": [
+      {
+        "barcode_bbox": {
+          "x1": 189,
+          "x2": 316,
+          "y1": 454,
+          "y2": 484
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 166,
+          "x2": 339,
+          "y1": 436,
+          "y2": 716
+        },
+        "label_index": 1,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 507,
+          "x2": 628,
+          "y1": 458,
+          "y2": 488
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 482,
+          "x2": 652,
+          "y1": 438,
+          "y2": 718
+        },
+        "label_index": 2,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 808,
+          "x2": 933,
+          "y1": 454,
+          "y2": 486
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 788,
+          "x2": 958,
+          "y1": 436,
+          "y2": 714
+        },
+        "label_index": 3,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 1130,
+          "x2": 1254,
+          "y1": 458,
+          "y2": 486
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 1106,
+          "x2": 1278,
+          "y1": 438,
+          "y2": 716
+        },
+        "label_index": 4,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 178,
+          "x2": 312,
+          "y1": 928,
+          "y2": 960
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 156,
+          "x2": 332,
+          "y1": 908,
+          "y2": 1182
+        },
+        "label_index": 5,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 494,
+          "x2": 618,
+          "y1": 926,
+          "y2": 956
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 470,
+          "x2": 640,
+          "y1": 908,
+          "y2": 1184
+        },
+        "label_index": 6,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 798,
+          "x2": 918,
+          "y1": 930,
+          "y2": 960
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 776,
+          "x2": 944,
+          "y1": 914,
+          "y2": 1182
+        },
+        "label_index": 7,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 1113,
+          "x2": 1233,
+          "y1": 942,
+          "y2": 972
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 1082,
+          "x2": 1258,
+          "y1": 916,
+          "y2": 1192
+        },
+        "label_index": 8,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 171,
+          "x2": 298,
+          "y1": 1404,
+          "y2": 1436
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 147,
+          "x2": 320,
+          "y1": 1386,
+          "y2": 1660
+        },
+        "label_index": 9,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 492,
+          "x2": 592,
+          "y1": 1400,
+          "y2": 1430
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 432,
+          "x2": 621,
+          "y1": 1386,
+          "y2": 1652
+        },
+        "label_index": 10,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 800,
+          "x2": 920,
+          "y1": 1410,
+          "y2": 1438
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 764,
+          "x2": 940,
+          "y1": 1358,
+          "y2": 1642
+        },
+        "label_index": 11,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 1102,
+          "x2": 1230,
+          "y1": 1402,
+          "y2": 1432
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 1082,
+          "x2": 1248,
+          "y1": 1398,
+          "y2": 1648
+        },
+        "label_index": 12,
+        "status": "clear"
+      }
+    ]
+  },
+  "2861b4e4eb63aedac6984a49dabc79ca56e0860bbc7623ecc6e1e82a082e9d2a": {
+    "image_height": 2048,
+    "image_width": 1608,
+    "labels": [
+      {
+        "barcode_bbox": {
+          "x1": 257,
+          "x2": 312,
+          "y1": 215,
+          "y2": 389
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 224,
+          "x2": 693,
+          "y1": 119,
+          "y2": 436
+        },
+        "label_index": 1,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 1079,
+          "x2": 1126,
+          "y1": 209,
+          "y2": 379
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 1047,
+          "x2": 1499,
+          "y1": 123,
+          "y2": 430
+        },
+        "label_index": 2,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 230,
+          "x2": 280,
+          "y1": 709,
+          "y2": 918
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 195,
+          "x2": 683,
+          "y1": 662,
+          "y2": 967
+        },
+        "label_index": 3,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 1108,
+          "x2": 1161,
+          "y1": 727,
+          "y2": 942
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 1074,
+          "x2": 1557,
+          "y1": 694,
+          "y2": 991
+        },
+        "label_index": 4,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 227,
+          "x2": 280,
+          "y1": 1241,
+          "y2": 1460
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 190,
+          "x2": 688,
+          "y1": 1196,
+          "y2": 1509
+        },
+        "label_index": 5,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 251,
+          "x2": 304,
+          "y1": 1765,
+          "y2": 1995
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 217,
+          "x2": 706,
+          "y1": 1722,
+          "y2": 2042
+        },
+        "label_index": 6,
+        "status": "clear"
+      }
+    ]
+  },
+  "36039e2cc290be6af1a29eef12b102ac42dbca629dd7943e37b2a014e94d77f9": {
+    "image_height": 1152,
+    "image_width": 2048,
+    "labels": [
+      {
+        "barcode_bbox": {
+          "x1": 594,
+          "x2": 657,
+          "y1": 191,
+          "y2": 213
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 446,
+          "x2": 672,
+          "y1": 153,
+          "y2": 265
+        },
+        "label_index": 1,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 963,
+          "x2": 1020,
+          "y1": 205,
+          "y2": 235
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 821,
+          "x2": 1040,
+          "y1": 158,
+          "y2": 279
+        },
+        "label_index": 2,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 1323,
+          "x2": 1380,
+          "y1": 217,
+          "y2": 245
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 1186,
+          "x2": 1393,
+          "y1": 169,
+          "y2": 288
+        },
+        "label_index": 3,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 569,
+          "x2": 635,
+          "y1": 399,
+          "y2": 422
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 403,
+          "x2": 653,
+          "y1": 355,
+          "y2": 478
+        },
+        "label_index": 4,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 963,
+          "x2": 1028,
+          "y1": 416,
+          "y2": 442
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 811,
+          "x2": 1040,
+          "y1": 362,
+          "y2": 498
+        },
+        "label_index": 5,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 1339,
+          "x2": 1403,
+          "y1": 424,
+          "y2": 448
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 1194,
+          "x2": 1419,
+          "y1": 379,
+          "y2": 506
+        },
+        "label_index": 6,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 522,
+          "x2": 594,
+          "y1": 643,
+          "y2": 675
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 346,
+          "x2": 618,
+          "y1": 586,
+          "y2": 730
+        },
+        "label_index": 7,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 942,
+          "x2": 1018,
+          "y1": 644,
+          "y2": 669
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 788,
+          "x2": 1032,
+          "y1": 594,
+          "y2": 733
+        },
+        "label_index": 8,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 1354,
+          "x2": 1425,
+          "y1": 667,
+          "y2": 697
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 1186,
+          "x2": 1448,
+          "y1": 602,
+          "y2": 759
+        },
+        "label_index": 9,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 303,
+          "x2": 352,
+          "y1": 917,
+          "y2": 1011
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 289,
+          "x2": 580,
+          "y1": 856,
+          "y2": 1028
+        },
+        "label_index": 10,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 768,
+          "x2": 817,
+          "y1": 894,
+          "y2": 1017
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 756,
+          "x2": 1026,
+          "y1": 869,
+          "y2": 1038
+        },
+        "label_index": 11,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 1223,
+          "x2": 1264,
+          "y1": 896,
+          "y2": 1017
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 1214,
+          "x2": 1468,
+          "y1": 871,
+          "y2": 1032
+        },
+        "label_index": 12,
+        "status": "clear"
+      }
+    ]
+  },
+  "5e0eb4375f4cf5676b28f257d13a5d584abec507a777e6cc45d4941eb75de904": {
+    "image_height": 1500,
+    "image_width": 2000,
+    "labels": [
+      {
+        "barcode_bbox": null,
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 1406,
+          "x2": 1780,
+          "y1": 0,
+          "y2": 72
+        },
+        "label_index": 1,
+        "status": "cropped"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 502,
+          "x2": 644,
+          "y1": 416,
+          "y2": 879
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 422,
+          "x2": 1582,
+          "y1": 336,
+          "y2": 998
+        },
+        "label_index": 2,
+        "status": "clear"
+      }
+    ]
+  },
+  "72e88e51750bce542e8f1d4dfa49719a425684dc97b38a7f09135c6361ab147a": {
+    "image_height": 1152,
+    "image_width": 2048,
+    "labels": [
+      {
+        "barcode_bbox": {
+          "x1": 455,
+          "x2": 487,
+          "y1": 182,
+          "y2": 276
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 446,
+          "x2": 680,
+          "y1": 164,
+          "y2": 279
+        },
+        "label_index": 1,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 836,
+          "x2": 866,
+          "y1": 198,
+          "y2": 279
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 827,
+          "x2": 1049,
+          "y1": 177,
+          "y2": 295
+        },
+        "label_index": 2,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 1200,
+          "x2": 1231,
+          "y1": 205,
+          "y2": 288
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 1194,
+          "x2": 1415,
+          "y1": 184,
+          "y2": 302
+        },
+        "label_index": 3,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 418,
+          "x2": 455,
+          "y1": 391,
+          "y2": 487
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 401,
+          "x2": 659,
+          "y1": 367,
+          "y2": 492
+        },
+        "label_index": 4,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 829,
+          "x2": 862,
+          "y1": 396,
+          "y2": 490
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 819,
+          "x2": 1055,
+          "y1": 372,
+          "y2": 501
+        },
+        "label_index": 5,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 1221,
+          "x2": 1253,
+          "y1": 408,
+          "y2": 503
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 1210,
+          "x2": 1448,
+          "y1": 388,
+          "y2": 510
+        },
+        "label_index": 6,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 350,
+          "x2": 401,
+          "y1": 619,
+          "y2": 736
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 338,
+          "x2": 625,
+          "y1": 592,
+          "y2": 743
+        },
+        "label_index": 7,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 809,
+          "x2": 844,
+          "y1": 623,
+          "y2": 736
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 799,
+          "x2": 1053,
+          "y1": 598,
+          "y2": 742
+        },
+        "label_index": 8,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 1235,
+          "x2": 1272,
+          "y1": 635,
+          "y2": 763
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 1223,
+          "x2": 1475,
+          "y1": 606,
+          "y2": 767
+        },
+        "label_index": 9,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 287,
+          "x2": 336,
+          "y1": 907,
+          "y2": 1041
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 272,
+          "x2": 590,
+          "y1": 871,
+          "y2": 1048
+        },
+        "label_index": 10,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 776,
+          "x2": 813,
+          "y1": 923,
+          "y2": 1046
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 762,
+          "x2": 1051,
+          "y1": 882,
+          "y2": 1058
+        },
+        "label_index": 11,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 1255,
+          "x2": 1296,
+          "y1": 908,
+          "y2": 1045
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 1241,
+          "x2": 1536,
+          "y1": 879,
+          "y2": 1053
+        },
+        "label_index": 12,
+        "status": "clear"
+      }
+    ]
+  },
+  "7945b8353da89070eb946e65dba8b82db14b8157e43ff685f592eb2d269fe1df": {
+    "image_height": 1500,
+    "image_width": 2000,
+    "labels": [
+      {
+        "barcode_bbox": {
+          "x1": 504,
+          "x2": 656,
+          "y1": 416,
+          "y2": 879
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 420,
+          "x2": 1558,
+          "y1": 332,
+          "y2": 998
+        },
+        "label_index": 1,
+        "status": "clear"
+      }
+    ]
+  },
+  "f56887d6a3d1bac7a400a8225c2ba304ab235f4c7c1dd6a15438cdb6e5c9b3a2": {
+    "image_height": 2000,
+    "image_width": 1500,
+    "labels": [
+      {
+        "barcode_bbox": {
+          "x1": 358,
+          "x2": 388,
+          "y1": 484,
+          "y2": 612
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 129,
+          "x2": 408,
+          "y1": 458,
+          "y2": 642
+        },
+        "label_index": 1,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 849,
+          "x2": 880,
+          "y1": 494,
+          "y2": 618
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 614,
+          "x2": 898,
+          "y1": 468,
+          "y2": 642
+        },
+        "label_index": 2,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 1342,
+          "x2": 1377,
+          "y1": 482,
+          "y2": 614
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 1101,
+          "x2": 1396,
+          "y1": 440,
+          "y2": 638
+        },
+        "label_index": 3,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 364,
+          "x2": 396,
+          "y1": 800,
+          "y2": 928
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 136,
+          "x2": 416,
+          "y1": 774,
+          "y2": 958
+        },
+        "label_index": 4,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 858,
+          "x2": 890,
+          "y1": 810,
+          "y2": 936
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 626,
+          "x2": 908,
+          "y1": 780,
+          "y2": 960
+        },
+        "label_index": 5,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 1352,
+          "x2": 1384,
+          "y1": 806,
+          "y2": 936
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 1106,
+          "x2": 1401,
+          "y1": 780,
+          "y2": 964
+        },
+        "label_index": 6,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 382,
+          "x2": 414,
+          "y1": 1130,
+          "y2": 1258
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 148,
+          "x2": 434,
+          "y1": 1106,
+          "y2": 1280
+        },
+        "label_index": 7,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 861,
+          "x2": 891,
+          "y1": 1128,
+          "y2": 1254
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 626,
+          "x2": 908,
+          "y1": 1100,
+          "y2": 1296
+        },
+        "label_index": 8,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 1370,
+          "x2": 1400,
+          "y1": 1132,
+          "y2": 1254
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 1114,
+          "x2": 1420,
+          "y1": 1104,
+          "y2": 1292
+        },
+        "label_index": 9,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 368,
+          "x2": 399,
+          "y1": 1460,
+          "y2": 1588
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 136,
+          "x2": 418,
+          "y1": 1434,
+          "y2": 1636
+        },
+        "label_index": 10,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 852,
+          "x2": 884,
+          "y1": 1458,
+          "y2": 1584
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 618,
+          "x2": 914,
+          "y1": 1428,
+          "y2": 1618
+        },
+        "label_index": 11,
+        "status": "clear"
+      },
+      {
+        "barcode_bbox": {
+          "x1": 1372,
+          "x2": 1408,
+          "y1": 1474,
+          "y2": 1598
+        },
+        "confidence": "high",
+        "label_bbox": {
+          "x1": 1130,
+          "x2": 1430,
+          "y1": 1448,
+          "y2": 1636
+        },
+        "label_index": 12,
+        "status": "clear"
+      }
+    ]
+  }
+}
