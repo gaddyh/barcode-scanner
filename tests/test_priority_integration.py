@@ -131,7 +131,7 @@ async def test_create_order_returns_id():
 async def test_create_order_postgres_error_raises_priority_error():
     pool, _ = _make_pool_raising(asyncpg.PostgresError("boom"))
     repo = PriorityRepository(pool)
-    with pytest.raises(PriorityError, match="Could not create"):
+    with pytest.raises(PriorityError, match="Priority draft order"):
         await repo.create_order(
             session_id="sess-1",
             customer_id="C1",
@@ -144,7 +144,7 @@ async def test_create_order_postgres_error_raises_priority_error():
 async def test_create_order_oserror_raises_priority_error():
     pool, _ = _make_pool_raising(OSError("connection refused"))
     repo = PriorityRepository(pool)
-    with pytest.raises(PriorityError, match="Could not create"):
+    with pytest.raises(PriorityError, match="Priority draft order"):
         await repo.create_order(
             session_id="sess-1",
             customer_id="C1",
