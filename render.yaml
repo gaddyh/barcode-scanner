@@ -17,8 +17,12 @@ services:
       # Required for the scanner pipeline:
       - key: GEMINI_API_KEY
         sync: false
-      # Optional — LangSmith tracing:
-      # - key: LANGSMITH_API_KEY
-      #   sync: false
-      # - key: LANGSMITH_TRACING
-      #   value: "false"
+      # Optional — LangSmith tracing (set all 3 in Render dashboard):
+      - key: LANGSMITH_TRACING
+        sync: false
+      - key: LANGSMITH_PROJECT
+        sync: false
+      - key: LANGSMITH_API_KEY
+        sync: false
+      - key: LANGSMITH_ENDPOINT
+        sync: false
