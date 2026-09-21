@@ -154,6 +154,13 @@ CREATE TABLE IF NOT EXISTS priority_orders (
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Defense-in-depth: a submitted session can only have ONE draft order,
+-- even if the runtime idempotency layer has a bug. NULL session_id is
+-- allowed (legacy orders without a session).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_priority_orders_session_id
+    ON priority_orders(session_id)
+    WHERE session_id IS NOT NULL;
+
 -- Development seed data. ON CONFLICT preserves edits made in the database.
 INSERT INTO priority_customers (id, name) VALUES
     ('cust-acme', 'Acme Retail'),

@@ -84,6 +84,7 @@ select = ["E", "F", "I", "UP", "B"]
 # Pre-existing style choices preserved as machine-enforced ignores so
 # `ruff check .` is genuinely green without forcing unrelated cleanup.
 "src/api/routes.py" = ["B008", "B904"]
+"src/api/receiving.py" = ["B008"]
 "src/ingest/scanner.py" = ["B905"]
 "src/ingest/vision.py" = ["UP042"]
 "src/main.py" = ["E501"]

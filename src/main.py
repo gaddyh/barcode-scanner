@@ -39,6 +39,7 @@ from langsmith.schemas import Attachment
 from PIL import Image
 
 from src.api.admin import router as admin_router
+from src.api.receiving import router as receiving_router
 from src.api.routes import router
 from src.config import settings
 from src.db import create_pool, init_db
@@ -145,6 +146,7 @@ app.add_middleware(
 
 app.include_router(router)
 app.include_router(admin_router)
+app.include_router(receiving_router)
 
 # NOTE: The static files mount at "/" must be added AFTER all API routes
 # (including the @app.post/@app.get routes defined below). Starlette matches
