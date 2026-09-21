@@ -122,7 +122,7 @@ async def _validate_customer_and_branch(
             },
         ) from exc
 
-    customer_ids = {c["id"] for c in customers}
+    customer_ids = {c.id for c in customers}
     if customer_id not in customer_ids:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -143,7 +143,7 @@ async def _validate_customer_and_branch(
             },
         ) from exc
 
-    branch_ids = {b["id"] for b in branches}
+    branch_ids = {b.id for b in branches}
     if branch_id not in branch_ids:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -217,12 +217,15 @@ async def create_session(
             )
 
     session_id = str(uuid.uuid4())
+    # Use session_id as participant_id when none is provided, so the
+    # session graph can find the session row by participant_id.
+    effective_participant_id = participant_id.strip() or session_id
     await store.create_receiving_session(
         session_id,
         customer_id=customer_id,
         branch_id=branch_id,
         action=action,
-        participant_id=participant_id.strip() or None,
+        participant_id=effective_participant_id,
     )
 
     return {
@@ -231,7 +234,18 @@ async def create_session(
         "customer_id": customer_id,
         "branch_id": branch_id,
         "action": action,
+        "participant_id": effective_participant_id,
         "box_count": 0,
+        "expected_count": 0,
+        "external_order_id": None,
+        "frozen": False,
+        "items": [],
+        "discrepancy": {
+            "expected": 0,
+            "found": 0,
+            "missing": 0,
+            "is_complete": False,
+        },
     }
 
 
@@ -291,11 +305,11 @@ async def upload_image(
         )
     repo = SessionRepository(_db_pool)
 
-    # Use the receiving session_id as the ingest participant_id so the
-    # ingest session is 1:1 with the receiving session. The ingest
-    # session accumulates boxes; the receiving session tracks submission
-    # state. They share the same session_id row in the sessions table.
-    ingest_participant_id = session_id
+    # Use the receiving session's participant_id so the ingest session
+    # is 1:1 with the receiving session. The ingest session accumulates
+    # boxes; the receiving session tracks submission state. They share
+    # the same session_id row in the sessions table.
+    ingest_participant_id = session.participant_id or session_id
 
     result = await run_session_graph(
         image_bytes,
@@ -551,6 +565,7 @@ async def get_session(session_id: str) -> dict[str, Any]:
         "customer_id": session.customer_id,
         "branch_id": session.branch_id,
         "action": session.action,
+        "participant_id": session.participant_id,
         "box_count": len(session.boxes),
         "expected_count": session.expected_count,
         "external_order_id": session.external_order_id,

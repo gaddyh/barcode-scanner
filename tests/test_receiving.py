@@ -35,7 +35,9 @@ from src.domain.receiving import (
     ReceivingSessionStatus,
 )
 from src.integrations.priority.models import (
+    Branch,
     CreateDraftOrderResult,
+    Customer,
 )
 from src.runtime.errors import IndeterminateError, PermanentError, RetryableError
 
@@ -190,7 +192,11 @@ async def _make_session_in_db(
 
 
 def _mock_gateway_success(order_id: int = 42):
-    """Mock PriorityGateway that succeeds."""
+    """Mock PriorityGateway that succeeds.
+
+    Returns real Customer/Branch dataclasses (not dicts) to match the
+    actual LocalPriorityGateway contract.
+    """
     gateway = MagicMock()
     gateway.create_draft_order = AsyncMock(
         return_value=CreateDraftOrderResult(
@@ -198,10 +204,16 @@ def _mock_gateway_success(order_id: int = 42):
         )
     )
     gateway.customers = AsyncMock(
-        return_value=[{"id": "cust-acme"}, {"id": "cust-northstar"}]
+        return_value=[
+            Customer(id="cust-acme", name="Acme Retail"),
+            Customer(id="cust-northstar", name="Northstar Shoes"),
+        ]
     )
     gateway.branches = AsyncMock(
-        return_value=[{"id": "branch-acme-main"}, {"id": "branch-acme-outlet"}]
+        return_value=[
+            Branch(id="branch-acme-main", name="Acme Main Store", customer_id="cust-acme"),
+            Branch(id="branch-acme-outlet", name="Acme Outlet", customer_id="cust-acme"),
+        ]
     )
     return gateway
 
@@ -213,10 +225,16 @@ def _mock_gateway_indeterminate():
         side_effect=IndeterminateError("connection lost after submit")
     )
     gateway.customers = AsyncMock(
-        return_value=[{"id": "cust-acme"}, {"id": "cust-northstar"}]
+        return_value=[
+            Customer(id="cust-acme", name="Acme Retail"),
+            Customer(id="cust-northstar", name="Northstar Shoes"),
+        ]
     )
     gateway.branches = AsyncMock(
-        return_value=[{"id": "branch-acme-main"}, {"id": "branch-acme-outlet"}]
+        return_value=[
+            Branch(id="branch-acme-main", name="Acme Main Store", customer_id="cust-acme"),
+            Branch(id="branch-acme-outlet", name="Acme Outlet", customer_id="cust-acme"),
+        ]
     )
     return gateway
 
@@ -228,10 +246,16 @@ def _mock_gateway_retryable():
         side_effect=RetryableError("connection refused")
     )
     gateway.customers = AsyncMock(
-        return_value=[{"id": "cust-acme"}, {"id": "cust-northstar"}]
+        return_value=[
+            Customer(id="cust-acme", name="Acme Retail"),
+            Customer(id="cust-northstar", name="Northstar Shoes"),
+        ]
     )
     gateway.branches = AsyncMock(
-        return_value=[{"id": "branch-acme-main"}, {"id": "branch-acme-outlet"}]
+        return_value=[
+            Branch(id="branch-acme-main", name="Acme Main Store", customer_id="cust-acme"),
+            Branch(id="branch-acme-outlet", name="Acme Outlet", customer_id="cust-acme"),
+        ]
     )
     return gateway
 
@@ -243,10 +267,16 @@ def _mock_gateway_permanent():
         side_effect=PermanentError("duplicate session_id")
     )
     gateway.customers = AsyncMock(
-        return_value=[{"id": "cust-acme"}, {"id": "cust-northstar"}]
+        return_value=[
+            Customer(id="cust-acme", name="Acme Retail"),
+            Customer(id="cust-northstar", name="Northstar Shoes"),
+        ]
     )
     gateway.branches = AsyncMock(
-        return_value=[{"id": "branch-acme-main"}, {"id": "branch-acme-outlet"}]
+        return_value=[
+            Branch(id="branch-acme-main", name="Acme Main Store", customer_id="cust-acme"),
+            Branch(id="branch-acme-outlet", name="Acme Outlet", customer_id="cust-acme"),
+        ]
     )
     return gateway
 

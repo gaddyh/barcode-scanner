@@ -506,6 +506,7 @@ def _row_to_receiving_session(
         customer_id=row.get("customer_id") or "",
         branch_id=row.get("branch_id") or "",
         action=row.get("action") or "",
+        participant_id=row.get("participant_id"),
         boxes=boxes,
         status=submission_status,
         external_order_id=row.get("external_order_id"),

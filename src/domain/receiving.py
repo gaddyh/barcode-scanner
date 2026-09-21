@@ -123,6 +123,7 @@ class ReceivingSession:
     customer_id: str
     branch_id: str
     action: str
+    participant_id: str | None = None
     boxes: list[PhysicalBox] = field(default_factory=list)
     status: ReceivingSessionStatus = ReceivingSessionStatus.ACTIVE
     external_order_id: int | None = None
