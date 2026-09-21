@@ -147,12 +147,17 @@ export function getParticipantId(): string {
 // Same-origin by default (Docker/Render). Set VITE_API_BASE_URL for local dev.
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
 
+// ngrok free tier shows a browser warning page that blocks large POST requests.
+// This header skips it. Harmless on other hosts.
+const NGROK_SKIP_HEADER = { "ngrok-skip-browser-warning": "true" };
+
 async function postFile(path: string, file: File): Promise<Response> {
   const form = new FormData();
   form.append("file", file);
   return fetch(`${apiBaseUrl}${path}`, {
     method: "POST",
     body: form,
+    headers: NGROK_SKIP_HEADER,
   });
 }
 
@@ -173,7 +178,7 @@ export async function analyzeImage(file: File): Promise<AnalyzeResponse> {
 }
 
 export async function fetchCustomers(): Promise<SelectOption[]> {
-  const res = await fetch(`${apiBaseUrl}/customers`);
+  const res = await fetch(`${apiBaseUrl}/customers`, { headers: NGROK_SKIP_HEADER });
   if (!res.ok) throw new Error(await extractError(res));
   const body = (await res.json()) as { items: SelectOption[] };
   return body.items;
@@ -182,6 +187,7 @@ export async function fetchCustomers(): Promise<SelectOption[]> {
 export async function fetchBranches(customerId: string): Promise<SelectOption[]> {
   const res = await fetch(
     `${apiBaseUrl}/customers/${encodeURIComponent(customerId)}/branches`,
+    { headers: NGROK_SKIP_HEADER },
   );
   if (!res.ok) throw new Error(await extractError(res));
   const body = (await res.json()) as { items: SelectOption[] };
@@ -250,9 +256,9 @@ export async function selectCandidate(
 export interface ReceivingSessionResponse {
   session_id: string;
   status: "active" | "submitting" | "submitted" | "submission_unknown";
-  customer_id: string;
-  branch_id: string;
-  action: OrderAction;
+  customer_id: string | null;
+  branch_id: string | null;
+  action: OrderAction | null;
   participant_id: string | null;
   box_count: number;
   expected_count: number;
@@ -297,20 +303,41 @@ export interface ReceivingSubmitResponse {
 }
 
 export async function createReceivingSession(
+  participantId?: string,
+  customerId?: string,
+  branchId?: string,
+  action?: OrderAction,
+): Promise<ReceivingSessionResponse> {
+  const form = new FormData();
+  if (participantId) form.append("participant_id", participantId);
+  if (customerId) form.append("customer_id", customerId);
+  if (branchId) form.append("branch_id", branchId);
+  if (action) form.append("action", action);
+  const res = await fetch(`${apiBaseUrl}/receiving/sessions`, {
+    method: "POST",
+    body: form,
+    headers: NGROK_SKIP_HEADER,
+  });
+  if (!res.ok) {
+    throw new Error(await extractError(res));
+  }
+  return (await res.json()) as ReceivingSessionResponse;
+}
+
+export async function attachReceivingSessionContext(
+  sessionId: string,
   customerId: string,
   branchId: string,
   action: OrderAction,
-  participantId?: string,
 ): Promise<ReceivingSessionResponse> {
   const form = new FormData();
   form.append("customer_id", customerId);
   form.append("branch_id", branchId);
   form.append("action", action);
-  if (participantId) form.append("participant_id", participantId);
-  const res = await fetch(`${apiBaseUrl}/receiving/sessions`, {
-    method: "POST",
-    body: form,
-  });
+  const res = await fetch(
+    `${apiBaseUrl}/receiving/sessions/${encodeURIComponent(sessionId)}/context`,
+    { method: "POST", body: form, headers: NGROK_SKIP_HEADER },
+  );
   if (!res.ok) {
     throw new Error(await extractError(res));
   }
@@ -325,7 +352,7 @@ export async function uploadReceivingImage(
   form.append("file", file);
   const res = await fetch(
     `${apiBaseUrl}/receiving/sessions/${encodeURIComponent(sessionId)}/images`,
-    { method: "POST", body: form },
+    { method: "POST", body: form, headers: NGROK_SKIP_HEADER },
   );
   if (!res.ok) {
     throw new Error(await extractError(res));
@@ -338,6 +365,7 @@ export async function getReceivingSession(
 ): Promise<ReceivingSessionResponse> {
   const res = await fetch(
     `${apiBaseUrl}/receiving/sessions/${encodeURIComponent(sessionId)}`,
+    { headers: NGROK_SKIP_HEADER },
   );
   if (!res.ok) {
     throw new Error(await extractError(res));
@@ -350,7 +378,7 @@ export async function submitReceivingSession(
 ): Promise<ReceivingSubmitResponse> {
   const res = await fetch(
     `${apiBaseUrl}/receiving/sessions/${encodeURIComponent(sessionId)}/submit`,
-    { method: "POST" },
+    { method: "POST", headers: NGROK_SKIP_HEADER },
   );
   if (!res.ok) {
     throw new Error(await extractError(res));
@@ -373,7 +401,7 @@ export async function submitFeedback(
 ): Promise<FeedbackResponse> {
   const res = await fetch(`${apiBaseUrl}/feedback`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...NGROK_SKIP_HEADER },
     body: JSON.stringify({ trace_id: traceId, correct, comment }),
   });
   if (!res.ok) {

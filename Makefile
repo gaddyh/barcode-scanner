@@ -1,4 +1,4 @@
-.PHONY: install run scan test eval eval-live eval-freeze lint docker-build docker-run
+.PHONY: install run scan test eval eval-live eval-freeze lint web-build web-sanity docker-build docker-run
 
 install:
 	python -m pip install -e ".[dev]"
@@ -48,6 +48,16 @@ eval-live:
 
 lint:
 	ruff check .
+
+# Frontend typecheck + production build gate (no network, no Gemini).
+web-build:
+	cd web && npm run build
+
+# Live end-to-end web sanity check. Requires Docker Postgres, .env, sample
+# images, and web/node_modules. Uses the frozen Gemini audit cache (replay
+# mode) for deterministic full-pipeline results — no live Gemini calls.
+web-sanity:
+	./scripts/web_sanity.sh
 
 docker-build:
 	docker build -t barcode-scanner .

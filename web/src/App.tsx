@@ -1,16 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  scanBarcode,
   createReceivingSession,
   uploadReceivingImage,
   getReceivingSession,
   submitReceivingSession,
+  attachReceivingSessionContext,
   submitFeedback,
   fetchCustomers,
   fetchBranches,
+  getParticipantId,
   type OrderAction,
   type SelectOption,
-  type ScanResponse,
   type ReceivingSessionResponse,
   type ReceivingImageResponse,
   type ReceivingSubmitResponse,
@@ -19,31 +19,26 @@ import { useHashRoute } from "./router";
 import { AdminApp } from "./admin/AdminApp";
 
 type Source = "camera" | "gallery";
-type Mode = "receiving" | "scanner";
 
 export default function App() {
   const route = useHashRoute();
-  const [file, setFile] = useState<File | null>(null);
   const [source, setSource] = useState<Source | null>(null);
-  const [mode, setMode] = useState<Mode>("receiving");
   const [customers, setCustomers] = useState<SelectOption[]>([]);
   const [branches, setBranches] = useState<SelectOption[]>([]);
   const [customerId, setCustomerId] = useState("");
   const [branchId, setBranchId] = useState("");
-  const [action, setAction] = useState<OrderAction | "">("");
+  const [action, setAction] = useState<OrderAction | null>(null);
   const [optionsLoading, setOptionsLoading] = useState(false);
   const [branchesLoading, setBranchesLoading] = useState(false);
   const [optionsError, setOptionsError] = useState<string | null>(null);
   const [branchesError, setBranchesError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [scanResult, setScanResult] = useState<ScanResponse | null>(null);
   const [receivingSession, setReceivingSession] =
     useState<ReceivingSessionResponse | null>(null);
   const [imageResult, setImageResult] =
     useState<ReceivingImageResponse | null>(null);
   const [submitResult, setSubmitResult] =
     useState<ReceivingSubmitResponse | null>(null);
-  const [totalMs, setTotalMs] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [feedbackSent, setFeedbackSent] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
@@ -53,7 +48,6 @@ export default function App() {
 
   // Retained for potential debug/diagnostics; not shown to end users.
   void source;
-  void totalMs;
 
   useEffect(() => {
     let cancelled = false;
@@ -99,74 +93,63 @@ export default function App() {
 
   if (route === "#/admin") return <AdminApp />;
 
-  function clearResults() {
-    setScanResult(null);
+  // --- Derived screen state (no stage enum) ---------------------------
+  // The screen is a function of the server-side session status plus the
+  // local `action` choice (the user's pick before context is attached).
+  const sessionActive = receivingSession?.status === "active";
+  const sessionSubmitted = receivingSession?.status === "submitted";
+  const sessionUnknown = receivingSession?.status === "submission_unknown";
+  const needsSelection = (imageResult?.candidates?.length ?? 0) > 0;
+  const contextAttached =
+    !!receivingSession?.customer_id &&
+    !!receivingSession?.branch_id &&
+    !!receivingSession?.action;
+  // The user has chosen an action locally but not yet attached context.
+  const choosingContext = sessionActive && action !== null && !contextAttached;
+  const showStartScreen = !receivingSession && !loading;
+
+  function resetAll() {
     setReceivingSession(null);
     setImageResult(null);
     setSubmitResult(null);
-    setTotalMs(null);
     setError(null);
+    setAction(null);
+    setCustomerId("");
+    setBranchId("");
     setFeedbackSent(false);
     setFeedbackError(null);
-  }
-
-  function handleCustomerChange(value: string) {
-    setCustomerId(value);
-    clearResults();
   }
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>, src: Source) {
     const f = e.target.files?.[0] ?? null;
     if (!f) return;
-    setFile(f);
     setSource(src);
-    setScanResult(null);
-    setImageResult(null);
-    setSubmitResult(null);
-    setTotalMs(null);
-    setError(null);
-    setFeedbackSent(false);
-    setFeedbackError(null);
+    void src;
+    onPhotoSelected(f);
   }
 
-  async function onCreateSession() {
-    if (!customerId || !branchId || !action) return;
+  // The whole first action: get/create an active session → upload → refresh.
+  // Also used by "הוסף צילום" to add more images to the same session.
+  async function onPhotoSelected(f: File) {
     setLoading(true);
     setError(null);
-    setReceivingSession(null);
     setImageResult(null);
     setSubmitResult(null);
     setFeedbackSent(false);
     setFeedbackError(null);
     try {
-      const res = await createReceivingSession(
-        customerId,
-        branchId,
-        action as OrderAction,
-      );
-      setReceivingSession(res);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function onUploadImage() {
-    if (!file || !receivingSession) return;
-    setLoading(true);
-    setError(null);
-    setImageResult(null);
-    setSubmitResult(null);
-    setTotalMs(null);
-    const t0 = performance.now();
-    try {
-      const res = await uploadReceivingImage(receivingSession.session_id, file);
+      // Get or create an active session for this participant. The server
+      // resumes an existing ACTIVE session (200) or creates a new one (201).
+      let session = receivingSession;
+      if (!session || session.status !== "active") {
+        session = await createReceivingSession(getParticipantId());
+        setReceivingSession(session);
+      }
+      const res = await uploadReceivingImage(session.session_id, f);
       setImageResult(res);
       // Refresh session state from server.
-      const session = await getReceivingSession(receivingSession.session_id);
-      setReceivingSession(session);
-      setTotalMs(performance.now() - t0);
+      const refreshed = await getReceivingSession(session.session_id);
+      setReceivingSession(refreshed);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -176,10 +159,21 @@ export default function App() {
 
   async function onSubmitOrder() {
     if (!receivingSession) return;
+    if (!customerId || !branchId || !action) return;
     setLoading(true);
     setError(null);
     setSubmitResult(null);
     try {
+      // Attach context first (if not already attached), then submit.
+      if (!contextAttached) {
+        const attached = await attachReceivingSessionContext(
+          receivingSession.session_id,
+          customerId,
+          branchId,
+          action,
+        );
+        setReceivingSession(attached);
+      }
       const res = await submitReceivingSession(receivingSession.session_id);
       setSubmitResult(res);
       // Refresh session state from server.
@@ -189,28 +183,6 @@ export default function App() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
-    }
-  }
-
-  async function onAnalyze() {
-    if (!file) return;
-    if (mode === "scanner") {
-      setLoading(true);
-      setError(null);
-      setScanResult(null);
-      setTotalMs(null);
-      setFeedbackSent(false);
-      setFeedbackError(null);
-      const t0 = performance.now();
-      try {
-        const res = await scanBarcode(file);
-        setScanResult(res);
-        setTotalMs(performance.now() - t0);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-      } finally {
-        setLoading(false);
-      }
     }
   }
 
@@ -225,171 +197,49 @@ export default function App() {
     }
   }
 
-  const traceId = scanResult?.trace_id ?? null;
-
-  const sessionActive = receivingSession?.status === "active";
-  const sessionSubmitted = receivingSession?.status === "submitted";
-  const sessionUnknown = receivingSession?.status === "submission_unknown";
-  const needsSelection = (imageResult?.candidates?.length ?? 0) > 0;
+  // The receiving flow has no scanner trace_id; use the session_id
+  // (a UUID) as the feedback trace identifier.
+  const traceId = receivingSession?.session_id ?? null;
 
   return (
     <div dir="rtl" lang="he" style={styles.container}>
-      <h1 style={styles.h1}>קליטת קופסאות</h1>
-      <p style={styles.subtitle}>צלם את הקופסאות, בדוק שהכול נקלט, וצור טיוטה ב־Priority</p>
+      <h1 style={styles.h1}>סריקת קופסאות</h1>
+      <p style={styles.subtitle}>
+        צלם מספר קופסאות יחד ונזהה אותן אוטומטית.
+      </p>
 
-      {/* Mode toggle */}
-      <div style={styles.toggleRow}>
-        <button
-          onClick={() => setMode("receiving")}
-          style={{
-            ...styles.toggleBtn,
-            ...(mode === "receiving" ? styles.toggleActive : {}),
-          }}
-        >
-          קליטת סחורה
-        </button>
-        <button
-          onClick={() => setMode("scanner")}
-          style={{
-            ...styles.toggleBtn,
-            ...(mode === "scanner" ? styles.toggleActive : {}),
-          }}
-        >
-          סורק בלבד
-        </button>
-      </div>
-
-      <div style={styles.selectGroup}>
-        <label style={styles.fieldLabel}>
-          לקוח
-          <select
-            value={customerId}
-            onChange={(e) => handleCustomerChange(e.target.value)}
-            disabled={optionsLoading || loading}
-            style={styles.select}
-          >
-            <option value="">{optionsLoading ? "טוען לקוחות…" : "בחר לקוח"}</option>
-            {customers.map((customer) => (
-              <option key={customer.id} value={customer.id}>{customer.name}</option>
-            ))}
-          </select>
-        </label>
-        {optionsError && <p style={styles.fieldError}>שגיאה: {optionsError}</p>}
-
-        <label style={styles.fieldLabel}>
-          פעולה
-          <select
-            value={action}
-            onChange={(e) => {
-              setAction(e.target.value as OrderAction | "");
-              clearResults();
-            }}
-            disabled={loading}
-            style={styles.select}
-          >
-            <option value="">בחר פעולה</option>
-            <option value="create_order">יצירת הזמנה</option>
-            <option value="verify_order_before_shipment">בדיקת הזמנה לפני משלוח</option>
-          </select>
-        </label>
-
-        <label style={styles.fieldLabel}>
-          סניף / מחסן
-          <select
-            value={branchId}
-            onChange={(e) => setBranchId(e.target.value)}
-            disabled={!customerId || branchesLoading || loading}
-            style={styles.select}
-          >
-            <option value="">
-              {branchesLoading ? "טוען סניפים…" : customerId ? "בחר סניף" : "בחר לקוח תחילה"}
-            </option>
-            {branches.map((branch) => (
-              <option key={branch.id} value={branch.id}>{branch.name}</option>
-            ))}
-          </select>
-        </label>
-        {branchesError && <p style={styles.fieldError}>שגיאה: {branchesError}</p>}
-      </div>
-
-      <div style={styles.inputRow}>
-        <label style={styles.button}>
-          צלם קופסאות
-          <input
-            ref={cameraInputRef}
-            hidden
-            type="file"
-            accept="image/*"
-            capture="environment"
-            onChange={(e) => handleFile(e, "camera")}
-          />
-        </label>
-        <label style={styles.button}>
-          בחר תמונה
-          <input
-            ref={galleryInputRef}
-            hidden
-            type="file"
-            accept="image/*"
-            onChange={(e) => handleFile(e, "gallery")}
-          />
-        </label>
-      </div>
-
-      {file && (
-        <div style={styles.fileInfo}>
-          <div><strong>תמונה נבחרה:</strong> {file.name}</div>
-        </div>
+      {/* Start screen — no session yet */}
+      {showStartScreen && (
+        <>
+          <div style={styles.inputRow}>
+            <label style={styles.primaryButton}>
+              📷 התחל סריקה
+              <input
+                ref={cameraInputRef}
+                hidden
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={(e) => handleFile(e, "camera")}
+              />
+            </label>
+            <label style={styles.secondaryButton}>
+              בחר תמונה מהטלפון
+              <input
+                ref={galleryInputRef}
+                hidden
+                type="file"
+                accept="image/*"
+                onChange={(e) => handleFile(e, "gallery")}
+              />
+            </label>
+          </div>
+        </>
       )}
 
-      {/* Receiving flow buttons */}
-      {mode === "receiving" && (
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button
-            onClick={onCreateSession}
-            disabled={!customerId || !branchId || !action || loading || !!receivingSession}
-            style={{
-              ...styles.analyze,
-              opacity: !customerId || !branchId || !action || loading || !!receivingSession ? 0.5 : 1,
-            }}
-          >
-            {receivingSession ? "הסריקה התחילה" : "התחל סריקה"}
-          </button>
-          <button
-            onClick={onUploadImage}
-            disabled={!file || !receivingSession || loading || !sessionActive}
-            style={{
-              ...styles.analyze,
-              opacity: !file || !receivingSession || loading || !sessionActive ? 0.5 : 1,
-            }}
-          >
-            {loading ? "סורק…" : "סרוק את התמונה"}
-          </button>
-          <button
-            onClick={onSubmitOrder}
-            disabled={!receivingSession || loading || !sessionActive}
-            style={{
-              ...styles.analyze,
-              opacity: !receivingSession || loading || !sessionActive ? 0.5 : 1,
-            }}
-          >
-            {loading ? "יוצר טיוטה…" : "צור טיוטה ב־Priority"}
-          </button>
-        </div>
-      )}
-
-      {/* Scanner-only analyze button */}
-      {mode === "scanner" && (
-        <button
-          onClick={onAnalyze}
-          disabled={!file || loading}
-          style={{
-            ...styles.analyze,
-            opacity: !file || loading ? 0.5 : 1,
-          }}
-        >
-          {loading ? "מנתח…" : "נתח (סורק)"}
-        </button>
+      {/* Loading (first scan, no session yet) */}
+      {loading && !receivingSession && (
+        <div style={styles.loadingBox}>סורק…</div>
       )}
 
       {error && (
@@ -398,135 +248,266 @@ export default function App() {
         </div>
       )}
 
-      {/* Scanner-only result */}
-      {scanResult && (
+      {/* Active session — scan results + actions */}
+      {sessionActive && receivingSession && (
         <div style={styles.results}>
-          <h2 style={styles.h2}>תוצאות סריקה</h2>
-          <Row label="סטטוס" value={scanResult.status === "found" ? "נמצא" : "לא נמצא"} />
-          <Row label="כמות" value={String(scanResult.count)} />
-          <Row label="מידות" value={`${scanResult.image_width} × ${scanResult.image_height}`} />
-          <Row label="זמן סריקה" value={`${scanResult.elapsed_ms} מ״מ`} />
-          <h3 style={styles.h3}>ברקודים</h3>
-          {scanResult.barcodes.length === 0 ? (
-            <p style={styles.muted}>לא זוהו ברקודים.</p>
+          {receivingSession.box_count > 0 ? (
+            <>
+              <h2 style={styles.h2}>
+                {receivingSession.box_count} קופסאות זוהו
+              </h2>
+              <p style={styles.muted}>
+                {receivingSession.items.length} ברקודים שונים
+              </p>
+
+              {/* Aggregated barcode → quantity list */}
+              {receivingSession.items.length > 0 && (
+                <ol style={styles.list}>
+                  {receivingSession.items.map((item, i) => (
+                    <li key={i} style={styles.listItem}>
+                      <strong>{item.barcode_value}</strong>
+                      {` — כמות: ${item.quantity}`}
+                    </li>
+                  ))}
+                </ol>
+              )}
+
+              {/* Missing-box prompt */}
+              {receivingSession.discrepancy.missing > 0 ? (
+                <div style={styles.promptMore}>
+                  זוהו {receivingSession.box_count} מתוך{" "}
+                  {receivingSession.expected_count}.{" "}
+                  {receivingSession.discrepancy.missing === 1
+                    ? "צלם עכשיו רק את הקופסה החסרה."
+                    : `צלם עכשיו את ${receivingSession.discrepancy.missing} הקופסאות החסרות.`}
+                </div>
+              ) : (
+                <div style={styles.completeBadge}>
+                  ✅ כל הקופסאות נקלטו ({receivingSession.box_count}/
+                  {receivingSession.expected_count})
+                </div>
+              )}
+
+              {/* Add more photos */}
+              <div style={styles.inputRow}>
+                <label style={styles.secondaryButton}>
+                  📷 הוסף צילום
+                  <input
+                    hidden
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={(e) => handleFile(e, "camera")}
+                  />
+                </label>
+              </div>
+
+              {/* Image upload message */}
+              {imageResult?.message && (
+                <div style={styles.sessionMessage}>{imageResult.message}</div>
+              )}
+
+              {/* Needs user selection — show candidate buttons */}
+              {needsSelection && imageResult?.candidates && (
+                <div style={styles.candidates}>
+                  <h3 style={styles.h3}>בחר ברקוד להוספה:</h3>
+                  <div style={styles.candidateRow}>
+                    {imageResult.candidates.map((c, i) => (
+                      <span key={i} style={styles.candidateBtn}>
+                        {c.barcode_value}
+                      </span>
+                    ))}
+                  </div>
+                  <p style={styles.muted}>
+                    בחירת מועמדים עדיין לא מחוברת בזרימת הקליטה.
+                  </p>
+                </div>
+              )}
+
+              {/* Choose action — only if context not yet attached */}
+              {!choosingContext && (
+                <>
+                  <h3 style={styles.h3}>מה תרצה לעשות?</h3>
+                  <div style={styles.actionRow}>
+                    <button
+                      onClick={() => setAction("create_order")}
+                      style={styles.actionBtn}
+                    >
+                      צור הזמנה
+                    </button>
+                    <button
+                      disabled
+                      title="בקרוב"
+                      style={{ ...styles.actionBtn, ...styles.actionDisabled }}
+                    >
+                      בדיקת הזמנה — בקרוב
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* Choose context — customer + branch */}
+              {choosingContext && (
+                <div style={styles.selectGroup}>
+                  <h3 style={styles.h3}>
+                    {action === "create_order"
+                      ? "צור הזמנה"
+                      : "בדיקת הזמנה"}
+                  </h3>
+                  <label style={styles.fieldLabel}>
+                    בחר לקוח
+                    <select
+                      value={customerId}
+                      onChange={(e) => setCustomerId(e.target.value)}
+                      disabled={optionsLoading || loading}
+                      style={styles.select}
+                    >
+                      <option value="">
+                        {optionsLoading ? "טוען לקוחות…" : "בחר לקוח"}
+                      </option>
+                      {customers.map((customer) => (
+                        <option key={customer.id} value={customer.id}>
+                          {customer.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {optionsError && (
+                    <p style={styles.fieldError}>שגיאה: {optionsError}</p>
+                  )}
+
+                  <label style={styles.fieldLabel}>
+                    בחר סניף
+                    <select
+                      value={branchId}
+                      onChange={(e) => setBranchId(e.target.value)}
+                      disabled={!customerId || branchesLoading || loading}
+                      style={styles.select}
+                    >
+                      <option value="">
+                        {branchesLoading
+                          ? "טוען סניפים…"
+                          : customerId
+                            ? "בחר סניף"
+                            : "בחר לקוח תחילה"}
+                      </option>
+                      {branches.map((branch) => (
+                        <option key={branch.id} value={branch.id}>
+                          {branch.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {branchesError && (
+                    <p style={styles.fieldError}>שגיאה: {branchesError}</p>
+                  )}
+
+                  <button
+                    onClick={onSubmitOrder}
+                    disabled={!customerId || !branchId || loading}
+                    style={{
+                      ...styles.analyze,
+                      opacity: !customerId || !branchId || loading ? 0.5 : 1,
+                    }}
+                  >
+                    {loading ? "יוצר טיוטה…" : "צור טיוטה ב־Priority"}
+                  </button>
+
+                  {/* Back to action choice */}
+                  <button
+                    onClick={() => {
+                      setAction(null);
+                      setCustomerId("");
+                      setBranchId("");
+                    }}
+                    disabled={loading}
+                    style={styles.backBtn}
+                  >
+                    ← חזרה
+                  </button>
+                </div>
+              )}
+            </>
           ) : (
-            <ol style={styles.list}>
-              {scanResult.barcodes.map((b, i) => (
-                <li key={i} style={styles.listItem}>
-                  <strong>{b.value}</strong> ({b.format})
-                </li>
-              ))}
-            </ol>
+            // Active session, no boxes yet — first image still processing or empty.
+            <div style={styles.muted}>הסריקה התחילה — צלם את הקופסאות.</div>
           )}
-          {traceId && !feedbackSent && (
-            <FeedbackRow onFeedback={sendFeedback} feedbackError={feedbackError} />
-          )}
-          {feedbackSent && <p style={styles.feedbackDone}>תודה על המשוב.</p>}
         </div>
       )}
 
-      {/* Receiving session result */}
-      {receivingSession && (
+      {/* Submission unknown — show warning */}
+      {sessionUnknown && (
         <div style={styles.results}>
-          <h2 style={styles.h2}>מצב הקליטה</h2>
-
-          {/* Progress summary — friendly, no raw status */}
-          {sessionSubmitted ? (
-            <div style={styles.completeBadge}>
-              ✅ כל הקופסאות נקלטו — הטיוטה נוצרה בהצלחה ב־Priority
-            </div>
-          ) : receivingSession.discrepancy.missing > 0 ? (
-            <div style={styles.promptMore}>
-              נסרקו {receivingSession.box_count} מתוך {receivingSession.expected_count} קופסאות.
-              {" "}
-              {receivingSession.discrepancy.missing === 1
-                ? "חסרה קופסה אחת."
-                : `חסרות ${receivingSession.discrepancy.missing} קופסאות.`}
-            </div>
-          ) : receivingSession.box_count > 0 ? (
-            <div style={styles.completeBadge}>
-              ✅ כל הקופסאות נקלטו ({receivingSession.box_count}/{receivingSession.expected_count})
-            </div>
-          ) : (
-            <div style={styles.muted}>הסריקה התחילה — צלם את הקופסאות.</div>
+          <div style={{ ...styles.error, borderColor: "#f59e0b" }}>
+            ⚠️ לא הצלחנו לוודא אם הטיוטה נוצרה. אל תתחיל קליטה חדשה — נסה שוב.
+          </div>
+          {submitResult?.error && (
+            <p style={styles.muted}>{submitResult.error.message}</p>
           )}
+          <button
+            onClick={onSubmitOrder}
+            disabled={loading || !contextAttached}
+            style={{
+              ...styles.analyze,
+              opacity: loading || !contextAttached ? 0.5 : 1,
+            }}
+          >
+            {loading ? "מנסה שוב…" : "נסה שוב"}
+          </button>
+        </div>
+      )}
 
-          {/* Image upload message */}
-          {imageResult?.message && (
-            <div style={styles.sessionMessage}>
-              {imageResult.message}
-            </div>
-          )}
-
-          {/* Needs user selection — show candidate buttons */}
-          {needsSelection && imageResult?.candidates && (
-            <div style={styles.candidates}>
-              <h3 style={styles.h3}>בחר ברקוד להוספה:</h3>
-              <div style={styles.candidateRow}>
-                {imageResult.candidates.map((c, i) => (
-                  <span key={i} style={styles.candidateBtn}>
-                    {c.barcode_value}
-                  </span>
-                ))}
-              </div>
-              <p style={styles.muted}>
-                בחירת מועמדים עדיין לא מחוברת בזרימת הקליטה.
-              </p>
-            </div>
-          )}
-
-          {/* Active — prompt for more photos */}
-          {sessionActive && receivingSession.discrepancy.missing > 0 && (
-            <div style={styles.promptMore}>
-              📸 צלם עכשיו רק את הקופסה שחסרה.
-            </div>
-          )}
-
-          {/* Submission unknown — show warning */}
-          {sessionUnknown && (
-            <div style={{ ...styles.error, borderColor: "#f59e0b" }}>
-              ⚠️ לא הצלחנו לוודא אם הטיוטה נוצרה. אל תתחיל קליטה חדשה — נסה שוב.
-            </div>
-          )}
-
-          {/* Submit result — friendly */}
-          {submitResult && submitResult.error && (
+      {/* Submitted — success */}
+      {sessionSubmitted && (
+        <div style={styles.results}>
+          <div style={styles.completeBadge}>
+            ✅ כל הקופסאות נקלטו — הטיוטה נוצרה בהצלחה ב־Priority
+          </div>
+          {submitResult?.error && (
             <div style={styles.error}>
               <strong>שגיאה ביצירת הטיוטה:</strong> {submitResult.error.message}
             </div>
           )}
-          {submitResult && submitResult.retry_recommended && (
+          {submitResult?.retry_recommended && (
             <div style={styles.promptMore}>
               🔄 מומלץ לנסות שוב — ייתכן שההזמנה לא נוצרה.
             </div>
           )}
-
-          {/* Items list */}
-          {receivingSession.items.length > 0 && (
+          {receivingSession && receivingSession.items.length > 0 && (
             <>
-              <h3 style={styles.h3}>פריטים שנקלטו ({receivingSession.items.length})</h3>
+              <h3 style={styles.h3}>
+                פריטים שנקלטו ({receivingSession.items.length})
+              </h3>
               <ol style={styles.list}>
                 {receivingSession.items.map((item, i) => (
                   <li key={i} style={styles.listItem}>
                     <strong>{item.barcode_value}</strong>
-                    {item.barcode_format ? ` (${item.barcode_format})` : ""}
                     {` — כמות: ${item.quantity}`}
                   </li>
                 ))}
               </ol>
             </>
           )}
-
-          {/* Feedback (only for submitted sessions) */}
-          {sessionSubmitted && !feedbackSent && (
+          {!feedbackSent && (
             <FeedbackRow onFeedback={sendFeedback} feedbackError={feedbackError} />
           )}
           {feedbackSent && <p style={styles.feedbackDone}>תודה על המשוב.</p>}
+          <button onClick={resetAll} style={styles.backBtn}>
+            סריקה חדשה
+          </button>
         </div>
       )}
 
       <div style={{ marginTop: 32, paddingTop: 16, borderTop: "1px solid #e2e8f0" }}>
-        <a href="#/admin" style={{ color: "#3b82f6", textDecoration: "none", fontSize: 14, fontWeight: 500 }}>
+        <a
+          href="#/admin"
+          style={{
+            color: "#3b82f6",
+            textDecoration: "none",
+            fontSize: 14,
+            fontWeight: 500,
+          }}
+        >
           לוח ניהול ←
         </a>
       </div>
@@ -552,26 +533,9 @@ function FeedbackRow({
           לא
         </button>
       </div>
-      {feedbackError && <p style={styles.error}>שגיאה בשליחת משוב: {feedbackError}</p>}
-    </div>
-  );
-}
-
-function Row({
-  label,
-  value,
-  highlight,
-}: {
-  label: string;
-  value: string;
-  highlight?: string;
-}) {
-  return (
-    <div style={styles.row}>
-      <span style={styles.rowLabel}>{label}:</span>
-      <span style={{ ...styles.rowValue, ...(highlight ? { color: highlight, fontWeight: 600 } : {}) }}>
-        {value}
-      </span>
+      {feedbackError && (
+        <p style={styles.error}>שגיאה בשליחת משוב: {feedbackError}</p>
+      )}
     </div>
   );
 }
@@ -586,21 +550,42 @@ const styles: Record<string, React.CSSProperties> = {
   },
   h1: { fontSize: 24, fontWeight: 700, marginBottom: 4 },
   subtitle: { fontSize: 14, color: "#64748b", marginBottom: 16, marginTop: 0 },
-  h2: { fontSize: 20, fontWeight: 600, marginBottom: 12 },
+  h2: { fontSize: 20, fontWeight: 600, marginBottom: 4 },
   h3: { fontSize: 16, fontWeight: 600, marginTop: 16, marginBottom: 8 },
-  toggleRow: { display: "flex", gap: 8, marginBottom: 16 },
-  toggleBtn: {
-    flex: 1,
-    padding: "8px 12px",
-    border: "1px solid #cbd5e1",
+  inputRow: { display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" },
+  primaryButton: {
+    flex: "1 1 100%",
+    padding: "14px 16px",
+    background: "#3b82f6",
+    color: "#fff",
     borderRadius: 8,
-    background: "#fff",
+    textAlign: "center",
+    cursor: "pointer",
+    fontSize: 16,
+    fontWeight: 600,
+    border: "none",
+  },
+  secondaryButton: {
+    flex: "1 1 auto",
+    padding: "10px 16px",
+    background: "#f1f5f9",
+    borderRadius: 8,
+    textAlign: "center",
     cursor: "pointer",
     fontSize: 14,
     fontWeight: 500,
+    border: "1px solid #cbd5e1",
   },
-  toggleActive: { background: "#3b82f6", color: "#fff", borderColor: "#3b82f6" },
-  selectGroup: { display: "grid", gap: 10, marginBottom: 16 },
+  loadingBox: {
+    padding: 16,
+    background: "#f8fafc",
+    borderRadius: 8,
+    textAlign: "center",
+    fontSize: 16,
+    fontWeight: 500,
+    color: "#64748b",
+  },
+  selectGroup: { display: "grid", gap: 10, marginBottom: 16, marginTop: 8 },
   fieldLabel: { display: "grid", gap: 5, fontSize: 13, fontWeight: 600 },
   select: {
     width: "100%",
@@ -612,26 +597,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 14,
   },
   fieldError: { margin: "-4px 0 0", color: "#dc2626", fontSize: 12 },
-  inputRow: { display: "flex", gap: 8, marginBottom: 16 },
-  button: {
-    flex: 1,
-    padding: "10px 16px",
-    background: "#f1f5f9",
-    borderRadius: 8,
-    textAlign: "center",
-    cursor: "pointer",
-    fontSize: 14,
-    fontWeight: 500,
-    border: "1px solid #cbd5e1",
-  },
-  fileInfo: {
-    padding: 12,
-    background: "#f8fafc",
-    borderRadius: 8,
-    marginBottom: 16,
-    fontSize: 13,
-    lineHeight: 1.6,
-  },
   analyze: {
     width: "100%",
     padding: "12px 16px",
@@ -644,6 +609,17 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: "pointer",
     marginBottom: 16,
   },
+  backBtn: {
+    width: "100%",
+    padding: "8px 16px",
+    background: "transparent",
+    color: "#3b82f6",
+    border: "none",
+    borderRadius: 8,
+    fontSize: 14,
+    fontWeight: 500,
+    cursor: "pointer",
+  },
   results: {
     padding: 16,
     background: "#fff",
@@ -651,9 +627,6 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 8,
     marginBottom: 16,
   },
-  row: { display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 14 },
-  rowLabel: { color: "#64748b", fontWeight: 500 },
-  rowValue: { color: "#1e293b", fontWeight: 500 },
   sessionMessage: {
     padding: 12,
     background: "#fef3c7",
@@ -697,6 +670,23 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#166534",
     textAlign: "center",
   },
+  actionRow: { display: "flex", gap: 8, flexWrap: "wrap" },
+  actionBtn: {
+    flex: "1 1 40%",
+    padding: "12px 16px",
+    background: "#fff",
+    color: "#1e293b",
+    border: "1px solid #cbd5e1",
+    borderRadius: 8,
+    fontSize: 15,
+    fontWeight: 600,
+    cursor: "pointer",
+  },
+  actionDisabled: {
+    opacity: 0.5,
+    cursor: "not-allowed",
+    background: "#f1f5f9",
+  },
   list: { margin: "8px 0", paddingRight: 20, paddingLeft: 0, fontSize: 14, lineHeight: 1.8 },
   listItem: { marginBottom: 4 },
   muted: { color: "#94a3b8", fontSize: 14 },
@@ -715,4 +705,4 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 500,
   },
   feedbackDone: { color: "#16a34a", fontSize: 14, fontWeight: 500 },
-};
+}

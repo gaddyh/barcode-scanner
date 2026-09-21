@@ -137,13 +137,18 @@ async def async_client(receiving_store, in_memory_idempotency_store, db_pool):
 
 def _make_session(
     session_id: str = "sess-1",
-    customer_id: str = "cust-acme",
-    branch_id: str = "branch-acme-main",
-    action: str = "create_order",
+    customer_id: str | None = "cust-acme",
+    branch_id: str | None = "branch-acme-main",
+    action: str | None = "create_order",
     boxes: list[PhysicalBox] | None = None,
     status: ReceivingSessionStatus = ReceivingSessionStatus.ACTIVE,
 ) -> ReceivingSession:
-    """Create a ReceivingSession domain object (for unit tests)."""
+    """Create a ReceivingSession domain object (for unit tests).
+
+    Context defaults to the Acme customer/branch for backward
+    compatibility with existing tests; pass ``None`` to test the
+    scan-first (no-context) flow.
+    """
     return ReceivingSession(
         session_id=session_id,
         customer_id=customer_id,
@@ -157,9 +162,9 @@ def _make_session(
 async def _make_session_in_db(
     store: Any,
     session_id: str = "sess-1",
-    customer_id: str = "cust-acme",
-    branch_id: str = "branch-acme-main",
-    action: str = "create_order",
+    customer_id: str | None = "cust-acme",
+    branch_id: str | None = "branch-acme-main",
+    action: str | None = "create_order",
     boxes: list[PhysicalBox] | None = None,
     participant_id: str | None = None,
 ) -> ReceivingSession:
@@ -168,6 +173,9 @@ async def _make_session_in_db(
     Boxes are added by directly inserting session_items rows, since the
     upload_image endpoint goes through analyze_image which needs real
     barcode images. For submit/inspect tests we need boxes pre-populated.
+
+    Context defaults to the Acme customer/branch for backward
+    compatibility; pass ``None`` to test the scan-first flow.
     """
     await store.create_receiving_session(
         session_id,
@@ -522,6 +530,62 @@ class TestSessionDiscrepancy:
 
 
 # ===========================================================================
+# Domain: ReceivingSession — optional context + attach_context
+# ===========================================================================
+
+
+class TestSessionContext:
+    def test_context_defaults_none(self):
+        """Scan-first: a new session has no business context."""
+        s = ReceivingSession("s1")
+        assert s.customer_id is None
+        assert s.branch_id is None
+        assert s.action is None
+        assert not s.has_context
+
+    def test_has_context_true_when_all_attached(self):
+        s = _make_session()
+        assert s.has_context
+
+    def test_has_context_false_when_any_none(self):
+        s = ReceivingSession("s1", customer_id="c1", branch_id="b1", action=None)
+        assert not s.has_context
+        s = ReceivingSession("s1", customer_id="c1", branch_id=None, action="create_order")
+        assert not s.has_context
+        s = ReceivingSession("s1", customer_id=None, branch_id="b1", action="create_order")
+        assert not s.has_context
+
+    def test_attach_context_sets_fields(self):
+        s = ReceivingSession("s1")
+        s.attach_context("cust-acme", "branch-acme-main", "create_order")
+        assert s.customer_id == "cust-acme"
+        assert s.branch_id == "branch-acme-main"
+        assert s.action == "create_order"
+        assert s.has_context
+
+    def test_attach_context_rejects_invalid_action(self):
+        s = ReceivingSession("s1")
+        with pytest.raises(ValueError, match="Unsupported action"):
+            s.attach_context("cust-acme", "branch-acme-main", "invalid")
+
+    def test_attach_context_rejects_empty_customer(self):
+        s = ReceivingSession("s1")
+        with pytest.raises(ValueError, match="customer_id and branch_id are required"):
+            s.attach_context("  ", "branch-acme-main", "create_order")
+
+    def test_attach_context_rejects_empty_branch(self):
+        s = ReceivingSession("s1")
+        with pytest.raises(ValueError, match="customer_id and branch_id are required"):
+            s.attach_context("cust-acme", "", "create_order")
+
+    def test_attach_context_when_frozen_raises(self):
+        s = _make_session()
+        s.freeze()
+        with pytest.raises(ValueError, match="frozen"):
+            s.attach_context("cust-acme", "branch-acme-main", "create_order")
+
+
+# ===========================================================================
 # Router: POST /receiving/sessions — create session
 # ===========================================================================
 
@@ -548,7 +612,19 @@ class TestCreateSession:
         assert body["box_count"] == 0
         assert "session_id" in body
 
-    async def test_missing_customer_id(self, async_client):
+    async def test_create_session_no_context(self, async_client):
+        """Scan-first: create a session with no business context."""
+        resp = await async_client.post("/receiving/sessions", data={})
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["status"] == "active"
+        assert body["customer_id"] is None
+        assert body["branch_id"] is None
+        assert body["action"] is None
+        assert body["box_count"] == 0
+
+    async def test_partial_context_rejected(self, async_client):
+        """Providing some but not all context fields is rejected."""
         resp = await async_client.post(
             "/receiving/sessions",
             data={
@@ -558,7 +634,7 @@ class TestCreateSession:
             },
         )
         assert resp.status_code == 422
-        assert resp.json()["detail"]["code"] == "order_context_required"
+        assert resp.json()["detail"]["code"] == "partial_context"
 
     async def test_invalid_action(self, async_client):
         with patch(
@@ -608,34 +684,48 @@ class TestCreateSession:
         assert resp.status_code == 422
         assert resp.json()["detail"]["code"] == "unknown_or_mismatched_branch"
 
-    async def test_open_session_blocks_new_for_same_participant(
+    async def test_active_session_resumed_for_same_participant(
         self, async_client, receiving_store
     ):
+        """An existing ACTIVE session is resumed (200), not rejected."""
         gateway = _mock_gateway_success()
         with patch("src.api.receiving._get_priority_gateway", return_value=gateway):
             resp1 = await async_client.post(
                 "/receiving/sessions",
-                data={
-                    "customer_id": "cust-acme",
-                    "branch_id": "branch-acme-main",
-                    "action": "create_order",
-                    "participant_id": "operator-1",
-                },
+                data={"participant_id": "operator-1"},
             )
             assert resp1.status_code == 201
-            # Same participant — should get 409.
+            # Same participant — should resume (200) with the same session_id.
             resp2 = await async_client.post(
                 "/receiving/sessions",
-                data={
-                    "customer_id": "cust-acme",
-                    "branch_id": "branch-acme-main",
-                    "action": "create_order",
-                    "participant_id": "operator-1",
-                },
+                data={"participant_id": "operator-1"},
+            )
+        assert resp2.status_code == 200
+        assert resp2.json()["session_id"] == resp1.json()["session_id"]
+
+    async def test_submission_unknown_blocks_new_for_same_participant(
+        self, async_client, receiving_store
+    ):
+        """A SUBMISSION_UNKNOWN session blocks new creation (409)."""
+        await _make_session_in_db(
+            receiving_store,
+            "sess-1",
+            boxes=[PhysicalBox(barcode_value="AAA")],
+            participant_id="operator-1",
+        )
+        gateway = _mock_gateway_indeterminate()
+        with patch("src.api.receiving._get_priority_gateway", return_value=gateway):
+            # First submit: indeterminate.
+            resp1 = await async_client.post("/receiving/sessions/sess-1/submit")
+            assert resp1.json()["status"] == "submission_unknown"
+            # Try to create a new session: rejected.
+            resp2 = await async_client.post(
+                "/receiving/sessions",
+                data={"participant_id": "operator-1"},
             )
         assert resp2.status_code == 409
         assert resp2.json()["detail"]["code"] == "open_session_exists"
-        assert resp2.json()["detail"]["existing_session_id"] == resp1.json()["session_id"]
+        assert resp2.json()["detail"]["existing_status"] == "submission_unknown"
 
 
 # ===========================================================================
@@ -665,6 +755,150 @@ class TestUploadImage:
         )
         assert resp.status_code == 409
         assert resp.json()["detail"]["code"] == "session_not_editable"
+
+
+# ===========================================================================
+# Router: POST /receiving/sessions/{id}/context — attach business context
+# ===========================================================================
+
+
+@skip_no_db
+class TestAttachContext:
+    async def test_attach_context_success(self, async_client, receiving_store):
+        """Scan-first: create without context, then attach it."""
+        await _make_session_in_db(
+            receiving_store, "sess-1", customer_id=None, branch_id=None, action=None
+        )
+        with patch(
+            "src.api.receiving._get_priority_gateway",
+            return_value=_mock_gateway_success(),
+        ):
+            resp = await async_client.post(
+                "/receiving/sessions/sess-1/context",
+                data={
+                    "customer_id": "cust-acme",
+                    "branch_id": "branch-acme-main",
+                    "action": "create_order",
+                },
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["customer_id"] == "cust-acme"
+        assert body["branch_id"] == "branch-acme-main"
+        assert body["action"] == "create_order"
+        assert body["status"] == "active"
+
+    async def test_attach_context_unknown_customer(self, async_client, receiving_store):
+        await _make_session_in_db(
+            receiving_store, "sess-1", customer_id=None, branch_id=None, action=None
+        )
+        with patch(
+            "src.api.receiving._get_priority_gateway",
+            return_value=_mock_gateway_success(),
+        ):
+            resp = await async_client.post(
+                "/receiving/sessions/sess-1/context",
+                data={
+                    "customer_id": "cust-nonexistent",
+                    "branch_id": "branch-acme-main",
+                    "action": "create_order",
+                },
+            )
+        assert resp.status_code == 422
+        assert resp.json()["detail"]["code"] == "unknown_customer"
+
+    async def test_attach_context_unknown_branch(self, async_client, receiving_store):
+        await _make_session_in_db(
+            receiving_store, "sess-1", customer_id=None, branch_id=None, action=None
+        )
+        with patch(
+            "src.api.receiving._get_priority_gateway",
+            return_value=_mock_gateway_success(),
+        ):
+            resp = await async_client.post(
+                "/receiving/sessions/sess-1/context",
+                data={
+                    "customer_id": "cust-acme",
+                    "branch_id": "branch-nonexistent",
+                    "action": "create_order",
+                },
+            )
+        assert resp.status_code == 422
+        assert resp.json()["detail"]["code"] == "unknown_or_mismatched_branch"
+
+    async def test_attach_context_rejects_invalid_action(
+        self, async_client, receiving_store
+    ):
+        await _make_session_in_db(
+            receiving_store, "sess-1", customer_id=None, branch_id=None, action=None
+        )
+        with patch(
+            "src.api.receiving._get_priority_gateway",
+            return_value=_mock_gateway_success(),
+        ):
+            resp = await async_client.post(
+                "/receiving/sessions/sess-1/context",
+                data={
+                    "customer_id": "cust-acme",
+                    "branch_id": "branch-acme-main",
+                    "action": "invalid",
+                },
+            )
+        assert resp.status_code == 422
+        assert resp.json()["detail"]["code"] == "invalid_action"
+
+    async def test_attach_context_rejects_when_not_active(
+        self, async_client, receiving_store
+    ):
+        """Context cannot be attached once the session is frozen/submitted."""
+        await _make_session_in_db(receiving_store, "sess-1")
+        await receiving_store.freeze_submission("sess-1", {"items": []})
+        with patch(
+            "src.api.receiving._get_priority_gateway",
+            return_value=_mock_gateway_success(),
+        ):
+            resp = await async_client.post(
+                "/receiving/sessions/sess-1/context",
+                data={
+                    "customer_id": "cust-acme",
+                    "branch_id": "branch-acme-main",
+                    "action": "create_order",
+                },
+            )
+        assert resp.status_code == 409
+        assert resp.json()["detail"]["code"] == "session_not_editable"
+
+    async def test_attach_context_session_not_found(self, async_client):
+        with patch(
+            "src.api.receiving._get_priority_gateway",
+            return_value=_mock_gateway_success(),
+        ):
+            resp = await async_client.post(
+                "/receiving/sessions/nonexistent/context",
+                data={
+                    "customer_id": "cust-acme",
+                    "branch_id": "branch-acme-main",
+                    "action": "create_order",
+                },
+            )
+        assert resp.status_code == 404
+
+    async def test_attach_context_empty_fields_rejected(
+        self, async_client, receiving_store
+    ):
+        await _make_session_in_db(
+            receiving_store, "sess-1", customer_id=None, branch_id=None, action=None
+        )
+        resp = await async_client.post(
+            "/receiving/sessions/sess-1/context",
+            data={
+                "customer_id": "  ",
+                "branch_id": "branch-acme-main",
+                "action": "create_order",
+            },
+        )
+        assert resp.status_code == 422
+        assert resp.json()["detail"]["code"] == "order_context_required"
 
 
 # ===========================================================================
@@ -1112,6 +1346,94 @@ class TestSubmitSession:
             resp = await async_client.post("/receiving/sessions/sess-1/submit")
         assert resp.status_code == 422
         assert resp.json()["detail"]["code"] == "empty_order"
+
+    async def test_submit_without_context_rejected(
+        self, async_client, receiving_store
+    ):
+        """Scan-first: a session with boxes but no context cannot submit."""
+        await _make_session_in_db(
+            receiving_store,
+            "sess-1",
+            customer_id=None,
+            branch_id=None,
+            action=None,
+            boxes=[PhysicalBox(barcode_value="AAA")],
+        )
+        with patch(
+            "src.api.receiving._get_priority_gateway",
+            return_value=_mock_gateway_success(),
+        ):
+            resp = await async_client.post("/receiving/sessions/sess-1/submit")
+        assert resp.status_code == 422
+        assert resp.json()["detail"]["code"] == "order_context_required"
+
+    async def test_submit_retry_uses_frozen_payload(
+        self, async_client, receiving_store, in_memory_idempotency_store
+    ):
+        """On retry from SUBMISSION_UNKNOWN, the request sent to execute()
+        is rebuilt from the persisted frozen payload — NOT from the live
+        session. This restores the invariant: same idempotency key →
+        exact same payload.
+
+        We simulate the bug scenario: after the indeterminate outcome,
+        we modify the session's customer_id in the DB (as if it had been
+        edited). The retry must still send the ORIGINAL frozen context.
+        """
+        await _make_session_in_db(
+            receiving_store,
+            "sess-1",
+            customer_id="cust-acme",
+            branch_id="branch-acme-main",
+            action="create_order",
+            boxes=[PhysicalBox(barcode_value="AAA", barcode_format="Code128")],
+        )
+
+        # Capture the request passed to execute() on each call.
+        captured_requests: list[Any] = []
+
+        async def fake_execute(operation, input_, context, **kwargs):
+            captured_requests.append(input_)
+            if len(captured_requests) == 1:
+                # First call: indeterminate.
+                raise IndeterminateError("connection lost after submit")
+            # Second call: succeed.
+            return {"order_id": 77, "session_id": "sess-1", "status": "draft"}
+
+        with patch("src.api.receiving.execute", new=fake_execute):
+            # First submit: indeterminate.
+            resp1 = await async_client.post("/receiving/sessions/sess-1/submit")
+            assert resp1.status_code == 200
+            assert resp1.json()["status"] == "submission_unknown"
+
+            # Simulate the session being edited after the freeze (the CAS
+            # would prevent this in practice, but we're testing that the
+            # retry uses the frozen payload, not the live session).
+            async with receiving_store._pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE sessions SET customer_id = 'cust-tampered' "
+                    "WHERE id = $1",
+                    "sess-1",
+                )
+
+            # Clear the idempotency cache so the retry actually calls execute.
+            in_memory_idempotency_store._outcomes.clear()
+            in_memory_idempotency_store._in_progress.clear()
+
+            # Retry: must use the FROZEN payload (cust-acme), not the
+            # tampered live session (cust-tampered).
+            resp2 = await async_client.post("/receiving/sessions/sess-1/submit")
+        assert resp2.status_code == 200
+        assert resp2.json()["status"] == "submitted"
+        assert resp2.json()["order_id"] == 77
+        # Both requests must be identical — same idempotency key, same payload.
+        assert len(captured_requests) == 2
+        r1, r2 = captured_requests[0], captured_requests[1]
+        assert r1.customer_id == "cust-acme"
+        assert r2.customer_id == "cust-acme"  # NOT cust-tampered
+        assert r1.session_id == r2.session_id
+        assert r1.branch_id == r2.branch_id
+        assert r1.action == r2.action
+        assert r1.items == r2.items
 
     async def test_submit_with_boxes(
         self, async_client, receiving_store
