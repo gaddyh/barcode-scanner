@@ -41,7 +41,7 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from PIL import (
     Image,
@@ -51,6 +51,7 @@ from PIL import (
     UnidentifiedImageError,
 )
 
+from src.ingest.barcode_policy import BarcodePolicy, PrimaryShoeboxBarcodePolicy
 from src.ingest.pipeline import pipeline_path
 from src.ingest.scanner import BarcodeScanner
 from src.ingest.vision import (
@@ -80,6 +81,7 @@ def analyze_image(
     max_retries: int = DEFAULT_MAX_RETRIES,
     retry_delay_seconds: float = DEFAULT_RETRY_DELAY_SECONDS,
     thread_id: str | None = None,
+    barcode_policy: BarcodePolicy | Literal["default"] | None = "default",
 ) -> dict[str, Any]:
     """Run the pipeline on one image and return a product-shaped result.
 
@@ -109,6 +111,15 @@ def analyze_image(
         scanner = BarcodeScanner()
     assert scanner is not None
 
+    # Resolve the barcode policy. The default ("default" sentinel) applies
+    # the PrimaryShoeboxBarcodePolicy (EAN-13, 13 digits, valid checksum).
+    # Pass an explicit policy to override; pass None to disable filtering.
+    resolved_policy: BarcodePolicy | None
+    if barcode_policy == "default":
+        resolved_policy = PrimaryShoeboxBarcodePolicy()
+    else:
+        resolved_policy = barcode_policy
+
     # Resolve input to a path. Bytes are written to a temp file because
     # audit_shoebox_labels needs to re-open the image by path.
     cleanup_path: str | None = None
@@ -133,6 +144,7 @@ def analyze_image(
             max_retries=max_retries,
             retry_delay_seconds=retry_delay_seconds,
             thread_id=thread_id,
+            barcode_policy=resolved_policy,
         )
         result = _reshape(summary, image_width, image_height, image_path=path)
         logger.info(
@@ -169,6 +181,7 @@ async def analyze_image_async(
     max_retries: int = DEFAULT_MAX_RETRIES,
     retry_delay_seconds: float = DEFAULT_RETRY_DELAY_SECONDS,
     thread_id: str | None = None,
+    barcode_policy: BarcodePolicy | Literal["default"] | None = "default",
 ) -> dict[str, Any]:
     """Async version of ``analyze_image``.
 
@@ -192,6 +205,13 @@ async def analyze_image_async(
         scanner = BarcodeScanner()
     assert scanner is not None
 
+    # Resolve the barcode policy (same logic as the sync version).
+    resolved_policy: BarcodePolicy | None
+    if barcode_policy == "default":
+        resolved_policy = PrimaryShoeboxBarcodePolicy()
+    else:
+        resolved_policy = barcode_policy
+
     cleanup_path: str | None = None
     try:
         if isinstance(image, (bytes, bytearray)):
@@ -212,6 +232,7 @@ async def analyze_image_async(
             max_retries=max_retries,
             retry_delay_seconds=retry_delay_seconds,
             thread_id=thread_id,
+            barcode_policy=resolved_policy,
         )
         result = _reshape(summary, image_width, image_height, image_path=path)
         logger.info(

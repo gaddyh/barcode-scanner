@@ -29,6 +29,35 @@ path — the happy path is unaffected.
 `src/ingest/analyze.py` reshapes the pipeline summary into the product response
 (`complete` / `needs_better_photo` / `retryable_error`).
 
+## Product barcode contract (PR B)
+
+The deterministic scanner (`BarcodeScanner`) is intentionally generic — it
+decodes whatever barcodes it can find (Code128, EAN-13, UPC-A, etc.) and
+returns all of them. The product, however, only cares about **primary
+shoebox barcodes** — the EAN-13 product identifier printed on the shoebox
+label.
+
+`src/ingest/barcode_policy.py` defines `PrimaryShoeboxBarcodePolicy`, which
+filters raw scanner detections to primary shoebox EAN-13 barcodes:
+
+- exactly 13 digits
+- valid EAN-13 mod-10 checksum
+
+The policy is applied in the graph's `_reconcile_node` (before
+reconciliation), NOT inside the scanner. This keeps `BarcodeScanner`
+generic and reusable for non-shoebox use cases. Non-primary detections
+(Code128 shipping codes, UPC-A, partial reads, noise) are rejected
+before reconciliation so they cannot become false positives in the
+product-level counts or draft-order inputs.
+
+The policy is wired through `analyze_image` / `analyze_image_async`
+(default: `PrimaryShoeboxBarcodePolicy()`) → `pipeline_path` /
+`run_scan_graph` → `_reconcile_node`. Pass `barcode_policy=None` to
+disable filtering (e.g. for a non-shoebox use case).
+
+Duplicate EAN-13 values are preserved (multiset semantics) — two
+physical boxes with the same EAN-13 count as two occurrences, not one.
+
 ## Dependency direction
 
 ```
@@ -343,3 +372,15 @@ ERP external-reference lookup is deferred to MVP.
 - Gate on per-image and aggregate occurrence recall + false positives.
   Do NOT gate on latency (workstation/CI latency fluctuates; record
   P50/P95 as informational).
+- **Product barcode policy (PR B):** the scanner-only eval applies
+  `PrimaryShoeboxBarcodePolicy` to filter raw detections to EAN-13
+  before scoring. The report includes `Matched/Expected`,
+  `Matched/Found`, `Raw scanner detections`, and `Policy rejected`
+  instrumentation.
+- **Acceptance target (PR B):** in addition to "no regression against
+  baseline", the eval enforces an absolute quality floor:
+  `mean_occurrence_recall >= 0.65` and
+  `mean_occurrence_precision >= 0.90`. The policy targets precision
+  (reject non-product barcodes); the recall floor is set just below
+  the current baseline to avoid gating on the pre-existing recall gap
+  in difficult photos.

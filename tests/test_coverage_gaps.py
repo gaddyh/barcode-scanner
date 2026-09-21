@@ -1115,7 +1115,7 @@ class TestAnalyze:
         from src.ingest.analyze import analyze_image_async
 
         img = _png_path(tmp_path)
-        detections = [_detection("111")]
+        detections = [_detection("7297501098442")]
         spatial = _spatial([
             _label_px(1, label_box=(50, 50, 250, 350), barcode_box=(100, 100, 200, 300)),
         ])
@@ -1129,7 +1129,7 @@ class TestAnalyze:
         from src.ingest.analyze import analyze_image_async
 
         image_bytes = _png_bytes()
-        detections = [_detection("111")]
+        detections = [_detection("7297501098442")]
         spatial = _spatial([
             _label_px(1, label_box=(50, 50, 250, 350), barcode_box=(100, 100, 200, 300)),
         ])
@@ -1191,7 +1191,7 @@ class TestAnalyze:
             "audit_status": "error",
             "audit_error": {"type": "ShoeboxAuditError", "message": "x"},
             "scanner_detections": [
-                {"value": "111", "format": "Code128", "bounding_box": {}},
+                {"value": "7297501098442", "format": "Code128", "bounding_box": {}},
             ],
         }
         result = _reshape(summary, 800, 600)
@@ -1231,7 +1231,7 @@ class TestAnalyze:
             "scan_status": "found",
             "audit_status": "ok",
             "scanner_detections": [
-                {"value": "111", "format": "Code128", "bounding_box": {}},
+                {"value": "7297501098442", "format": "Code128", "bounding_box": {}},
             ],
             "gemini_labels": [],
             "reconciliation": {
@@ -1255,7 +1255,7 @@ class TestAnalyze:
             "scan_status": "found",
             "audit_status": "ok",
             "scanner_detections": [
-                {"value": "111", "format": "Code128", "bounding_box": {}},
+                {"value": "7297501098442", "format": "Code128", "bounding_box": {}},
                 {"value": "999", "format": "Code128", "bounding_box": {}},
             ],
             "gemini_labels": [
@@ -1304,7 +1304,7 @@ class TestAnalyze:
             "audit_status": "ok",
             "audit_latency_ms": 500,
             "scanner_detections": [
-                {"value": "111", "format": "Code128", "bounding_box": {}},
+                {"value": "7297501098442", "format": "Code128", "bounding_box": {}},
             ],
             "gemini_labels": [
                 {"label_index": 1, "label_bbox": {}, "status": "clear"},
@@ -1367,7 +1367,7 @@ class TestAnalyze:
         from src.ingest.analyze import analyze_image
 
         img = _png_path(tmp_path)
-        detections = [_detection("111")]
+        detections = [_detection("7297501098442")]
         spatial = _spatial([
             _label_px(1, label_box=(50, 50, 250, 350), barcode_box=(100, 100, 200, 300)),
         ])
@@ -1380,7 +1380,7 @@ class TestAnalyze:
         from src.ingest.analyze import analyze_image
 
         image_bytes = _png_bytes()
-        detections = [_detection("111")]
+        detections = [_detection("7297501098442")]
         spatial = _spatial([
             _label_px(1, label_box=(50, 50, 250, 350), barcode_box=(100, 100, 200, 300)),
         ])
@@ -1447,7 +1447,7 @@ class TestGraph:
         from src.ingest.graph import scan_path
 
         img = _png_path(tmp_path)
-        scanner = _FakeScanner([_detection("111")])
+        scanner = _FakeScanner([_detection("7297501098442")])
         result = scan_path(img, scanner)
         assert result["status"] == "found"
         assert result["count"] == 1
@@ -1642,7 +1642,7 @@ class TestGraph:
         from src.ingest.graph import _scan_node
 
         path = Path("/tmp/test.png")
-        scanner = _FakeScanner([_detection("111")])
+        scanner = _FakeScanner([_detection("7297501098442")])
         config = {"configurable": {"scanner": scanner}}
         with patch("src.ingest.graph.scan_path") as mock_scan:
             mock_scan.return_value = {
@@ -1709,14 +1709,18 @@ class TestGraph:
     async def test_reconcile_node_skips_on_scan_error(self):
         from src.ingest.graph import _reconcile_node
 
-        result = await _reconcile_node({"scan_ok": False, "audit_ok": True})
+        result = await _reconcile_node(
+            {"scan_ok": False, "audit_ok": True}, {"configurable": {}}
+        )
         assert result == {}
 
     @pytest.mark.asyncio
     async def test_reconcile_node_skips_on_audit_error(self):
         from src.ingest.graph import _reconcile_node
 
-        result = await _reconcile_node({"scan_ok": True, "audit_ok": False})
+        result = await _reconcile_node(
+            {"scan_ok": True, "audit_ok": False}, {"configurable": {}}
+        )
         assert result == {}
 
     @pytest.mark.asyncio
@@ -1741,7 +1745,7 @@ class TestGraph:
                 "spatial": spatial.model_dump(mode="json"),
             },
         }
-        result = await _reconcile_node(state)
+        result = await _reconcile_node(state, {"configurable": {}})
         assert "reconciliation" in result
         assert "barcodes" in result
 
@@ -1777,7 +1781,7 @@ class TestGraph:
         mock_recon = MagicMock()
         mock_recon.unmatched_labels = [ul]
         mock_recon.matched_label_count = 0
-        det = _detection("999")
+        det = _detection("7297500243430")
         scanner = _FakeScanner(recovery_detections=[det])
         config = {"configurable": {"scanner": scanner}}
         state = {
@@ -1840,7 +1844,7 @@ class TestGraph:
         state = {
             "scan_result": {
                 "status": "found",
-                "barcodes": [{"value": "111"}],
+                "barcodes": [{"value": "7297501098442"}],
             },
             "audit_result": {"status": "error", "error": {"type": "X"}},
             "scan_ok": True,
@@ -1864,13 +1868,13 @@ class TestGraph:
         state = {
             "scan_result": {
                 "status": "found",
-                "barcodes": [{"value": "111"}, {"value": "222"}],
+                "barcodes": [{"value": "7297501098442"}, {"value": "7297500243423"}],
             },
             "audit_result": {"status": "ok"},
             "scan_ok": True,
             "audit_ok": True,
             "path": "/tmp/x.png",
-            "barcodes": [{"value": "111"}, {"value": "222"}],
+            "barcodes": [{"value": "7297501098442"}, {"value": "7297500243423"}],
             "labels": [{"label_index": 1, "status": "clear"}],
             "reconciliation": mock_recon,
             "recovery_attempted": True,
@@ -1896,13 +1900,13 @@ class TestGraph:
         state = {
             "scan_result": {
                 "status": "found",
-                "barcodes": [{"value": "111"}],
+                "barcodes": [{"value": "7297501098442"}],
             },
             "audit_result": {"status": "ok"},
             "scan_ok": True,
             "audit_ok": True,
             "path": "/tmp/x.png",
-            "barcodes": [{"value": "111"}],
+            "barcodes": [{"value": "7297501098442"}],
             "labels": [{"label_index": 1, "status": "clear"}],
             "reconciliation": mock_recon,
         }
@@ -1931,7 +1935,7 @@ class TestGraph:
         from src.ingest.graph import run_scan_graph
 
         img = _png_path(tmp_path)
-        detections = [_detection("111")]
+        detections = [_detection("7297501098442")]
         spatial = _spatial([
             _label_px(1, label_box=(50, 50, 250, 350), barcode_box=(100, 100, 200, 300)),
         ])
@@ -2039,7 +2043,7 @@ class TestPipeline:
         from src.ingest.pipeline import pipeline_path
 
         img = _png_path(tmp_path)
-        detections = [_detection("111")]
+        detections = [_detection("7297501098442")]
         spatial = _spatial([
             _label_px(1, label_box=(50, 50, 250, 350), barcode_box=(100, 100, 200, 300)),
         ])
@@ -2068,7 +2072,7 @@ class TestPipeline:
         from src.ingest.pipeline import pipeline_path
 
         img = _png_path(tmp_path)
-        detections = [_detection("111")]
+        detections = [_detection("7297501098442")]
         spatial = _spatial([
             _label_px(1, label_box=(50, 50, 250, 350), barcode_box=(100, 100, 200, 300)),
         ])

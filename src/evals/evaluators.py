@@ -193,15 +193,18 @@ def _expected_values_multiset(example: Any) -> Counter[str]:
     return Counter(barcodes)
 
 
-def occurrence_recall(run: Any, example: Any) -> dict[str, float | str]:
+def occurrence_recall(run: Any, example: Any) -> dict[str, float | str | int]:
     """Multiset recall: matched occurrences / expected occurrences.
 
     If the ground truth has two identical barcodes (two physical boxes)
     and the scanner finds only one, recall is 0.5 — not 1.0.
+
+    Returns ``matched_count`` and ``expected_count`` for instrumentation.
     """
     expected = _expected_values_multiset(example)
     if not expected:
-        return {"score": 1.0, "comment": "no expected barcodes"}
+        return {"score": 1.0, "comment": "no expected barcodes",
+                "matched_count": 0, "expected_count": 0}
     found = _found_values_multiset(_outputs(run))
     matched = sum((expected & found).values())
     total_expected = sum(expected.values())
@@ -213,19 +216,24 @@ def occurrence_recall(run: Any, example: Any) -> dict[str, float | str]:
             f"matched {matched}/{total_expected} occurrences"
             + (f", missing={dict(missing)}" if missing else "")
         ),
+        "matched_count": matched,
+        "expected_count": total_expected,
     }
 
 
-def occurrence_precision(run: Any, example: Any) -> dict[str, float | str]:
+def occurrence_precision(run: Any, example: Any) -> dict[str, float | str | int]:
     """Multiset precision: matched occurrences / found occurrences.
 
     If the scanner finds three copies of a barcode but the ground truth
     has only two, precision is 2/3 — the extra detection is a false positive.
+
+    Returns ``matched_count`` and ``found_count`` for instrumentation.
     """
     expected = _expected_values_multiset(example)
     found = _found_values_multiset(_outputs(run))
     if not found:
-        return {"score": 1.0, "comment": "no found barcodes (vacuously precise)"}
+        return {"score": 1.0, "comment": "no found barcodes (vacuously precise)",
+                "matched_count": 0, "found_count": 0}
     matched = sum((expected & found).values())
     total_found = sum(found.values())
     score = matched / total_found if total_found else 1.0
@@ -236,6 +244,8 @@ def occurrence_precision(run: Any, example: Any) -> dict[str, float | str]:
             f"{matched}/{total_found} found occurrences match"
             + (f", false_positives={dict(fp)}" if fp else "")
         ),
+        "matched_count": matched,
+        "found_count": total_found,
     }
 
 

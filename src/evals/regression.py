@@ -46,13 +46,21 @@ BASELINE_FULL_PIPELINE_PATH = _REPO_ROOT / "tests" / "eval" / "baseline_full_pip
 
 
 def _run_scanner(image_path: str) -> dict[str, Any]:
-    """Run the scanner on one image and return a prediction dict."""
+    """Run the scanner on one image and return a prediction dict.
+
+    Applies the PrimaryShoeboxBarcodePolicy to filter raw scanner
+    detections to primary shoebox EAN-13 barcodes before scoring.
+    """
+    from src.ingest.barcode_policy import PrimaryShoeboxBarcodePolicy
+
     with open(image_path, "rb") as f:
         image_bytes = f.read()
 
     scanner = BarcodeScanner()
+    policy = PrimaryShoeboxBarcodePolicy()
     t0 = time.perf_counter()
-    detections = scanner.scan_bytes(image_bytes)
+    raw_detections = scanner.scan_bytes(image_bytes)
+    detections = policy.filter(raw_detections)
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
     return {
@@ -61,6 +69,8 @@ def _run_scanner(image_path: str) -> dict[str, Any]:
         "metrics": {
             "elapsed_ms": elapsed_ms,
             "scanner_count": len(detections),
+            "raw_scanner_count": policy.last_raw_count,
+            "policy_rejected_count": policy.last_rejected_count,
         },
     }
 
@@ -139,11 +149,14 @@ def run_regression(*, full_pipeline: bool = False) -> list[dict[str, Any]]:
             "image_name": ex["image_name"],
             "expected_count": ex["expected_count"],
             "found_count": len(prediction["items"]),
+            "matched_count": recall.get("matched_count", 0),
             "occurrence_recall": recall["score"],
             "occurrence_precision": precision["score"],
             "barcode_accuracy": accuracy["score"],
             "elapsed_ms": prediction["metrics"]["elapsed_ms"],
             "audit_latency_ms": prediction["metrics"].get("audit_latency_ms", 0),
+            "raw_scanner_count": prediction["metrics"].get("raw_scanner_count", 0),
+            "policy_rejected_count": prediction["metrics"].get("policy_rejected_count", 0),
             "comment_recall": recall["comment"],
             "comment_precision": precision["comment"],
         })
@@ -166,11 +179,15 @@ def _aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
         "mean_occurrence_recall": sum(r["occurrence_recall"] for r in results) / n,
         "mean_occurrence_precision": sum(r["occurrence_precision"] for r in results) / n,
         "barcode_accuracy": sum(r["barcode_accuracy"] for r in results) / n,
-        "total_matched_occurrences": sum(
-            r["occurrence_recall"] * r["expected_count"] for r in results
-        ),
+        "total_matched_occurrences": sum(r.get("matched_count", 0) for r in results),
         "total_expected_occurrences": sum(r["expected_count"] for r in results),
         "total_found_occurrences": sum(r["found_count"] for r in results),
+        "total_raw_scanner_detections": sum(
+            r.get("raw_scanner_count", 0) for r in results
+        ),
+        "total_policy_rejected": sum(
+            r.get("policy_rejected_count", 0) for r in results
+        ),
         "p50_latency_ms": latencies[p50_idx],
         "p95_latency_ms": latencies[p95_idx],
         "p50_audit_latency_ms": audit_latencies[p50_idx],
@@ -193,8 +210,10 @@ def _format_results(results: list[dict[str, Any]], agg: dict[str, Any]) -> str:
         f"Mean occurrence recall:    {agg['mean_occurrence_recall']:.3f}",
         f"Mean occurrence precision: {agg['mean_occurrence_precision']:.3f}",
         f"Barcode accuracy (strict): {agg['barcode_accuracy']:.3f}",
-        f"Matched occurrences:        {agg['total_matched_occurrences']:.0f}/{agg['total_expected_occurrences']}",
-        f"Found occurrences:         {agg['total_found_occurrences']}",
+        f"Matched/Expected:           {agg['total_matched_occurrences']:.0f}/{agg['total_expected_occurrences']}",
+        f"Matched/Found:              {agg['total_matched_occurrences']:.0f}/{agg['total_found_occurrences']}",
+        f"Raw scanner detections:     {agg.get('total_raw_scanner_detections', 0)}",
+        f"Policy rejected:            {agg.get('total_policy_rejected', 0)}",
         f"P50 latency: {agg['p50_latency_ms']}ms  P95 latency: {agg['p95_latency_ms']}ms",
     ]
     if has_audit:
@@ -254,6 +273,24 @@ def compare_against_baseline(
             f"REGRESSION: mean_occurrence_precision "
             f"{agg['mean_occurrence_precision']:.3f} < "
             f"{baseline_agg['mean_occurrence_precision']:.3f}"
+        )
+
+    # Explicit acceptance target (PR B) — absolute quality floor, not
+    # just "do not regress". The product barcode contract (EAN-13
+    # filtering) targets precision (reject non-product barcodes); the
+    # recall floor is set just below the current baseline so it doesn't
+    # gate on the pre-existing recall gap in difficult photos.
+    ACCEPTANCE_RECALL = 0.65
+    ACCEPTANCE_PRECISION = 0.90
+    if agg["mean_occurrence_recall"] < ACCEPTANCE_RECALL:
+        errors.append(
+            f"ACCEPTANCE FAIL: mean_occurrence_recall "
+            f"{agg['mean_occurrence_recall']:.3f} < {ACCEPTANCE_RECALL:.2f}"
+        )
+    if agg["mean_occurrence_precision"] < ACCEPTANCE_PRECISION:
+        errors.append(
+            f"ACCEPTANCE FAIL: mean_occurrence_precision "
+            f"{agg['mean_occurrence_precision']:.3f} < {ACCEPTANCE_PRECISION:.2f}"
         )
 
     # Per-case regression (hard gate)

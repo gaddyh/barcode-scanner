@@ -42,6 +42,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from PIL import Image, ImageOps, UnidentifiedImageError
 
+from src.ingest.barcode_policy import BarcodePolicy
 from src.ingest.reconciliation import match_scanner_to_labels
 from src.ingest.scanner import BarcodeScanner
 from src.ingest.vision import (
@@ -460,7 +461,7 @@ async def _audit_node(state: ScanState) -> dict[str, Any]:
     return {"audit_result": audit_result, "audit_ok": audit_ok}
 
 
-async def _reconcile_node(state: ScanState) -> dict[str, Any]:
+async def _reconcile_node(state: ScanState, config: RunnableConfig) -> dict[str, Any]:
     """Match scanner detections to Gemini labels.
 
     On the first pass, barcodes are read from ``scan_result``. After recovery,
@@ -479,6 +480,29 @@ async def _reconcile_node(state: ScanState) -> dict[str, Any]:
     barcodes = state.get("barcodes")
     if barcodes is None:
         barcodes = state["scan_result"].get("barcodes", [])  # type: ignore[assignment]
+
+    # Filter raw scanner detections through the product barcode policy.
+    # The scanner is generic (decodes whatever it can); the product only
+    # cares about primary shoebox EAN-13 barcodes. Non-primary detections
+    # (Code128 shipping codes, UPC-A, partial reads, noise) are rejected
+    # before reconciliation so they cannot become false positives.
+    policy: BarcodePolicy | None = (config or {}).get("configurable", {}).get(
+        "barcode_policy"
+    )
+    if policy is not None and barcodes:
+        raw_count = len(barcodes)
+        # barcodes are dicts here (from scan_path JSON serialization);
+        # filter by value using the policy.
+        barcodes = [
+            b for b in barcodes if policy.is_primary(b.get("value", ""))
+        ]
+        if raw_count != len(barcodes):
+            logger.info(
+                "Barcode policy filtered %d → %d detections (rejected %d)",
+                raw_count,
+                len(barcodes),
+                raw_count - len(barcodes),
+            )
 
     audit_result = state["audit_result"]
     spatial: Any = audit_result.get("spatial", {})
@@ -827,6 +851,7 @@ async def run_scan_graph(
     max_retries: int,
     retry_delay_seconds: float,
     thread_id: str | None = None,
+    barcode_policy: BarcodePolicy | None = None,
 ) -> dict[str, object]:
     """Run the LangGraph scan pipeline (async) and return the summary dict.
 
@@ -841,6 +866,11 @@ async def run_scan_graph(
             saved to Postgres after every superstep. This enables resume
             after interruption (M15D HITL). When ``None`` or when no
             checkpointer is configured, the graph runs without persistence.
+        barcode_policy: Optional product-level barcode filter. When
+            provided, raw scanner detections are filtered through
+            ``policy.is_primary()`` before reconciliation. When ``None``,
+            no filtering is applied (all detections pass through — the
+            pre-PR-B behavior).
     """
     initial_state: ScanState = {
         "path": str(path),
@@ -856,6 +886,8 @@ async def run_scan_graph(
     # RunnableConfig (not state) so the Postgres checkpointer never tries to
     # msgpack-encode it. Nodes read it via config["configurable"]["scanner"].
     config: dict[str, Any] = {"configurable": {"scanner": scanner}}
+    if barcode_policy is not None:
+        config["configurable"]["barcode_policy"] = barcode_policy
     if use_checkpoint and thread_id is not None:
         config["configurable"]["thread_id"] = thread_id
 

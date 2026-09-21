@@ -153,6 +153,15 @@ SUBMISSION_UNKNOWN
 - Gate on per-image and aggregate occurrence recall + false positives. Do NOT
   gate on latency (workstation/CI latency fluctuates; record P50/P95 as
   informational).
+- **Product barcode policy (PR B):** `PrimaryShoeboxBarcodePolicy`
+  (`src/ingest/barcode_policy.py`) filters raw scanner detections to
+  EAN-13 (13 digits, valid checksum) before reconciliation. The scanner
+  stays generic; the policy lives in the graph layer. The eval applies
+  the policy and reports `Matched/Expected`, `Matched/Found`, raw
+  scanner detections, and policy-rejected counts.
+- **Acceptance target (PR B):** the eval enforces an absolute quality
+  floor (`mean_occurrence_recall >= 0.65`, `mean_occurrence_precision
+  >= 0.90`) in addition to "no regression against baseline".
 
 ## Pipeline overview
 

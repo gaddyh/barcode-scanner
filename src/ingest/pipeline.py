@@ -24,6 +24,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from src.ingest.barcode_policy import BarcodePolicy
 from src.ingest.graph import (
     RECOVERY_VERSION,
     _traced_audit,
@@ -64,6 +65,7 @@ def pipeline_path(
     max_retries: int,
     retry_delay_seconds: float,
     thread_id: str | None = None,
+    barcode_policy: BarcodePolicy | None = None,
 ) -> dict[str, object]:
     """Run deterministic scan and Gemini audit in parallel, return combined summary.
 
@@ -80,6 +82,12 @@ def pipeline_path(
     using it from a different loop raises ``RuntimeError``. Checkpointing
     only works when ``run_scan_graph()`` is called directly from the FastAPI
     async context (e.g. from an async route handler).
+
+    Args:
+        barcode_policy: Optional product-level barcode filter. When
+            provided, raw scanner detections are filtered through
+            ``policy.is_primary()`` before reconciliation. When ``None``,
+            no filtering is applied.
     """
     # Stamp component versions on the pipeline span.
     _run = ls.get_current_run_tree() if _TRACING else None
@@ -101,6 +109,7 @@ def pipeline_path(
             model=model,
             max_retries=max_retries,
             retry_delay_seconds=retry_delay_seconds,
+            barcode_policy=barcode_policy,
         )
     )
 
