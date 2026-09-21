@@ -188,7 +188,7 @@ python -m src.cli_app audit ./samples/multi_clear_6_boxes.jpeg --time   # needs 
 python -m src.cli_app pipeline ./samples/multi_clear_6_boxes.jpeg --time --pretty
 
 # Verify
-pytest --cov --cov-fail-under=83
+pytest --cov --cov-fail-under=95
 ruff check .
 mypy
 make eval          # deterministic scanner-only (after PR #1)

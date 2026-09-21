@@ -56,6 +56,8 @@ jobs:
           D360_API_KEY: dummy
           # Postgres for test_db.py and runtime idempotency tests.
           DATABASE_URL: postgres://scanner:scanner@localhost:5432/scanner
-        # Coverage floor raised to 85 — Postgres service now in CI so DB
-        # tests and runtime idempotency tests run.
-        run: pytest --cov --cov-report=term-missing --cov-fail-under=85
+        # Coverage floor raised to 95 — Postgres service in CI so DB tests
+        # and runtime idempotency tests run, and focused module tests cover
+        # executor, idempotency, repository, session_repository, scanner,
+        # routes, and smaller observability/eval/ingest gaps.
+        run: pytest --cov --cov-report=term-missing --cov-fail-under=95
