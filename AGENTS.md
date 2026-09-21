@@ -207,5 +207,5 @@ Run `ruff check .` — it is genuinely green.
 - 95% coverage gate on day one (ramp from 74% to 95% across PRs #0–#6).
 - Strict mypy (gating once all errors fixed; was non-gating in PR #0).
 - WaitingListQueryService, SQLAlchemy/UoW notes.
-- Python 3.10 matrix (barcode-scanner requires Python >=3.11).
+- Python 3.10/3.11 matrix (barcode-scanner requires Python >=3.12).
 - Echo-specific timeout values (use product-specific P95-derived timeouts).

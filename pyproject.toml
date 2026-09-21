@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "barcode-scanner-service"
 version = "0.1.0"
 description = "Deterministic barcode scanning API for product photos"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115,<1.0",
     "uvicorn[standard]>=0.34,<1.0",
@@ -94,7 +94,7 @@ select = ["E", "F", "I", "UP", "B"]
 "tests/test_session_graph.py" = ["E501"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 mypy_path = "src"
 packages = ["src"]
 warn_return_any = true
