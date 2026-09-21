@@ -33,6 +33,17 @@ gate in CI. Tagged `v0.2.0-baseline`.
 - `pytest --cov=src --cov-fail-under=95` — all tests, no live Gemini
   (tests mock `zxingcpp.read_barcodes` and `graph._traced_audit`).
   Postgres service in CI runs DB tests and runtime idempotency tests.
+  Locally, DB-backed tests (`tests/test_db.py`, `tests/test_receiving*.py`,
+  `tests/runtime/test_postgres_idempotency.py`) are SKIPPED unless
+  `DATABASE_URL` points at a live Postgres. Run the test Postgres container
+  first, then export the URL before invoking pytest:
+  `docker run -d --name barcode-scanner-pg-test -p 5433:5432 \
+     -e POSTGRES_USER=scanner -e POSTGRES_PASSWORD=scanner \
+     -e POSTGRES_DB=scanner postgres:16-alpine`
+  `DATABASE_URL=postgres://scanner:scanner@localhost:5433/scanner \
+     D360_API_KEY=dummy pytest --cov=src --cov-fail-under=95`
+  Without `DATABASE_URL`, those tests error out (asyncpg rejects the empty
+  DSN) and coverage falls below the 95% floor.
 - `mypy` — gating (0 errors). Was non-gating in PR #0 via
   `continue-on-error`; promoted to gating once all errors were fixed.
 - `ruff check .` — genuinely green (per-file ignores encoded in `pyproject.toml`).
@@ -215,11 +226,17 @@ python -m src.cli_app pipeline ./samples/multi_clear_6_boxes.jpeg --time --prett
 
 # Verify
 pytest --cov=src --cov-fail-under=95
+#   DB tests need a live Postgres + DATABASE_URL (see "Verification before merge"):
+#     DATABASE_URL=postgres://scanner:scanner@localhost:5433/scanner \
+#       D360_API_KEY=dummy pytest --cov=src --cov-fail-under=95
 ruff check .
 mypy
 make eval          # deterministic scanner-only (gates merges)
 make eval-live     # scanner + Gemini, observational (NOT a gate)
 make eval-freeze   # rewrite baseline_frozen.json (the ONLY way to update it)
+make web-build     # frontend typecheck + production build (no network/Gemini)
+make web-sanity    # live end-to-end web flow checks (needs Postgres + .env;
+#   uses frozen Gemini audit cache replay — no live Gemini calls)
 ```
 
 ## Lint exceptions
