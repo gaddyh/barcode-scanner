@@ -13,9 +13,7 @@ services:
       - key: ALLOWED_IMAGE_TYPES
         value: "image/jpeg,image/png,image/webp"
       - key: DATABASE_URL
-        fromDatabase:
-          name: barcode-postgre
-          property: connectionString
+        sync: false
       # Required for the scanner pipeline:
       - key: GEMINI_API_KEY
         sync: false
