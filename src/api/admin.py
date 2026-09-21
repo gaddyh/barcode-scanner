@@ -31,6 +31,7 @@ from src.evals.metrics import (
     VALID_GROUP_BY,
     GroupedMetricsResponse,
     MetricsResponse,
+    RunLike,
     compute_grouped_metrics,
     compute_metrics,
     unavailable_grouped_response,
@@ -214,18 +215,18 @@ async def get_metrics(
             return unavailable_grouped_response(group_by=group_by, time_window_hours=hours)
         return unavailable_response(time_window_hours=hours)
 
-    runs = [_DbRowRunLike(r) for r in rows]
+    runs: list[RunLike] = [_DbRowRunLike(r) for r in rows]
     truncated = len(runs) >= _DB_METRICS_LIMIT
 
     if group_by is not None:
-        resp = compute_grouped_metrics(
+        grouped = compute_grouped_metrics(
             runs,
             group_by=group_by,
             time_window_hours=hours,
             truncated=truncated,
         )
-        resp.source = "postgres"
-        return resp
+        grouped.source = "postgres"
+        return grouped
 
     resp = compute_metrics(
         runs,

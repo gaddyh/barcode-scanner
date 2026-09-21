@@ -15,6 +15,21 @@ jobs:
       matrix:
         python-version: ["3.11", "3.13"]
 
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: scanner
+          POSTGRES_PASSWORD: scanner
+          POSTGRES_DB: scanner
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U scanner -d scanner"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v6
 
@@ -31,8 +46,7 @@ jobs:
       - name: Lint
         run: ruff check .
 
-      - name: Type check (non-gating, ramp to gating)
-        continue-on-error: true
+      - name: Type check
         run: mypy
 
       - name: Test with coverage
@@ -40,7 +54,8 @@ jobs:
           # Dummy key so Settings.from_env() can import. Tests mock zxingcpp
           # and genai.Client — no real WhatsApp/Gemini/barcode calls are made.
           D360_API_KEY: dummy
-        # Coverage floor is 71 in CI because test_db.py (live Postgres integration
-        # tests) is skipped when DATABASE_URL is not set. PR #3 will add a real
-        # Postgres service to CI, allowing those tests to run and coverage to ramp.
-        run: pytest --cov --cov-report=term-missing --cov-fail-under=71
+          # Postgres for test_db.py and runtime idempotency tests.
+          DATABASE_URL: postgres://scanner:scanner@localhost:5432/scanner
+        # Coverage floor raised to 85 — Postgres service now in CI so DB
+        # tests and runtime idempotency tests run.
+        run: pytest --cov --cov-report=term-missing --cov-fail-under=85

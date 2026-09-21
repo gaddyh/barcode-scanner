@@ -132,7 +132,7 @@ class ModalTranscriptionClient:
                 )
 
             try:
-                return response.json()
+                return dict(response.json())
             except ValueError as exc:
                 raise ModalTranscriptionTransportError(
                     "Modal returned invalid JSON"

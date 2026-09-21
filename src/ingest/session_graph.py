@@ -150,18 +150,18 @@ async def run_session_graph(
         # Don't create the session row yet — wait until the scan succeeds.
         # If the first image fails, no session is created, and the next
         # image starts fresh (find_active_by_participant won't find it).
-        image_index = 0
+        image_index: int = 0
         existing_items: list[SessionItem] = []
         existing_missing: list[MissingItem] = []
         expected_count = 0
     else:
-        s = state["session"]
+        s = state["session"]  # type: ignore[index]
         customer_id = s.get("customer_id", customer_id)
         branch_id = s.get("branch_id", branch_id)
         action = s.get("action", action)
-        image_index = s.get("image_count", 0)
-        existing_items = state["items"]
-        existing_missing = [m for m in state["missing"] if not m.resolved]
+        image_index = int(s.get("image_count", 0))
+        existing_items = state["items"]  # type: ignore[index]
+        existing_missing = [m for m in state["missing"] if not m.resolved]  # type: ignore[index]
         expected_count = s.get("expected_count", 0)
 
     # Run ScanGraph on this image (async — stays in the caller's event loop).
@@ -291,7 +291,7 @@ async def run_session_graph(
                 for m in existing_missing:
                     if not m.resolved:
                         await repo.resolve_missing(
-                            session_id, m.label_index, image_index
+                            session_id, m.label_index or 0, image_index
                         )
                         m.resolved = True
                         logger.info(
@@ -486,7 +486,7 @@ async def select_candidate(
     existing_missing = [m for m in state["missing"] if not m.resolved]
     for m in existing_missing:
         if not m.resolved:
-            await repo.resolve_missing(session_id, m.label_index, item.source_image)
+            await repo.resolve_missing(session_id, m.label_index or 0, item.source_image or 0)
             m.resolved = True
             logger.info(
                 "Session %s: missing label %d resolved by user selection (barcode=%s)",

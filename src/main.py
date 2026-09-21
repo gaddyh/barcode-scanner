@@ -324,7 +324,7 @@ async def _maybe_handle_selection(
     )
 
     if _db_pool is not None:
-        repo = _SessRepo(_db_pool)
+        repo: _SessRepo | _NoOpSess = _SessRepo(_db_pool)
     else:
         repo = _NoOpSess()
 
@@ -496,7 +496,7 @@ async def process_image_message(
                 # Attach the downloaded image to the LangSmith trace.
                 try:
                     image_data = temp_path.read_bytes()
-                    sub_run.attachments = {
+                    sub_run.attachments = {  # type: ignore[assignment]
                         "uploaded_image": Attachment(
                             mime_type=mime_type or "image/jpeg",
                             data=image_data,
@@ -554,7 +554,7 @@ async def process_image_message(
             )
 
             if _db_pool is not None:
-                _sess_repo = _SessRepo(_db_pool)
+                _sess_repo: _SessRepo | _NoOpSess = _SessRepo(_db_pool)
             else:
                 _sess_repo = _NoOpSess()
 
@@ -570,7 +570,7 @@ async def process_image_message(
             latest = session_result.latest_image
             if latest is not None:
                 outcome = latest.status
-                summary = {
+                summary: dict = {
                     "found_count": latest.found_count,
                     "missing_count": latest.missing_count,
                     "visible_label_count": latest.visible_label_count,
@@ -808,7 +808,7 @@ async def process_audio_message(
 
     try:
         user_text = await handle_360dialog_audio_message(
-            wa=wa_client,  # type: ignore[arg-type]
+            wa=wa_client,
             transcriber=transcriber,
             media_id=media_id,
             mime_type=mime_type,

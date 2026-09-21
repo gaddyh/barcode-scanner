@@ -7,6 +7,7 @@ from itertools import pairwise
 from pathlib import Path
 from statistics import median
 from time import perf_counter
+from typing import Any
 
 import cv2
 import numpy as np
@@ -158,7 +159,7 @@ class BarcodeScanner:
         )
 
     def scan_bytes(self, image_bytes: bytes) -> list[DetectedBarcode]:
-        image = Image.open(BytesIO(image_bytes))
+        image: Any = Image.open(BytesIO(image_bytes))
         image = ImageOps.exif_transpose(image).convert("RGB")
         return self.scan_image(image)
 
@@ -306,7 +307,7 @@ class BarcodeScanner:
         value = hsv[:, :, 2]
 
         # White/grey paper labels: relatively bright and not highly saturated.
-        mask = np.where(
+        mask: Any = np.where(
             (value >= 135) & (saturation <= 95),
             255,
             0,
@@ -1129,7 +1130,7 @@ class BarcodeScanner:
 
         results = zxingcpp.read_barcodes(
             np.asarray(prepared),
-            formats=self.formats,
+            formats=self.formats,  # type: ignore[arg-type]
             try_rotate=True,
             try_downscale=try_downscale,
             try_invert=try_invert,
@@ -1331,7 +1332,7 @@ class BarcodeScanner:
                     np.linalg.norm(rect[0] - rect[3]),
                     np.linalg.norm(rect[1] - rect[2]),
                 )
-                w, h = int(w), int(h)
+                w, h = int(w), int(h)  # type: ignore[assignment]
                 if w < 20 or h < 10:
                     continue
                 dst = np.array(
@@ -1339,7 +1340,7 @@ class BarcodeScanner:
                     dtype=np.float32,
                 )
                 matrix = cv2.getPerspectiveTransform(rect, dst)
-                warped = cv2.warpPerspective(arr, matrix, (w, h))
+                warped = cv2.warpPerspective(arr, matrix, (int(w), int(h)))
                 return Image.fromarray(warped)
 
         return image
@@ -1454,7 +1455,7 @@ class BarcodeScanner:
 
     @staticmethod
     def _map_position(
-        position: object,
+        position: Any,
         *,
         offset_x: int,
         offset_y: int,

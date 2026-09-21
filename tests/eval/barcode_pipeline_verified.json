@@ -1,0 +1,56 @@
+{
+  "name": "barcode_pipeline_verified",
+  "_note": "Scanner and Gemini pipeline results captured by running `python -m src.cli_app pipeline` on each baseline sample. `reference_outputs.barcodes` contains every barcode decoded by the scanner in that run, including detections left unassigned by reconciliation. This is run evidence, not manually reviewed ground truth.",
+  "cases": [
+    {
+      "inputs": {"image": "samples/WhatsApp Image 2026-08-03 at 17.06.21 (2).jpeg"},
+      "reference_outputs": {"barcodes": ["7297501098442", "900439-42"]},
+      "metadata": {"source": "pipeline_run", "pipeline_status": "partial_match", "decoded_count": 2, "visible_label_count": 1, "matched_label_count": 1, "unassigned_count": 1, "all_labels_matched": true, "notes": "Two scanner detections; one was unassigned because Gemini reported one visible label."}
+    },
+    {
+      "inputs": {"image": "samples/fuzzy_16_labels.jpeg"},
+      "reference_outputs": {"barcodes": []},
+      "metadata": {"source": "pipeline_run", "pipeline_status": "not_found", "decoded_count": 0, "visible_label_count": 17, "matched_label_count": 0, "unassigned_count": 0, "all_labels_matched": false, "notes": "No barcode decoded; 17 visible labels."}
+    },
+    {
+      "inputs": {"image": "samples/marny_brown_42.jpeg"},
+      "reference_outputs": {"barcodes": ["7297501098442", "900439-42"]},
+      "metadata": {"source": "pipeline_run", "pipeline_status": "partial_match", "decoded_count": 2, "visible_label_count": 1, "matched_label_count": 1, "unassigned_count": 1, "all_labels_matched": true, "notes": "Two scanner detections; one was unassigned because Gemini reported one visible label."}
+    },
+    {
+      "inputs": {"image": "samples/multi_12_clean.jpeg"},
+      "reference_outputs": {"barcodes": ["7297501154117", "7297501154179", "7297501154292", "7297501154230", "7297501154056", "7297501153936", "7297501154117", "7297501154179", "7297501153998", "7297501195134", "7297501154056"]},
+      "metadata": {"source": "pipeline_run", "pipeline_status": "incomplete", "decoded_count": 11, "visible_label_count": 12, "matched_label_count": 11, "unassigned_count": 0, "all_labels_matched": false, "notes": "11 scanner detections matched to 11 of 12 visible labels."}
+    },
+    {
+      "inputs": {"image": "samples/multi_clear_6_boxes.jpeg"},
+      "reference_outputs": {"barcodes": ["7297500243416", "7297500243416", "7297500243430", "7297500243423", "7297500243447", "7297500243423"]},
+      "metadata": {"source": "pipeline_run", "expected_box_count": 6, "pipeline_status": "complete", "decoded_count": 6, "visible_label_count": 6, "matched_label_count": 6, "unassigned_count": 0, "all_labels_matched": true, "notes": "Filename indicates six boxes; all six boxes matched in one pipeline run."}
+    },
+    {
+      "inputs": {"image": "samples/stacked_6_labels.jpeg"},
+      "reference_outputs": {"barcodes": ["7297500243423", "217224-38", "7297500243447", "217224-40", "7297500243423", "7297500243430", "7297500243416"]},
+      "metadata": {"source": "pipeline_run", "expected_box_count": 6, "pipeline_status": "incomplete", "decoded_count": 7, "visible_label_count": 6, "matched_label_count": 5, "unassigned_count": 2, "all_labels_matched": false, "notes": "Filename indicates six boxes. Five boxes matched; two additional scanner detections were unassigned values."}
+    },
+    {
+      "inputs": {"image": "samples/topdown_12_labels_a.jpeg"},
+      "reference_outputs": {"barcodes": ["7297501154056", "7297501154179", "7297501153936", "7297501154117", "7297501195134", "7297501154056", "7297501154230", "7297501154179", "7297501154292", "7297501154117", "7297501153998", "7297501195257"]},
+      "metadata": {"source": "pipeline_run", "pipeline_status": "incomplete", "decoded_count": 12, "visible_label_count": 12, "matched_label_count": 11, "unassigned_count": 1, "all_labels_matched": false, "notes": "Twelve scanner detections; one remained unassigned and one visible label was unmatched."}
+    },
+    {
+      "inputs": {"image": "samples/topdown_12_labels_b.jpeg"},
+      "reference_outputs": {"barcodes": ["7297501154179", "7297501154117", "7297501154292", "7297501154056", "7297501153998", "7297501154230", "7297501154179"]},
+      "metadata": {"source": "pipeline_run", "pipeline_status": "incomplete", "decoded_count": 7, "visible_label_count": 12, "matched_label_count": 7, "unassigned_count": 0, "all_labels_matched": false, "notes": "Seven scanner detections matched to seven of 12 visible labels."}
+    },
+    {
+      "inputs": {"image": "samples/vegan_12_labels_a.jpeg"},
+      "reference_outputs": {"barcodes": ["7297501154094", "7297501154155", "7297501154155", "7297501154032"]},
+      "metadata": {"source": "pipeline_run", "pipeline_status": "incomplete", "decoded_count": 4, "visible_label_count": 12, "matched_label_count": 4, "unassigned_count": 0, "all_labels_matched": false, "notes": "Four scanner detections matched to four of 12 visible labels."}
+    },
+    {
+      "inputs": {"image": "samples/vegan_12_labels_b.jpeg"},
+      "reference_outputs": {"barcodes": ["7297501154155", "7297501154094"]},
+      "metadata": {"source": "pipeline_run", "pipeline_status": "incomplete", "decoded_count": 2, "visible_label_count": 12, "matched_label_count": 2, "unassigned_count": 0, "all_labels_matched": false, "notes": "Two scanner detections matched to two of 12 visible labels."}
+    }
+  ]
+}

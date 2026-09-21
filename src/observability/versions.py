@@ -43,7 +43,7 @@ def collect_versions(model: str | None = None) -> RunVersions:
     from src.ingest.vision import DEFAULT_MODEL, VISION_PROMPT_VERSION
     from src.observability.tracing import PIPELINE_VERSION
 
-    vision_model = model or os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
+    vision_model = model or os.getenv("GEMINI_MODEL") or DEFAULT_MODEL
     return RunVersions(
         pipeline_version=PIPELINE_VERSION,
         scanner_version=SCANNER_VERSION,

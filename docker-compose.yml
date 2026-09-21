@@ -13,3 +13,28 @@ services:
       # The lifespan creates a transcriber on boot. It's only used for WhatsApp
       # audio, never for the scanner. Dummy key lets the app start.
       OPENAI_API_KEY: dummy
+      # Postgres for sessions + idempotency. The app creates its own pool
+      # from DATABASE_URL on startup.
+      DATABASE_URL: postgres://scanner:scanner@postgres:5432/scanner
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: scanner
+      POSTGRES_PASSWORD: scanner
+      POSTGRES_DB: scanner
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scanner -d scanner"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

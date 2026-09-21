@@ -69,7 +69,7 @@ class Dialog360Client:
             )
             response.raise_for_status()
 
-        return response_body
+        return dict(response_body)
 
     async def send_interactive(
         self,
@@ -138,7 +138,7 @@ class Dialog360Client:
             )
             response.raise_for_status()
 
-        return response_body
+        return dict(response_body)
 
     async def send_typing_indicator(self, incoming_message_id: str) -> dict[str, Any]:
         """
@@ -179,7 +179,7 @@ class Dialog360Client:
             )
             response.raise_for_status()
 
-        return response_body
+        return dict(response_body)
 
     async def send_image(
         self,
@@ -258,7 +258,7 @@ class Dialog360Client:
             )
             response.raise_for_status()
 
-        return response_body
+        return dict(response_body)
 
     async def download_media_to_tempfile(
         self,

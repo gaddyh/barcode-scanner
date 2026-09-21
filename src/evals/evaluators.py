@@ -35,9 +35,9 @@ def _outputs(run: Any) -> dict[str, Any]:
     while tests pass plain dicts with ``"outputs"`` key.
     """
     if hasattr(run, "outputs"):
-        return run.outputs or {}
+        return dict(run.outputs or {})
     if isinstance(run, dict):
-        return run.get("outputs", run)
+        return dict(run.get("outputs", run))
     return {}
 
 

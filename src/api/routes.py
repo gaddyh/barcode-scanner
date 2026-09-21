@@ -51,7 +51,7 @@ def _attach_image_to_run(image_bytes: bytes, mime_type: str) -> None:
     """Attach the uploaded image to the current LangSmith run as a viewable attachment."""
     run = ls.get_current_run_tree()
     if run is not None:
-        run.attachments = {
+        run.attachments = {  # type: ignore[assignment]
             "uploaded_image": Attachment(mime_type=mime_type, data=image_bytes)
         }
 
@@ -702,7 +702,7 @@ async def session_ingest(
                 detail={"code": "priority_order_failed", "message": str(exc)},
             ) from exc
 
-    return result.model_dump(mode="json")
+    return dict(result.model_dump(mode="json"))
 
 
 @router.get(
@@ -727,7 +727,7 @@ async def get_session(session_id: str) -> dict:
                 "message": f"Session {session_id} not found.",
             },
         )
-    return result.model_dump(mode="json")
+    return dict(result.model_dump(mode="json"))
 
 
 @router.delete(
@@ -757,7 +757,7 @@ async def close_session(session_id: str) -> dict:
     await repo.close_session(session_id)
     result = await repo.to_result(session_id)
     if result:
-        return result.model_dump(mode="json")
+        return dict(result.model_dump(mode="json"))
     return {"session_id": session_id, "status": "closed"}
 
 
@@ -807,4 +807,4 @@ async def select_session_candidate(
             detail={"code": "selection_error", "message": str(exc)},
         )
 
-    return result.model_dump(mode="json")
+    return dict(result.model_dump(mode="json"))

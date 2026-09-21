@@ -28,8 +28,8 @@ donates runtime reliability patterns but remains independent. No fourth repo.
   floor ramps from 71% (PR #0, CI baseline with DB tests skipped) to 95%
   (PR #6) as each PR rewrites a module. `test_db.py` is skipped in CI until PR #3
   adds a real Postgres service.
-- `mypy` — non-gating in PR #0 via `continue-on-error`; ramp to gating as
-  errors are fixed (target: PR #6).
+- `mypy` — gating (0 errors). Was non-gating in PR #0 via
+  `continue-on-error`; promoted to gating once all errors were fixed.
 - `ruff check .` — genuinely green (per-file ignores encoded in `pyproject.toml`).
 - After PR #1: `make eval` (deterministic scanner-only, gates merges).
   `make eval-live` (scanner + Gemini) is observational, NOT a gate.
@@ -188,7 +188,7 @@ python -m src.cli_app audit ./samples/multi_clear_6_boxes.jpeg --time   # needs 
 python -m src.cli_app pipeline ./samples/multi_clear_6_boxes.jpeg --time --pretty
 
 # Verify
-pytest --cov --cov-fail-under=74
+pytest --cov --cov-fail-under=83
 ruff check .
 mypy
 make eval          # deterministic scanner-only (after PR #1)
@@ -205,7 +205,7 @@ Run `ruff check .` — it is genuinely green.
 ## NOT imported from echo-v2
 
 - 95% coverage gate on day one (ramp from 74% to 95% across PRs #0–#6).
-- Strict mypy on day one (non-gating in PR #0, ramp to gating by PR #6).
+- Strict mypy (gating once all errors fixed; was non-gating in PR #0).
 - WaitingListQueryService, SQLAlchemy/UoW notes.
 - Python 3.10 matrix (barcode-scanner requires Python >=3.11).
 - Echo-specific timeout values (use product-specific P95-derived timeouts).

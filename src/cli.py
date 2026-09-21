@@ -28,6 +28,7 @@ from dotenv import load_dotenv
 
 from src.evals.annotation_sink import register_annotation_sink
 from src.ingest import IngestStatus, ingest_one
+from src.ingest.models import IngestResult
 from src.models.upload import generate_upload_id
 from src.observability import is_tracing
 from src.runtime import RunContext, execute
@@ -93,7 +94,7 @@ async def _run(args: argparse.Namespace) -> int:
 
     t0 = time.perf_counter()
     try:
-        result = await execute(
+        result: IngestResult = await execute(
             ingest_one,
             image_path,
             ctx,

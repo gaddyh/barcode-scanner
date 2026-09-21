@@ -58,7 +58,7 @@ if _TRACING:
 
 else:
     # no-op decorator fallback when tracing is disabled.
-    def traceable(*args: Any, **kwargs: Any) -> Any:  # type: ignore[misc]
+    def traceable(*args: Any, **kwargs: Any) -> Any:  # type: ignore[no-redef]
         if len(args) == 1 and callable(args[0]) and not kwargs:
             return args[0]
 
@@ -98,7 +98,7 @@ def trace_operation(
 
     When tracing is disabled, returns a no-op decorator.
     """
-    return traceable(  # type: ignore[return-value]
+    return traceable(  # type: ignore[no-any-return, call-overload]
         name=name,
         run_type=run_type,
         tags=tags or [],

@@ -6,6 +6,7 @@ import sys
 import time
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 from src.ingest.pipeline import (
     pipeline_path,
@@ -97,7 +98,7 @@ def _run_scan(args: argparse.Namespace) -> int:
             _print_timing(path.name, elapsed)
 
         status = str(result.get("status", "error"))
-        count = int(result.get("count", 0))
+        count = int(result.get("count", 0))  # type: ignore[call-overload]
         table_rows.append((path.name, status, count, elapsed if args.time else None))
 
     _print_scan_table(table_rows)
@@ -119,10 +120,10 @@ def audit_path(
     max_retries: int,
     retry_delay_seconds: float,
     full: bool,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     try:
         if full:
-            result = audit_shoebox_image(
+            result: Any = audit_shoebox_image(
                 path,
                 model=model,
                 max_retries=max_retries,
@@ -175,7 +176,7 @@ def _run_audit(args: argparse.Namespace) -> int:
             _print_timing(path.name, elapsed)
 
         status = str(result.get("status", "error"))
-        audit_data = result.get("audit", {})  # type: ignore[union-attr]
+        audit_data = result.get("audit", {})
         labels = audit_data.get("labels", [])
         if labels:
             visible = str(len(labels))
@@ -242,7 +243,7 @@ def _run_pipeline(args: argparse.Namespace) -> int:
             _print_timing(path.name, elapsed)
 
         # Build table row with matched/visible, match status, decoded count.
-        dv = result.get("decoded_vs_visible", {})
+        dv: Any = result.get("decoded_vs_visible", {})
         visible = dv.get("visible", "-")
         matched = dv.get("matched_labels", "-")
         all_matched = dv.get("all_labels_matched")
@@ -253,7 +254,7 @@ def _run_pipeline(args: argparse.Namespace) -> int:
         else:
             match_str = "ERR"
 
-        decoded = result.get("decoded_count", 0)
+        decoded = int(result.get("decoded_count", 0))  # type: ignore[call-overload]
         matched_str = f"{matched}/{visible}" if visible != "-" else "-/-"
         table_rows.append(
             (path.name, matched_str, match_str, decoded,
@@ -394,7 +395,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    return args.func(args)
+    return int(args.func(args))
 
 
 if __name__ == "__main__":  # pragma: no cover
