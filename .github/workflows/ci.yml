@@ -61,9 +61,6 @@ jobs:
 
       - name: Test with coverage
         env:
-          # Dummy key so Settings.from_env() can import. Tests mock zxingcpp
-          # and genai.Client — no real WhatsApp/Gemini/barcode calls are made.
-          D360_API_KEY: dummy
           # Postgres for test_db.py, runtime idempotency tests, and
           # receiving persistence tests.
           DATABASE_URL: postgres://scanner:scanner@localhost:5432/scanner
@@ -103,10 +100,6 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Eval (deterministic scanner-only)
-        env:
-          # Settings.from_env() requires D360_API_KEY to import, even though
-          # make eval never calls WhatsApp or Gemini.
-          D360_API_KEY: dummy
         run: make eval
 
   web-build:

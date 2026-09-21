@@ -5,7 +5,7 @@
 Tiny Vite + React + TS mobile page that uploads the original phone photo
 (no canvas, no compression, no base64) to the backend and shows
 dimensions, file size, barcodes, server scan latency, and total request
-latency. No WhatsApp, no Gemini, no chat UI, no auth.
+latency. No Gemini, no chat UI, no auth.
 
 The frontend has two modes:
 
@@ -60,32 +60,13 @@ Restart Vite after changing `.env`. Then open the frontend ngrok URL on
 the phone. ngrok free tier shows an interstitial page on first visit —
 tap through once.
 
-### Direct-vs-WhatsApp comparison
+### Image quality preservation
 
-Take one photo and preserve both versions. For each run, record:
-
-- source (direct / WhatsApp)
-- filename
-- dimensions
-- bytes
-- server scan latency (`elapsed_ms` from the response)
-- total request latency (`performance.now()` in the browser)
-- decoded count
-- decoded values
-
-Direct version: upload from the page above (Take photo or Choose
-existing photo).
-
-WhatsApp version: send the same image through WhatsApp, download the
-exact media received by the backend, then scan that file locally.
-
-Expected shape of the comparison:
-
-```
-Source       Dimensions    Bytes       Decoded
-Direct       4032×3024     4.6 MB      6
-WhatsApp     1005×1280     216 KB      1
-```
+The web upload path preserves original image bytes — no compression,
+no downscaling. This is critical for barcode scanning accuracy: WhatsApp
+compresses images (e.g. 4032×3024 / 4.6 MB → 1005×1280 / 216 KB) and
+degrades decoded count from 6 to 1. The web flow uploads the original
+`File` object unchanged via `FormData`.
 
 ## Deploy to Render (Docker)
 
@@ -97,7 +78,7 @@ frontend, Python stage runs the backend and serves the built frontend at
 ```bash
 # Local Docker test (same as Render)
 docker build -t barcode-scanner .
-docker run --rm -p 8000:8000 -e D360_API_KEY=dummy barcode-scanner
+docker run --rm -p 8000:8000 barcode-scanner
 # Open http://localhost:8000 — both frontend and API are served from here
 ```
 
@@ -106,9 +87,6 @@ On Render:
 1. Create a **Web Service** from this repo (Render detects `render.yaml`
    automatically, or point it to the Dockerfile).
 2. Set env vars (Render dashboard or `render.yaml`):
-   - `D360_API_KEY=dummy` — required to boot even for scanner-only use
-     (config.py raises without it). Set the real key when WhatsApp
-     webhooks are needed.
    - `APP_ENV=production`
    - `MAX_UPLOAD_BYTES=15728640`
    - `ALLOWED_IMAGE_TYPES=image/jpeg,image/png,image/webp`

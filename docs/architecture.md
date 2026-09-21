@@ -167,13 +167,6 @@ is unchanged (no `initial_reconciliation` or `recovery` keys).
 (M15C) using a separate psycopg pool for the checkpoint tables in the same
 Postgres instance. Non-fatal: if it fails, the app boots without checkpointing.
 
-## Messaging (optional adapter)
-
-`src/messaging/` contains the WhatsApp/360dialog adapter. It is NOT required
-to run the product — the web upload page (`web/`) is the primary demo path.
-The messaging code remains as an optional adapter for WhatsApp-based photo
-intake but is not part of the canonical product flow.
-
 ## Runtime reliability + idempotency
 
 External irreversible writes go through `src/runtime/executor.py` with a

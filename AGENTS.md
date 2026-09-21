@@ -41,7 +41,7 @@ gate in CI. Tagged `v0.2.0-baseline`.
      -e POSTGRES_USER=scanner -e POSTGRES_PASSWORD=scanner \
      -e POSTGRES_DB=scanner postgres:16-alpine`
   `DATABASE_URL=postgres://scanner:scanner@localhost:5433/scanner \
-     D360_API_KEY=dummy pytest --cov=src --cov-fail-under=95`
+     pytest --cov=src --cov-fail-under=95`
   Without `DATABASE_URL`, those tests error out (asyncpg rejects the empty
   DSN) and coverage falls below the 95% floor.
 - `mypy` — gating (0 errors). Was non-gating in PR #0 via
@@ -228,7 +228,7 @@ python -m src.cli_app pipeline ./samples/multi_clear_6_boxes.jpeg --time --prett
 pytest --cov=src --cov-fail-under=95
 #   DB tests need a live Postgres + DATABASE_URL (see "Verification before merge"):
 #     DATABASE_URL=postgres://scanner:scanner@localhost:5433/scanner \
-#       D360_API_KEY=dummy pytest --cov=src --cov-fail-under=95
+#       pytest --cov=src --cov-fail-under=95
 ruff check .
 mypy
 make eval          # deterministic scanner-only (gates merges)
@@ -252,7 +252,7 @@ Run `ruff check .` — it is genuinely green.
   (`--cov=src`) with a floor of 90% — the honest metric. PR B raised
   the source-only floor back to 95% (the historical target) now that
   the test suite covers the previously untested eval, CLI, checkpoint,
-  cache, and transcriber modules.
+  cache, and checkpoint modules.
 - Strict mypy (gating once all errors fixed; was non-gating in PR #0).
 - WaitingListQueryService, SQLAlchemy/UoW notes.
 - Python 3.10/3.11 matrix (barcode-scanner requires Python >=3.12).
