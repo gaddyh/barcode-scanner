@@ -144,3 +144,126 @@ Postgres instance. Non-fatal: if it fails, the app boots without checkpointing.
 to run the product — the web upload page (`web/`) is the primary demo path.
 The messaging code remains as an optional adapter for WhatsApp-based photo
 intake but is not part of the canonical product flow.
+
+## Runtime reliability + idempotency
+
+External irreversible writes go through `src/runtime/executor.py` with a
+declared `ExecutionPolicy` and optional idempotency store. The executor
+normalizes exceptions into a structured taxonomy:
+
+- `RetryableError` — transient failure (timeout, connection refused).
+  Retried per policy.
+- `PermanentError` — non-retryable failure (invalid input, unique
+  constraint violation). Not retried.
+- `IndeterminateError` — unknown outcome of an irreversible write
+  (timeout/disconnect after the request may have crossed the network
+  boundary). Not retried; the idempotency store replays the cached
+  indeterminate outcome on retry.
+- `InvalidInputError` — caller violated a precondition.
+
+Product-specific policies (timeouts derived from current P95
+measurements, NOT copied from echo-v2):
+
+| Policy | Use | `max_attempts` | `timeout_seconds` | `irreversible_write` |
+|---|---|---|---|---|
+| `SCAN_COMPUTE` | Local deterministic scanner | 1 | 7.0 | false |
+| `EXTERNAL_READ` | Gemini audit (retryable) | 3 | 15.0 | false |
+| `EXTERNAL_WRITE` | Priority draft order | 1 | 10.0 | true |
+
+### INDETERMINATE classification lives at the integration boundary
+
+The executor does NOT upgrade a generic unexpected exception to
+`IndeterminateError` on its own. The adapter (e.g.
+`LocalPriorityGateway` / future `RealPriorityGateway`) classifies:
+failure before submission → `RetryableError`/`PermanentError`;
+timeout/disconnect after submission may have occurred →
+`IndeterminateError`. The executor preserves and persists what the
+adapter raises.
+
+### Runtime layering
+
+```
+application/service
+    ↓ runtime.execute(policy=EXTERNAL_WRITE, idempotency_key=...)
+PriorityGateway (protocol)
+    ↓
+LocalPriorityGateway / RealPriorityGateway (adapter performs the op + classifies)
+```
+
+The gateway just performs the external operation and classifies errors.
+Runtime wrapping stays in the application/service layer, NOT inside the
+gateway. Mixing these layers would make the gateway untestable in
+isolation and obscure the idempotency boundary.
+
+### Idempotency stores
+
+- `InMemoryIdempotencyStore` — for tests and the vertical slice.
+- `PostgresIdempotencyStore` — production. Owner-token fencing prevents
+  lost updates from slow writers; lease expiry allows reclaim.
+
+## Priority boundary
+
+ERP access goes ONLY through `PriorityGateway`
+(`src/integrations/priority/port.py`). No direct Priority API calls from
+routes/UI/workflows. The local fake Priority (`LocalPriorityGateway`)
+remains usable for tests/demo.
+
+Domain models (`src/integrations/priority/models.py`): `Customer`,
+`Branch`, `OrderLineItem`, `CreateDraftOrderRequest`,
+`CreateDraftOrderResult` (frozen dataclasses).
+
+## Receiving flow (end-to-end vertical slice)
+
+`src/domain/receiving.py` is the product-level model of one customer +
+branch + set of photos + draft order. Physical boxes are occurrences
+(multiset) — duplicate barcode values count separately.
+
+`src/api/receiving.py` wires the flow:
+
+```
+POST /receiving/sessions          — create session (customer + branch + action)
+POST /receiving/sessions/{id}/images — upload photo, run analyze_image(), append boxes
+POST /receiving/sessions/{id}/submit   — freeze, create draft order via runtime
+GET  /receiving/sessions/{id}     — inspect session state
+```
+
+### Session submission state machine
+
+```
+ACTIVE
+   ↓ freeze payload
+SUBMITTING
+   ↓ success
+SUBMITTED
+
+SUBMITTING
+   ↓ unknown external outcome
+SUBMISSION_UNKNOWN
+```
+
+- On entering `SUBMITTING`, session contents are FROZEN (immutable).
+  Retrying uses the same `priority:draft:{session_id}` key and exactly
+  the same frozen payload.
+- On success: persist `external_order_id`, transition to `SUBMITTED`.
+- On indeterminate: transition to `SUBMISSION_UNKNOWN`. The idempotency
+  store replays the indeterminate outcome on retry; the user must NOT
+  create another session/order blindly.
+- If the call fails BEFORE submission: stay `ACTIVE`, return error, user
+  can retry/edit.
+- `priority_orders.session_id` has a UNIQUE partial index as
+  defense-in-depth — even if the runtime idempotency layer has a bug, the
+  fake ERP cannot create two draft orders for one submitted session.
+
+## Evaluation
+
+- `make eval` — deterministic scanner-only regression gate (no Gemini,
+  no LangSmith, no Postgres, no network). Exits non-zero on quality
+  regression against `tests/eval/baseline_frozen.json`. Gates merges.
+- `make eval-live` — scanner + Gemini (observational, NOT a gate).
+- `make eval-freeze` — the only way to rewrite `baseline_frozen.json`.
+  Normal `make eval` runs must never silently rewrite the baseline.
+- Barcode accuracy is occurrence/multiset based (duplicate values =
+  separate physical boxes). Use `collections.Counter`, not `set()`.
+- Gate on per-image and aggregate occurrence recall + false positives.
+  Do NOT gate on latency (workstation/CI latency fluctuates; record
+  P50/P95 as informational).
