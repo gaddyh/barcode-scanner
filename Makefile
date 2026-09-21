@@ -63,4 +63,4 @@ docker-build:
 	docker build -t barcode-scanner .
 
 docker-run:
-	docker run --rm -p 8000:8000 -e D360_API_KEY=dummy barcode-scanner
+	docker run --rm -p 8000:8000 barcode-scanner

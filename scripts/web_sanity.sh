@@ -9,7 +9,7 @@
 #
 # Prerequisites:
 #   - .venv/ activated with uvicorn, pytest deps installed
-#   - .env with GEMINI_API_KEY, D360_API_KEY
+#   - .env with GEMINI_API_KEY
 #   - Docker container "barcode-scanner-pg-test" running on port 5433
 #   - web/node_modules installed
 
