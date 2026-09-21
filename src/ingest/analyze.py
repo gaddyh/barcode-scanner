@@ -64,7 +64,7 @@ logger = logging.getLogger(__name__)
 ImageInput = bytes | Path | str
 
 # Annotated preview images are display-only; cap the longest side so the
-# base64 payload stays reasonable for HTTP / WhatsApp transport.
+# base64 payload stays reasonable for HTTP transport.
 ANNOTATION_MAX_DIMENSION = 1600
 
 

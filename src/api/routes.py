@@ -360,7 +360,7 @@ async def _traced_analyze(
 async def _send_complete_reply(result: dict[str, Any]) -> dict[str, Any]:
     """Build the web response for a complete outcome.
 
-    Mirrors the WhatsApp ``send_complete_reply`` — the web equivalent of
+    Mirrors the web ``send_complete_reply`` — the web equivalent of
     sending the barcode list is returning the JSON response with found barcodes.
     """
     found = result.get("found", [])
@@ -387,7 +387,7 @@ async def _send_needs_better_photo_reply(
 ) -> dict[str, Any]:
     """Build the web response for a needs_better_photo outcome.
 
-    Mirrors the WhatsApp ``send_needs_better_photo_reply`` — the web equivalent
+    Mirrors the web ``send_needs_better_photo_reply`` — the web equivalent
     of sending the annotated image is returning the JSON response with
     ``annotated_image_b64`` and ``missing`` labels.
     """
@@ -610,7 +610,7 @@ async def session_ingest(
     file: UploadFile = File(..., description="JPEG, PNG, or WebP product photo"),
     participant_id: str = Form(
         ...,
-        description="Stable client ID (UUID in localStorage for web, phone number for WhatsApp)",
+        description="Stable client ID (UUID in localStorage)",
     ),
     customer_id: str = Form(..., description="Priority customer ID"),
     branch_id: str = Form(..., description="Priority branch ID for the selected customer"),
@@ -621,7 +621,7 @@ async def session_ingest(
 
     The ``participant_id`` identifies the user across requests. For web,
     the browser generates a UUID on first visit and stores it in
-    localStorage. For WhatsApp, it's the sender's phone number.
+    localStorage. For web, it is a UUID in localStorage.
 
     The server resolves the active session for this participant
     automatically. If none exists (or the previous one is

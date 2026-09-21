@@ -189,12 +189,12 @@ CREATE TABLE IF NOT EXISTS sessions (
     found_count         INTEGER NOT NULL DEFAULT 0,
     missing_count       INTEGER NOT NULL DEFAULT 0,
     image_count         INTEGER NOT NULL DEFAULT 0,
-    channel             TEXT,                          -- 'web', 'whatsapp'
-    participant_id      TEXT,                          -- WhatsApp sender; null for web
+    channel             TEXT,                          -- 'web', 'cli'
+    participant_id      TEXT,                          -- participant ID; null if anonymous
     customer_id         TEXT,
     branch_id           TEXT,
     action              TEXT,
-    source              TEXT,                          -- legacy: 'web', 'whatsapp', 'cli'
+    source              TEXT,                          -- 'web', 'cli'
     message             TEXT,                          -- prompt for next photo
     candidates          JSONB,                         -- pending candidates for user selection
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),

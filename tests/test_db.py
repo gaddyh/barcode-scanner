@@ -229,16 +229,16 @@ async def test_idempotent_create_run(run_repo):
 
 
 async def test_provider_message_id_unique(run_repo, pool):
-    """WhatsApp message ID should be unique — prevents duplicate processing."""
+    """Provider message ID should be unique — prevents duplicate processing."""
     run1 = NewRun(
         id="01JTEST000000000000000000F",
-        source="whatsapp",
-        provider_message_id="wamid.123",
+        source="cli",
+        provider_message_id="msg.123",
     )
     run2 = NewRun(
         id="01JTEST000000000000000000G",
-        source="whatsapp",
-        provider_message_id="wamid.123",  # same message ID
+        source="cli",
+        provider_message_id="msg.123",  # same message ID
     )
     await run_repo.create_run(run1)
     with pytest.raises(asyncpg.UniqueViolationError):
@@ -269,7 +269,7 @@ async def test_query_metrics_grouped(run_repo):
         await run_repo.complete_run(run.id, _make_result(IngestStatus.COMPLETE))
 
     for i in range(2):
-        run = NewRun(id=f"01JTEST0000000000000000GRW{i}", source="whatsapp")
+        run = NewRun(id=f"01JTEST0000000000000000GRW{i}", source="cli")
         await run_repo.create_run(run)
         await run_repo.complete_run(run.id, _make_result(IngestStatus.NEEDS_USER_INPUT))
 
@@ -278,14 +278,14 @@ async def test_query_metrics_grouped(run_repo):
     assert data["grouped"] is True
     groups = {g["group_key"]: g for g in data["groups"]}
     assert "web" in groups
-    assert "whatsapp" in groups
+    assert "cli" in groups
     # The shared DB may have other runs; check that our test runs are included.
     # We can't assert exact totals, but we can verify the groups exist and
     # have at least our test counts.
     assert groups["web"]["total"] >= 3
     assert groups["web"]["complete"] >= 3
-    assert groups["whatsapp"]["total"] >= 2
-    assert groups["whatsapp"]["needs_user_input"] >= 2
+    assert groups["cli"]["total"] >= 2
+    assert groups["cli"]["needs_user_input"] >= 2
 
 
 async def test_query_metrics_invalid_group_by(run_repo):

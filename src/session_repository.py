@@ -90,7 +90,7 @@ class SessionRepository:
         """Find the active or selection-pending session for a participant.
 
         Returns the session row if an active or needs_user_selection session
-        exists, None otherwise. Used for WhatsApp and web where the client
+        exists, None otherwise. Used for web where the client
         can't send a session_id — we resolve it server-side from participant_id.
         """
         async with self._pool.acquire() as conn:

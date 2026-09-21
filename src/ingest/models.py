@@ -2,7 +2,7 @@
 
 These models replace the untyped dict returned by ``analyze_image()``.
 ``IngestResult`` is the canonical output of ``ingest_one()`` — every
-consumer (API, WhatsApp, CLI, eval, online feedback) reads from this
+consumer (API, CLI, eval, online feedback) reads from this
 single typed contract.
 
 The mapping from the old dict shape is:

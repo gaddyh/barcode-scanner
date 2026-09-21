@@ -1,6 +1,6 @@
 """Persistence helper for the write path.
 
-The caller (route handler, WhatsApp processor, CLI) owns the persistence
+The caller (route handler, CLI) owns the persistence
 lifecycle. This module provides a simple async helper that wraps the
 repository calls:
 
@@ -34,7 +34,7 @@ def dict_to_ingest_result(raw: dict[str, Any], elapsed_ms: int) -> IngestResult:
 
     This is the public version of ``_dict_to_ingest_result`` in
     ``src.ingest.service`` — no RunContext required, suitable for
-    the web/WhatsApp paths that call ``analyze_image()`` directly.
+    the web paths that call ``analyze_image()`` directly.
     """
     outcome = raw.get("outcome", "retryable_error")
     ok = raw.get("ok", True)

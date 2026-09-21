@@ -74,7 +74,7 @@ async def run_session_graph(
     This is the canonical entry point for multi-image ingest. It:
 
     1. Resolves the session by ``participant_id`` (same mechanism for
-       web and WhatsApp).
+       web).
     2. Loads (or creates) the session from the repository.
     3. Runs ScanGraph on the image (via ``analyze_image_async``).
     4. Merges the result into accumulated session state.
@@ -86,7 +86,7 @@ async def run_session_graph(
 
     - ``participant_id`` identifies the user across requests.
       - Web: a UUID generated in the browser, stored in localStorage.
-      - WhatsApp: the sender's phone number.
+      - Web: the participant UUID (localStorage).
     - The server looks up the active session for this participant.
     - If found and still active → reuse it.
     - If not found, or complete/expired/closed → create a new session.
@@ -97,14 +97,14 @@ async def run_session_graph(
     Args:
         image: Raw image bytes or path to an image file.
         repo: Session repository (Postgres or NoOp).
-        channel: 'web' or 'whatsapp'.
+        channel: 'web' or 'cli'.
         participant_id: Stable user identity. Web: localStorage UUID.
-            WhatsApp: sender phone number.
+            Web: participant UUID from localStorage.
         scanner: Optional pre-constructed BarcodeScanner.
         model: Gemini model name override.
         max_retries: Gemini retry count.
         retry_delay_seconds: Base delay between retries.
-        source: Source label (web, whatsapp, cli) for the session.
+        source: Source label (web, cli) for the session.
 
     Returns:
         ``SessionResult`` with accumulated items, missing items, and status.

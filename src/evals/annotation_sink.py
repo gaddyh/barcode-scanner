@@ -5,7 +5,7 @@ failure" rules (scanner≠vision, recovery failed, needs_user_input, or
 error), a candidate is written to the SQLite annotation store.
 
 Registration is explicit — only ``src/cli.py`` registers this sink in this
-milestone. Eval runs and web/WhatsApp (which don't call ``ingest_one()``)
+milestone. Eval runs and web (which don't call ``ingest_one()``)
 do not register it.
 
 Write failures are best-effort but logged — the sink never breaks the
