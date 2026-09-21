@@ -30,6 +30,18 @@ eval-full:
 eval-full-freeze:
 	python -m src.evals.regression --full-pipeline --write-baseline
 
+# Capture Gemini audit results for deterministic replay. Requires GEMINI_API_KEY.
+eval-full-cache:
+	python -m src.evals.regression --full-pipeline --cache-gemini
+
+# Deterministic full-pipeline eval using cached Gemini results. No Gemini calls.
+eval-full-replay:
+	python -m src.evals.regression --full-pipeline --replay-gemini
+
+# Freeze deterministic full-pipeline results (using cached Gemini).
+eval-full-replay-freeze:
+	python -m src.evals.regression --full-pipeline --replay-gemini --write-baseline
+
 # Live evaluation with Gemini + LangSmith (charged, needs GEMINI_API_KEY).
 eval-live:
 	python -m src.evals.runner

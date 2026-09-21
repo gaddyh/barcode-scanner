@@ -74,14 +74,46 @@ def _run_full_pipeline(image_path: str) -> dict[str, Any]:
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
     found = result.get("found", [])
+    # Extract Gemini audit latency from the pipeline summary (if available).
+    audit_latency_ms = result.get("summary", {}).get("audit_latency_ms", 0)
     return {
         "items": [{"barcode_value": f.get("barcode_value", "")} for f in found],
         "status": result.get("outcome", "failed"),
         "metrics": {
             "elapsed_ms": elapsed_ms,
             "scanner_count": len(found),
+            "audit_latency_ms": audit_latency_ms,
         },
     }
+
+
+def _setup_gemini_cache(args: argparse.Namespace) -> None:
+    """Configure Gemini audit cache mode in the graph module."""
+    from src.evals.gemini_cache import GeminiAuditCache
+    from src.ingest import graph
+
+    if not args.full_pipeline:
+        return
+
+    if args.replay_gemini:
+        cache = GeminiAuditCache()
+        graph.set_audit_cache_mode("replay", cache)
+        print(f"Replay mode: using {len(cache)} cached Gemini audits", file=sys.stderr)
+    elif args.cache_gemini:
+        cache = GeminiAuditCache()
+        graph.set_audit_cache_mode("capture", cache)
+        print(f"Capture mode: recording Gemini audits to {cache.cache_path}", file=sys.stderr)
+
+
+def _save_gemini_cache(args: argparse.Namespace) -> None:
+    """Save the Gemini audit cache if in capture mode."""
+    if not args.full_pipeline or not args.cache_gemini:
+        return
+
+    from src.ingest import graph
+
+    if graph._audit_cache_store is not None:
+        graph._audit_cache_store.save()
 
 
 def run_regression(*, full_pipeline: bool = False) -> list[dict[str, Any]]:
@@ -111,6 +143,7 @@ def run_regression(*, full_pipeline: bool = False) -> list[dict[str, Any]]:
             "occurrence_precision": precision["score"],
             "barcode_accuracy": accuracy["score"],
             "elapsed_ms": prediction["metrics"]["elapsed_ms"],
+            "audit_latency_ms": prediction["metrics"].get("audit_latency_ms", 0),
             "comment_recall": recall["comment"],
             "comment_precision": precision["comment"],
         })
@@ -127,6 +160,7 @@ def _aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
     p50_idx = n // 2
     p95_idx = min(n - 1, max(0, int(0.95 * n) - 1))
 
+    audit_latencies = sorted(r.get("audit_latency_ms", 0) for r in results)
     return {
         "n": n,
         "mean_occurrence_recall": sum(r["occurrence_recall"] for r in results) / n,
@@ -139,11 +173,14 @@ def _aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
         "total_found_occurrences": sum(r["found_count"] for r in results),
         "p50_latency_ms": latencies[p50_idx],
         "p95_latency_ms": latencies[p95_idx],
+        "p50_audit_latency_ms": audit_latencies[p50_idx],
+        "p95_audit_latency_ms": audit_latencies[p95_idx],
     }
 
 
 def _format_results(results: list[dict[str, Any]], agg: dict[str, Any]) -> str:
     """Format results as a human-readable report."""
+    has_audit = any(r.get("audit_latency_ms", 0) > 0 for r in results)
     lines = [
         "",
         "=== Barcode Scanner Regression Report ===",
@@ -154,16 +191,23 @@ def _format_results(results: list[dict[str, Any]], agg: dict[str, Any]) -> str:
         f"Matched occurrences:        {agg['total_matched_occurrences']:.0f}/{agg['total_expected_occurrences']}",
         f"Found occurrences:         {agg['total_found_occurrences']}",
         f"P50 latency: {agg['p50_latency_ms']}ms  P95 latency: {agg['p95_latency_ms']}ms",
-        "",
-        "Per-case:",
     ]
+    if has_audit:
+        lines.append(
+            f"P50 audit: {agg['p50_audit_latency_ms']}ms  "
+            f"P95 audit: {agg['p95_audit_latency_ms']}ms"
+        )
+    lines += ["", "Per-case:"]
     for r in results:
         status = "PASS" if r["barcode_accuracy"] == 1.0 else "FAIL"
+        audit_str = ""
+        if has_audit:
+            audit_str = f" audit={r.get('audit_latency_ms', 0)}ms"
         lines.append(
             f"  [{status}] {r['id']:<25} "
             f"recall={r['occurrence_recall']:.2f} prec={r['occurrence_precision']:.2f} "
             f"found={r['found_count']}/{r['expected_count']} "
-            f"latency={r['elapsed_ms']}ms"
+            f"latency={r['elapsed_ms']}ms{audit_str}"
         )
     lines.append("")
     return "\n".join(lines)
@@ -255,6 +299,7 @@ def write_baseline(
                 "occurrence_precision": r["occurrence_precision"],
                 "barcode_accuracy": r["barcode_accuracy"],
                 "elapsed_ms": r["elapsed_ms"],
+                "audit_latency_ms": r.get("audit_latency_ms", 0),
             }
             for r in results
         ],
@@ -279,7 +324,21 @@ def main(argv: list[str] | None = None) -> int:
         "--full-pipeline",
         action="store_true",
         help="Run the full pipeline (scanner + Gemini + recovery). "
-        "Requires GEMINI_API_KEY. Observational — not a hard gate.",
+        "Requires GEMINI_API_KEY (unless --replay-gemini). "
+        "Observational — not a hard gate.",
+    )
+    parser.add_argument(
+        "--cache-gemini",
+        action="store_true",
+        help="Capture Gemini audit results to cache for deterministic replay. "
+        "Only meaningful with --full-pipeline.",
+    )
+    parser.add_argument(
+        "--replay-gemini",
+        action="store_true",
+        help="Replay cached Gemini audit results instead of calling Gemini. "
+        "Makes full-pipeline eval deterministic. "
+        "Only meaningful with --full-pipeline.",
     )
     args = parser.parse_args(argv)
 
@@ -287,9 +346,13 @@ def main(argv: list[str] | None = None) -> int:
         BASELINE_FULL_PIPELINE_PATH if args.full_pipeline else BASELINE_SCANNER_PATH
     )
 
+    _setup_gemini_cache(args)
+
     results = run_regression(full_pipeline=args.full_pipeline)
     if not results:
         return 1
+
+    _save_gemini_cache(args)
 
     agg = _aggregate(results)
     report = _format_results(results, agg)

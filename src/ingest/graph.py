@@ -51,6 +51,22 @@ from src.ingest.vision import (
 from src.observability.tracing import emit_pipeline_event
 from src.runtime.events import EventType
 
+# Module-level Gemini audit cache hooks. When enabled by the regression
+# runner, these intercept _traced_audit to capture or replay Gemini results
+# for deterministic full-pipeline evaluation.
+#   _audit_cache_mode == "capture": call Gemini, save to cache
+#   _audit_cache_mode == "replay": use cached results, no Gemini calls
+#   _audit_cache_mode == None:     normal operation (call Gemini, no cache)
+_audit_cache_mode: str | None = None
+_audit_cache_store: Any = None
+
+
+def set_audit_cache_mode(mode: str | None, store: Any = None) -> None:
+    """Enable or disable Gemini audit caching for deterministic eval."""
+    global _audit_cache_mode, _audit_cache_store
+    _audit_cache_mode = mode
+    _audit_cache_store = store
+
 # langsmith is optional — tracing is enabled when LANGSMITH_TRACING=true.
 _TRACING = os.getenv("LANGSMITH_TRACING", "").lower() in ("true", "1", "yes")
 if _TRACING:
@@ -156,6 +172,21 @@ async def _traced_audit(
     Uses the native async google-genai client (``audit_shoebox_labels_async``)
     so the audit node runs without blocking the event loop.
     """
+    # Replay mode: return cached result if available.
+    if _audit_cache_mode == "replay" and _audit_cache_store is not None:
+        cached = _audit_cache_store.get(str(path))
+        if cached is not None:
+            logger.info("Gemini audit cache hit: %s", path.name)
+            return {"status": "ok", "spatial": cached, "audit_latency_ms": 0}
+        logger.warning("Gemini audit cache miss (replay mode): %s", path.name)
+        return {
+            "status": "error",
+            "error": {"type": "CacheMiss", "message": f"No cached audit for {path.name}"},
+        }
+
+    import time as _time
+
+    audit_t0 = _time.perf_counter()
     try:
         spatial = await audit_shoebox_labels_async(
             path,
@@ -173,7 +204,21 @@ async def _traced_audit(
             "status": "error",
             "error": {"type": type(exc).__name__, "message": str(exc)},
         }
-    return {"status": "ok", "spatial": spatial.model_dump(mode="json")}
+    audit_latency_ms = int((_time.perf_counter() - audit_t0) * 1000)
+    logger.info("Gemini audit latency: %dms (%s)", audit_latency_ms, path.name)
+
+    result = {
+        "status": "ok",
+        "spatial": spatial.model_dump(mode="json"),
+        "audit_latency_ms": audit_latency_ms,
+    }
+
+    # Capture mode: save result to cache.
+    if _audit_cache_mode == "capture" and _audit_cache_store is not None:
+        _audit_cache_store.put(str(path), result["spatial"])
+        logger.info("Gemini audit cache saved: %s", path.name)
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -564,6 +609,7 @@ async def _finalize_node(state: ScanState) -> dict[str, Any]:
         "path": path,
         "scan_status": scan_result.get("status"),
         "audit_status": audit_result.get("status"),
+        "audit_latency_ms": audit_result.get("audit_latency_ms", 0),
     }
 
     barcodes: list[dict] = []

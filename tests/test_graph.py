@@ -162,7 +162,7 @@ def _patch_audit_error(error: dict):
 
 
 # The set of keys the summary must have in every case. Specific cases add more.
-_BASE_KEYS = {"path", "scan_status", "audit_status", "ok"}
+_BASE_KEYS = {"path", "scan_status", "audit_status", "ok", "audit_latency_ms"}
 _OK_KEYS = _BASE_KEYS | {
     "decoded_count", "unique_values", "unique_value_count", "scanner_detections",
     "visible_labels", "clear_labels", "gemini_labels",
