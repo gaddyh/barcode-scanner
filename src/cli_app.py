@@ -7,6 +7,10 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
+from src.ingest.pipeline import (
+    pipeline_path,
+    scan_path,
+)
 from src.ingest.scanner import BarcodeScanner
 from src.ingest.vision import (
     DEFAULT_MAX_RETRIES,
@@ -15,10 +19,6 @@ from src.ingest.vision import (
     ShoeboxAuditError,
     audit_shoebox_image,
     audit_shoebox_labels,
-)
-from src.ingest.pipeline import (
-    pipeline_path,
-    scan_path,
 )
 
 # ---------------------------------------------------------------------------

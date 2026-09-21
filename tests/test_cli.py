@@ -15,13 +15,13 @@ import zxingcpp
 from PIL import Image
 
 from src.cli_app import main
+from src.ingest.geometry import PixelBoundingBox
 from src.ingest.vision import (
     AuditConfidence,
     SpatialLabelAuditPixels,
     SpatialLabelObservationPixels,
     SpatialLabelStatus,
 )
-from src.ingest.geometry import PixelBoundingBox
 from tests._zxing_fake import make_read_result
 
 

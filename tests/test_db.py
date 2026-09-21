@@ -10,18 +10,19 @@ Run: pytest tests/test_db.py -v
 from __future__ import annotations
 
 import os
-import pytest
+
 import asyncpg
+import pytest
 
 from src.db import create_pool, init_db
+from src.ingest.models import DetectedItem, IngestResult, IngestStatus, Issue, RunMetrics
 from src.repository import (
-    NewRun,
-    PostgresRunRepository,
-    PostgresAnnotationRepository,
-    NoOpRunRepository,
     GROUPABLE_FIELDS,
+    NewRun,
+    NoOpRunRepository,
+    PostgresAnnotationRepository,
+    PostgresRunRepository,
 )
-from src.ingest.models import IngestResult, IngestStatus, DetectedItem, RunMetrics, Issue
 
 # Use the provided Render Postgres instance for integration tests.
 TEST_DB_URL = os.getenv(

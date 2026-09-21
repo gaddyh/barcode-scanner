@@ -14,6 +14,7 @@ from unittest.mock import patch
 from PIL import Image
 
 from src.ingest.analyze import analyze_image
+from src.ingest.geometry import PixelBoundingBox
 from src.ingest.scanner import (
     BoundingBox,
     DetectedBarcode,
@@ -25,7 +26,6 @@ from src.ingest.vision import (
     SpatialLabelObservationPixels,
     SpatialLabelStatus,
 )
-from src.ingest.geometry import PixelBoundingBox
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
