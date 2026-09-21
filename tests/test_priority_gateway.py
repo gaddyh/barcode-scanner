@@ -28,7 +28,6 @@ from src.integrations.priority import (
     OrderLineItem,
     PriorityError,
     PriorityGateway,
-    PriorityRepository,
 )
 from src.integrations.priority.local import _classify_read_error, _classify_write_error
 from src.runtime.errors import (
@@ -211,13 +210,6 @@ class TestProtocolConformance:
         pool = MagicMock()
         gw = LocalPriorityGateway(pool)
         assert isinstance(gw, PriorityGateway)
-
-    def test_priority_repository_shim_wraps_gateway(self):
-        pool = MagicMock()
-        repo = PriorityRepository(pool)
-        # PriorityRepository wraps LocalPriorityGateway internally.
-        assert isinstance(repo._gateway, LocalPriorityGateway)
-        assert isinstance(repo._gateway, PriorityGateway)
 
     def test_plain_object_not_priority_gateway(self):
         class NotAGateway:
@@ -406,114 +398,3 @@ class TestClassifyWriteError:
         exc = OSError("connection lost mid-write")
         result = _classify_write_error(exc, after_submit=True)
         assert isinstance(result, IndeterminateError)
-
-
-# ===========================================================================
-# PriorityRepository backward-compatible shim
-# ===========================================================================
-
-
-class TestPriorityRepositoryShim:
-    async def test_customers_returns_dicts(self):
-        rows = [{"id": "cust-1", "name": "Acme"}]
-        pool, _ = _make_pool_with_rows(rows)
-        repo = PriorityRepository(pool)
-        result = await repo.customers()
-        assert result == [{"id": "cust-1", "name": "Acme"}]
-
-    async def test_branches_returns_dicts(self):
-        rows = [{"id": "br-1", "name": "Main"}]
-        pool, _ = _make_pool_with_rows(rows)
-        repo = PriorityRepository(pool)
-        result = await repo.branches("cust-1")
-        assert result == [{"id": "br-1", "name": "Main"}]
-
-    async def test_create_order_returns_int_id(self):
-        row = {"id": 42, "session_id": "sess-1", "status": "draft"}
-        pool, _ = _make_pool_with_rows([], fetchrow_rows=row)
-        repo = PriorityRepository(pool)
-        order_id = await repo.create_order(
-            session_id="sess-1",
-            customer_id="cust-1",
-            branch_id="br-1",
-            action="create_order",
-            items=[{"barcode_value": "111", "barcode_format": "Code128",
-                   "quantity": 2, "label_index": 1}],
-        )
-        assert order_id == 42
-        assert isinstance(order_id, int)
-
-    async def test_create_order_handles_barcode_key_alias(self):
-        """Old callers may pass 'barcode' instead of 'barcode_value'."""
-        row = {"id": 7}
-        pool, _ = _make_pool_with_rows([], fetchrow_rows=row)
-        repo = PriorityRepository(pool)
-        order_id = await repo.create_order(
-            session_id="s1",
-            customer_id="c1",
-            branch_id="b1",
-            action="create_order",
-            items=[{"barcode": "999", "quantity": 1}],
-        )
-        assert order_id == 7
-
-    async def test_create_order_translates_indeterminate_to_priority_error(self):
-        pool, _ = _make_pool_raising_on_fetchrow(
-            asyncpg.PostgresError("insert failed")
-        )
-        repo = PriorityRepository(pool)
-        with pytest.raises(PriorityError, match="Priority draft order"):
-            await repo.create_order(
-                session_id="s1",
-                customer_id="c1",
-                branch_id="b1",
-                action="create_order",
-                items=[],
-            )
-
-    async def test_create_order_translates_permanent_to_priority_error(self):
-        pool, _ = _make_pool_raising_on_fetchrow(
-            asyncpg.UniqueViolationError("dup")
-        )
-        repo = PriorityRepository(pool)
-        with pytest.raises(PriorityError):
-            await repo.create_order(
-                session_id="s1",
-                customer_id="c1",
-                branch_id="b1",
-                action="create_order",
-                items=[],
-            )
-
-    async def test_create_order_translates_retryable_to_priority_error(self):
-        """Pre-submit retryable errors are translated for backward compat."""
-        # We can't easily simulate pre-submit with the current pool mock
-        # (fetchrow raises, which is after-submit). Instead, verify the
-        # shim catches RetryableError if the gateway raises it.
-        pool = MagicMock()
-        repo = PriorityRepository(pool)
-        # Patch the gateway's create_draft_order to raise RetryableError.
-        repo._gateway = MagicMock()
-        repo._gateway.create_draft_order = AsyncMock(
-            side_effect=RetryableError("pre-submit failure")
-        )
-        with pytest.raises(PriorityError, match="pre-submit failure"):
-            await repo.create_order(
-                session_id="s1",
-                customer_id="c1",
-                branch_id="b1",
-                action="create_order",
-                items=[],
-            )
-
-    async def test_customers_postgres_error_raises_priority_error(self):
-        pool, _ = _make_pool_raising(asyncpg.PostgresError("boom"))
-        repo = PriorityRepository(pool)
-        with pytest.raises(PriorityError, match="unavailable"):
-            await repo.customers()
-
-    async def test_branches_oserror_raises_priority_error(self):
-        pool, _ = _make_pool_raising(OSError("connection refused"))
-        repo = PriorityRepository(pool)
-        with pytest.raises(PriorityError, match="unavailable"):
-            await repo.branches("cust-1")

@@ -75,7 +75,7 @@ exclude_also = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
@@ -92,6 +92,11 @@ select = ["E", "F", "I", "UP", "B"]
 "src/messaging/transcribe.py" = ["UP022"]
 "src/repository.py" = ["E501"]
 "src/evals/regression.py" = ["E501"]
+# UP046/UP047 (PEP 695 type params) are stylistic; the existing Generic[T]
+# form is correct and readable. Avoid churning these files just for syntax.
+"src/runtime/executor.py" = ["UP046", "UP047"]
+"src/runtime/idempotency.py" = ["UP046", "UP047"]
+"src/runtime/postgres_idempotency.py" = ["UP046", "UP047"]
 "tests/test_session_graph.py" = ["E501"]
 
 [tool.mypy]

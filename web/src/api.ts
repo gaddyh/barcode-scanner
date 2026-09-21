@@ -245,6 +245,119 @@ export async function selectCandidate(
   return (await res.json()) as SessionResult;
 }
 
+// --- Receiving flow (/receiving) ---
+
+export interface ReceivingSessionResponse {
+  session_id: string;
+  status: "active" | "submitting" | "submitted" | "submission_unknown";
+  customer_id: string;
+  branch_id: string;
+  action: OrderAction;
+  participant_id: string | null;
+  box_count: number;
+  expected_count: number;
+  external_order_id: number | null;
+  frozen: boolean;
+  items: { barcode_value: string; barcode_format: string; quantity: number }[];
+  discrepancy: {
+    expected: number;
+    found: number;
+    missing: number;
+    is_complete: boolean;
+  };
+}
+
+export interface ReceivingImageResponse {
+  session_id: string;
+  status: string;
+  outcome: string;
+  boxes_added: number;
+  total_boxes: number;
+  expected_count: number;
+  missing_count: number;
+  discrepancy: {
+    expected: number;
+    found: number;
+    missing: number;
+    is_complete: boolean;
+  };
+  candidates: SessionItem[];
+  message: string | null;
+}
+
+export interface ReceivingSubmitResponse {
+  session_id: string;
+  status: "active" | "submitting" | "submitted" | "submission_unknown";
+  order_id: number | null;
+  external_order_id: number | null;
+  idempotent: boolean;
+  items: { barcode_value: string; barcode_format: string; quantity: number }[];
+  error: { code: string; message: string } | null;
+  retry_recommended: boolean;
+}
+
+export async function createReceivingSession(
+  customerId: string,
+  branchId: string,
+  action: OrderAction,
+  participantId?: string,
+): Promise<ReceivingSessionResponse> {
+  const form = new FormData();
+  form.append("customer_id", customerId);
+  form.append("branch_id", branchId);
+  form.append("action", action);
+  if (participantId) form.append("participant_id", participantId);
+  const res = await fetch(`${apiBaseUrl}/receiving/sessions`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    throw new Error(await extractError(res));
+  }
+  return (await res.json()) as ReceivingSessionResponse;
+}
+
+export async function uploadReceivingImage(
+  sessionId: string,
+  file: File,
+): Promise<ReceivingImageResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(
+    `${apiBaseUrl}/receiving/sessions/${encodeURIComponent(sessionId)}/images`,
+    { method: "POST", body: form },
+  );
+  if (!res.ok) {
+    throw new Error(await extractError(res));
+  }
+  return (await res.json()) as ReceivingImageResponse;
+}
+
+export async function getReceivingSession(
+  sessionId: string,
+): Promise<ReceivingSessionResponse> {
+  const res = await fetch(
+    `${apiBaseUrl}/receiving/sessions/${encodeURIComponent(sessionId)}`,
+  );
+  if (!res.ok) {
+    throw new Error(await extractError(res));
+  }
+  return (await res.json()) as ReceivingSessionResponse;
+}
+
+export async function submitReceivingSession(
+  sessionId: string,
+): Promise<ReceivingSubmitResponse> {
+  const res = await fetch(
+    `${apiBaseUrl}/receiving/sessions/${encodeURIComponent(sessionId)}/submit`,
+    { method: "POST" },
+  );
+  if (!res.ok) {
+    throw new Error(await extractError(res));
+  }
+  return (await res.json()) as ReceivingSubmitResponse;
+}
+
 // --- Feedback (/feedback) ---
 
 export interface FeedbackResponse {

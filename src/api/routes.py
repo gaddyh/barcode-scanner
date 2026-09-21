@@ -14,7 +14,8 @@ from src.api.feedback import submit_upload_feedback
 from src.config import Settings, get_settings
 from src.ingest.analyze import analyze_image_async
 from src.ingest.scanner import BarcodeScanner
-from src.integrations.priority import PriorityError, PriorityRepository
+from src.integrations.priority import PriorityError
+from src.integrations.priority.local import LocalPriorityGateway
 from src.models.barcode import ScanResponse, ScanStatus
 from src.models.feedback import FeedbackRequest, FeedbackResponse
 from src.models.upload import generate_upload_id
@@ -538,12 +539,17 @@ SUPPORTED_ORDER_ACTIONS = {
 }
 
 
-def _get_priority_repo() -> PriorityRepository:
+def _get_priority_repo() -> LocalPriorityGateway:
+    """Get the Priority gateway singleton.
+
+    Returns ``LocalPriorityGateway`` directly — ERP access goes through
+    the gateway protocol, not the old ``PriorityRepository`` shim.
+    """
     from src.main import _db_pool
 
     if _db_pool is None:
         raise PriorityError("PostgreSQL is not configured")
-    return PriorityRepository(_db_pool)
+    return LocalPriorityGateway(_db_pool)
 
 
 @router.get("/customers", tags=["priority"])
@@ -555,7 +561,7 @@ async def get_customers() -> dict[str, list[dict[str, str]]]:
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail={"code": "priority_unavailable", "message": str(exc)},
         ) from exc
-    return {"items": items}
+    return {"items": [{"id": c.id, "name": c.name} for c in items]}
 
 
 @router.get("/customers/{customer_id}/branches", tags=["priority"])
@@ -574,7 +580,7 @@ async def get_customer_branches(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail={"code": "priority_unavailable", "message": str(exc)},
         ) from exc
-    return {"items": items}
+    return {"items": [{"id": b.id, "name": b.name} for b in items]}
 
 
 # ---------------------------------------------------------------------------
@@ -688,19 +694,12 @@ async def session_ingest(
     )
 
     if result.status.value == "complete":
-        try:
-            await _get_priority_repo().create_order(
-                session_id=result.session_id,
-                customer_id=customer_id,
-                branch_id=branch_id,
-                action=action,
-                items=[item.model_dump(mode="json") for item in result.items],
-            )
-        except PriorityError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail={"code": "priority_order_failed", "message": str(exc)},
-            ) from exc
+        # Order creation is now handled exclusively via
+        # POST /receiving/sessions/{id}/submit, which goes through the
+        # runtime executor + idempotency store. The /barcode/session flow
+        # returns the session result; the frontend creates the order via
+        # the /receiving submit endpoint after the user reviews.
+        pass
 
     return dict(result.model_dump(mode="json"))
 

@@ -13,7 +13,7 @@ donates runtime reliability patterns but remains independent. No fourth repo.
 vertical slice — real shoebox photos → multi-image scan → count duplicate
 physical boxes correctly → review → choose customer + branch → create one
 local Priority-compatible draft → safely retry without duplicate creation.
-Coverage gate at 95%, mypy gating, ruff clean, `make eval` deterministic
+Coverage gate at 90% (source-only, `--cov=src`), mypy gating, ruff clean, `make eval` deterministic
 gate in CI. Tagged `v0.2.0-baseline`.
 
 ## Git workflow
@@ -30,7 +30,7 @@ gate in CI. Tagged `v0.2.0-baseline`.
 
 ## Verification before merge
 
-- `pytest --cov --cov-fail-under=95` — all tests, no live Gemini
+- `pytest --cov=src --cov-fail-under=90` — all tests, no live Gemini
   (tests mock `zxingcpp.read_barcodes` and `graph._traced_audit`).
   Postgres service in CI runs DB tests and runtime idempotency tests.
 - `mypy` — gating (0 errors). Was non-gating in PR #0 via
@@ -126,6 +126,18 @@ SUBMISSION_UNKNOWN
   retry/edit.
 - `priority_orders.session_id` has a UNIQUE constraint as defense-in-depth.
 
+### Known gaps (deferred to MVP)
+
+- **SUBMISSION_UNKNOWN reconciliation via ERP external-reference lookup** is
+  not yet implemented. Until then, a `SUBMISSION_UNKNOWN` session blocks new
+  session creation for the same participant (one unresolved receiving session
+  per participant). The user must retry the existing session; the idempotency
+  store replays the indeterminate outcome. The full flow — lookup ERP by
+  external reference, transition to `SUBMITTED` if found, retry same request
+  if definitely absent — is MVP work.
+- **Barcode → SKU/catalog mapping** is not yet implemented. The receiving
+  flow aggregates by barcode value; model/color/size resolution is MVP work.
+
 ## Scanner/evaluation rules
 
 - Barcode accuracy is occurrence/multiset based (duplicate values = separate
@@ -193,7 +205,7 @@ python -m src.cli_app audit ./samples/multi_clear_6_boxes.jpeg --time   # needs 
 python -m src.cli_app pipeline ./samples/multi_clear_6_boxes.jpeg --time --pretty
 
 # Verify
-pytest --cov --cov-fail-under=95
+pytest --cov=src --cov-fail-under=90
 ruff check .
 mypy
 make eval          # deterministic scanner-only (gates merges)
@@ -209,8 +221,9 @@ Run `ruff check .` — it is genuinely green.
 
 ## NOT imported from echo-v2
 
-- 95% coverage gate on day one (ramped from 74% to 95% across PRs #0–#6,
-  now at 95% baseline).
+- Coverage gate: started at 74% in PR #0, ramped to 95% across PRs #0–#6
+  (counting test files). PR A switched to source-only coverage
+  (`--cov=src`) with a floor of 90% — the honest metric.
 - Strict mypy (gating once all errors fixed; was non-gating in PR #0).
 - WaitingListQueryService, SQLAlchemy/UoW notes.
 - Python 3.10/3.11 matrix (barcode-scanner requires Python >=3.12).

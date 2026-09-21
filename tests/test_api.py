@@ -90,14 +90,13 @@ def test_health_endpoint(client: pytest.fixture) -> None:
 
 
 def test_customers_endpoint(monkeypatch: pytest.MonkeyPatch, client: pytest.fixture) -> None:
-    async def customers(_self):
-        return [{"id": "C1", "name": "Acme"}]
+    from src.integrations.priority.models import Customer
 
-    class FakePriorityRepository:
+    class FakePriorityGateway:
         async def customers(self):
-            return await customers(self)
+            return [Customer(id="C1", name="Acme")]
 
-    monkeypatch.setattr("src.api.routes._get_priority_repo", lambda: FakePriorityRepository())
+    monkeypatch.setattr("src.api.routes._get_priority_repo", lambda: FakePriorityGateway())
     response = client.get("/customers")
     assert response.status_code == 200
     assert response.json() == {"items": [{"id": "C1", "name": "Acme"}]}
@@ -106,14 +105,13 @@ def test_customers_endpoint(monkeypatch: pytest.MonkeyPatch, client: pytest.fixt
 def test_branches_endpoint_is_customer_scoped(
     monkeypatch: pytest.MonkeyPatch, client: pytest.fixture
 ) -> None:
-    async def branches(_self, customer_id):
-        return [{"id": "B1", "name": f"Branch for {customer_id}"}]
+    from src.integrations.priority.models import Branch
 
-    class FakePriorityRepository:
+    class FakePriorityGateway:
         async def branches(self, customer_id):
-            return await branches(self, customer_id)
+            return [Branch(id="B1", name=f"Branch for {customer_id}", customer_id=customer_id)]
 
-    monkeypatch.setattr("src.api.routes._get_priority_repo", lambda: FakePriorityRepository())
+    monkeypatch.setattr("src.api.routes._get_priority_repo", lambda: FakePriorityGateway())
     response = client.get("/customers/C1/branches")
     assert response.status_code == 200
     assert response.json() == {"items": [{"id": "B1", "name": "Branch for C1"}]}

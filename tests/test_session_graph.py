@@ -421,8 +421,72 @@ async def test_session_9_of_12_then_6_boxes_3_new_3_known(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
-async def test_session_dedup_same_barcode_not_ambiguous(tmp_path: Path) -> None:
-    """Missing 1, photo has 2 new but same value (same product, 2 boxes) → accept, don't ask."""
+async def test_session_retry_duplicate_ean_resolves_missing(tmp_path: Path) -> None:
+    """Targeted-retry: photo #2 has 2 boxes with the same NEW EAN (not known),
+    and there are 2 missing slots. Both are accepted as separate occurrences.
+
+    Under the occurrence-based contract (PR A), duplicate EANs within a
+    retry photo are NOT deduplicated — they represent separate physical
+    occurrences. If candidate count <= missing slots, accept all.
+    """
+    repo = NoOpSessionRepository()
+    img = tmp_path / "img.png"
+    img.write_bytes(b"fake")
+
+    mock1 = {
+        "outcome": "needs_better_photo",
+        "audit_available": True,
+        "found": [
+            {"barcode_value": "111", "label_index": 1},
+            {"barcode_value": "222", "label_index": 2},
+        ],
+        "missing": [
+            {"label_index": 3, "status": "not_visible", "label_bbox": {}, "barcode_bbox": {}},
+            {"label_index": 4, "status": "not_visible", "label_bbox": {}, "barcode_bbox": {}},
+        ],
+        "unassigned": [],
+        "summary": {"visible_label_count": 4, "found_count": 2, "missing_count": 2},
+    }
+
+    # Photo #2: 2 found — both with the same NEW EAN (444). Not deduped.
+    mock2 = {
+        "outcome": "complete",
+        "audit_available": True,
+        "found": [
+            {"barcode_value": "444", "label_index": 1},
+            {"barcode_value": "444", "label_index": 2},  # same EAN, different box
+        ],
+        "missing": [],
+        "unassigned": [],
+        "summary": {"visible_label_count": 2, "found_count": 2, "missing_count": 0},
+    }
+
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
+        result1 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
+    assert result1.status == SessionStatus.ACTIVE
+    assert result1.missing_count == 2
+
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock2)):
+        result2 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
+
+    # 2 candidates (not deduped) <= 2 missing → accept both, resolve both.
+    assert result2.status == SessionStatus.COMPLETE
+    assert result2.found_count == 4  # 2 original + 2 new occurrences
+    assert result2.missing_count == 0
+    assert len(result2.candidates) == 0  # no ambiguity
+
+
+@pytest.mark.asyncio
+async def test_session_retry_more_candidates_than_missing_is_ambiguous(
+    tmp_path: Path,
+) -> None:
+    """Targeted-retry: photo #2 has more candidates than missing slots →
+    ambiguous, return candidates for user selection.
+
+    Under the occurrence-based contract (PR A), if candidate occurrence
+    count exceeds missing physical slots, do NOT silently add all; return
+    a confirmation/selection state.
+    """
     repo = NoOpSessionRepository()
     img = tmp_path / "img.png"
     img.write_bytes(b"fake")
@@ -442,13 +506,14 @@ async def test_session_dedup_same_barcode_not_ambiguous(tmp_path: Path) -> None:
         "summary": {"visible_label_count": 4, "found_count": 3, "missing_count": 1},
     }
 
-    # Photo #2: 3 found — 1 known + 2 new (same barcode value, 2 boxes of same product)
+    # Photo #2: 3 found — 1 known (neighbor, filtered) + 2 new (same value).
+    # 2 candidates > 1 missing slot → ambiguous.
     mock2 = {
         "outcome": "complete",
         "audit_available": True,
         "found": [
-            {"barcode_value": "222", "label_index": 1},  # already known (neighbor)
-            {"barcode_value": "444", "label_index": 2},  # new — resolves missing
+            {"barcode_value": "222", "label_index": 1},  # already known (neighbor, filtered)
+            {"barcode_value": "444", "label_index": 2},  # new — could resolve missing
             {"barcode_value": "444", "label_index": 3},  # same value, different box
         ],
         "missing": [],
@@ -464,11 +529,72 @@ async def test_session_dedup_same_barcode_not_ambiguous(tmp_path: Path) -> None:
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock2)):
         result2 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
 
-    # 2 new found but same value → 1 unique new → matches 1 missing → accept
+    # 2 new candidates (not deduped) > 1 missing → ambiguous.
+    assert result2.status == SessionStatus.NEEDS_USER_SELECTION
+    assert len(result2.candidates) == 2
+    assert result2.found_count == 3  # nothing added
+
+
+@pytest.mark.asyncio
+async def test_session_targeted_retry_keeps_target_fixed(tmp_path: Path) -> None:
+    """Once targeted-retry mode begins, retry photos do NOT add new missing
+    slots even if Gemini reports missing labels again.
+
+    The expected_count was established by the first photo. A retry photo
+    that sees "missing" labels is just seeing the same missing boxes from a
+    different angle. Only a photo that genuinely sees MORE visible labels
+    than the current expected_count grows the target.
+    """
+    repo = NoOpSessionRepository()
+    img = tmp_path / "img.png"
+    img.write_bytes(b"fake")
+
+    mock1 = {
+        "outcome": "needs_better_photo",
+        "audit_available": True,
+        "found": [
+            {"barcode_value": "111", "label_index": 1},
+            {"barcode_value": "222", "label_index": 2},
+        ],
+        "missing": [
+            {"label_index": 3, "status": "not_visible", "label_bbox": {}, "barcode_bbox": {}},
+        ],
+        "unassigned": [],
+        "summary": {"visible_label_count": 3, "found_count": 2, "missing_count": 1},
+    }
+
+    # Photo #2: retry — sees 1 found (resolves the missing) AND reports
+    # 1 missing label (same box from a different angle). Under the new
+    # contract, this retry should NOT grow the target.
+    mock2 = {
+        "outcome": "complete",
+        "audit_available": True,
+        "found": [
+            {"barcode_value": "333", "label_index": 1},  # resolves missing
+        ],
+        "missing": [
+            {"label_index": 2, "status": "not_visible", "label_bbox": {}, "barcode_bbox": {}},
+        ],
+        "unassigned": [],
+        "summary": {"visible_label_count": 2, "found_count": 1, "missing_count": 1},
+    }
+
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock1)):
+        result1 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
+    assert result1.status == SessionStatus.ACTIVE
+    assert result1.found_count == 2
+    assert result1.missing_count == 1
+    assert result1.expected_count == 3
+
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock2)):
+        result2 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
+
+    # Retry resolved the missing slot. The retry's own "missing" report
+    # did NOT add a new missing slot — target stays fixed at 3.
     assert result2.status == SessionStatus.COMPLETE
-    assert result2.found_count == 4  # 3 original + 1 new unique
+    assert result2.found_count == 3
     assert result2.missing_count == 0
-    assert len(result2.candidates) == 0  # no ambiguity
+    assert result2.expected_count == 3  # unchanged
 
 
 @pytest.mark.asyncio

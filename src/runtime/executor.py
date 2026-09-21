@@ -230,37 +230,26 @@ async def _run_with_retries(
             raise
 
         except Exception as exc:
-            # For irreversible writes, an unexpected error after the request
-            # was submitted (e.g. KeyError parsing an unfamiliar response
-            # shape) means the side effect may have happened. Conservatively
-            # treat as indeterminate rather than claiming "definitely did not
-            # send." For reads/compute, wrap as PermanentError.
-            if policy.irreversible_write:
-                wrapped = IndeterminateError(
-                    f"Unexpected failure during irreversible run {context.run_id}",
-                    code=type(exc).__name__,
-                )
-                duration_ms = (perf_counter() - start) * 1000
-                emit_metadata(
-                    context,
-                    elapsed_ms=int(duration_ms),
-                    final_status="indeterminate",
-                    error_code=type(exc).__name__,
-                    attempts=attempt,
-                )
-            else:
-                wrapped = PermanentError(
-                    f"Unexpected failure during run {context.run_id}",
-                    code=type(exc).__name__,
-                )
-                duration_ms = (perf_counter() - start) * 1000
-                emit_metadata(
-                    context,
-                    elapsed_ms=int(duration_ms),
-                    final_status="error",
-                    error_code=type(exc).__name__,
-                    attempts=attempt,
-                )
+            # Generic unexpected exception. Per AGENTS.md, the executor does
+            # NOT upgrade a generic unexpected exception to IndeterminateError
+            # on its own — only adapter-classified IndeterminateError (handled
+            # above) and executor-enforced timeout/cancellation (handled in
+            # _execute_with_timeout) become indeterminate for irreversible
+            # writes. A generic exception is a PermanentError (programming
+            # bug, unexpected response shape, etc.) — the adapter owns
+            # classifying pre-submit vs post-submit at the integration boundary.
+            wrapped = PermanentError(
+                f"Unexpected failure during run {context.run_id}",
+                code=type(exc).__name__,
+            )
+            duration_ms = (perf_counter() - start) * 1000
+            emit_metadata(
+                context,
+                elapsed_ms=int(duration_ms),
+                final_status="error",
+                error_code=type(exc).__name__,
+                attempts=attempt,
+            )
             raise wrapped from exc
 
     raise RuntimeError("unreachable")  # pragma: no cover

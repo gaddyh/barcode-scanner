@@ -64,13 +64,13 @@ jobs:
           # Dummy key so Settings.from_env() can import. Tests mock zxingcpp
           # and genai.Client — no real WhatsApp/Gemini/barcode calls are made.
           D360_API_KEY: dummy
-          # Postgres for test_db.py and runtime idempotency tests.
+          # Postgres for test_db.py, runtime idempotency tests, and
+          # receiving persistence tests.
           DATABASE_URL: postgres://scanner:scanner@localhost:5432/scanner
-        # Coverage floor raised to 95 — Postgres service in CI so DB tests
-        # and runtime idempotency tests run, and focused module tests cover
-        # executor, idempotency, repository, session_repository, scanner,
-        # routes, and smaller observability/eval/ingest gaps.
-        run: pytest --cov --cov-report=term-missing --cov-fail-under=95
+        # Source-only coverage (--cov=src) with a realistic floor of 90.
+        # The previous 95% floor was inflated by including test files in
+        # coverage. Source-only coverage is the honest metric.
+        run: pytest --cov=src --cov-report=term-missing --cov-fail-under=90
 
   eval:
     name: Eval (deterministic scanner-only)

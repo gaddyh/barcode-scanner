@@ -87,10 +87,17 @@ def _make_session_result(
     )
 
 
-def test_session_complete_creates_order(
+def test_session_complete_does_not_create_order(
     monkeypatch: pytest.MonkeyPatch, client: pytest.fixture
 ) -> None:
-    """A complete session triggers create_order on the Priority repo."""
+    """A complete session does NOT auto-create an order.
+
+    Order creation is now handled exclusively via
+    POST /receiving/sessions/{id}/submit, which goes through the runtime
+    executor + idempotency store. The /barcode/session flow returns the
+    session result; the frontend creates the order via the /receiving
+    submit endpoint after the user reviews.
+    """
     fake_repo = MagicMock()
     fake_repo.create_order = AsyncMock(return_value=1)
     monkeypatch.setattr("src.api.routes._get_priority_repo", lambda: fake_repo)
@@ -116,13 +123,16 @@ def test_session_complete_creates_order(
         )
     assert response.status_code == 200
     assert response.json()["status"] == "complete"
-    fake_repo.create_order.assert_awaited_once()
+    # Order creation is NOT called — it's handled via /receiving/submit.
+    fake_repo.create_order.assert_not_awaited()
 
 
-def test_session_complete_priority_error(
+def test_session_complete_no_priority_call(
     monkeypatch: pytest.MonkeyPatch, client: pytest.fixture
 ) -> None:
-    """A PriorityError during create_order returns 502."""
+    """A complete session does NOT call Priority — order creation is via
+    /receiving/submit. The session endpoint just returns the result.
+    """
     from src.integrations.priority import PriorityError
 
     fake_repo = MagicMock()
@@ -148,8 +158,10 @@ def test_session_complete_priority_error(
                 "action": "create_order",
             },
         )
-    assert response.status_code == 502
-    assert response.json()["detail"]["code"] == "priority_order_failed"
+    # No 502 — Priority is not called. Session returns 200.
+    assert response.status_code == 200
+    assert response.json()["status"] == "complete"
+    fake_repo.create_order.assert_not_awaited()
 
 
 def test_session_active_no_order(

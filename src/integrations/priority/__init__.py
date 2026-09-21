@@ -3,7 +3,6 @@
 Public API:
     PriorityGateway — protocol (port).
     LocalPriorityGateway — asyncpg-backed local stand-in.
-    PriorityRepository — backward-compatible shim (old dict-based API).
     PriorityError — legacy error class (kept for callers that catch it).
     Customer, Branch, OrderLineItem, CreateDraftOrderRequest,
     CreateDraftOrderResult — domain shapes.
@@ -14,7 +13,6 @@ from __future__ import annotations
 from src.integrations.priority.local import (
     LocalPriorityGateway,
     PriorityError,
-    PriorityRepository,
 )
 from src.integrations.priority.models import (
     Branch,
@@ -34,5 +32,4 @@ __all__ = [
     "OrderLineItem",
     "PriorityError",
     "PriorityGateway",
-    "PriorityRepository",
 ]

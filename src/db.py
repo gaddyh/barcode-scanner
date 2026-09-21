@@ -214,27 +214,40 @@ ALTER TABLE sessions ADD COLUMN IF NOT EXISTS branch_id TEXT;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS action TEXT;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS candidates JSONB;
 
+-- Receiving submission state machine (PR A). The ingest `status` column
+-- above tracks photo accumulation; `submission_status` tracks the draft-order
+-- submission lifecycle, which is a separate concern:
+--
+--     ACTIVE → SUBMITTING → SUBMITTED (success)
+--     ACTIVE → SUBMITTING → SUBMISSION_UNKNOWN (indeterminate)
+--     ACTIVE (stays) on pre-submit failure
+--
+-- On entering SUBMITTING, the aggregated order payload is frozen into
+-- `frozen_order_payload` and its SHA-256 hash into `frozen_payload_hash`.
+-- Every retry uses that exact payload — never rebuilt from session_items —
+-- so the same idempotency key always pairs with the same content.
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS submission_status TEXT NOT NULL DEFAULT 'active';
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS external_order_id BIGINT;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS frozen_at TIMESTAMPTZ;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS frozen_order_payload JSONB;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS frozen_payload_hash TEXT;
+
 -- Drop and recreate the status CHECK constraint to include 'closed'.
 -- The original constraint (from CREATE TABLE) only allowed
 -- active/complete/expired/failed. We need 'closed' for the DELETE endpoint.
-DO $$
-BEGIN
-    -- Drop any existing check constraint on sessions.status
-    EXECUTE (
-        SELECT 'ALTER TABLE sessions DROP CONSTRAINT IF EXISTS ' || conname
-        FROM pg_constraint
-        WHERE conrelid = 'sessions'::regclass
-          AND contype = 'c'
-          AND pg_get_constraintdef(oid) LIKE '%status%'
-        LIMIT 1
-    );
-EXCEPTION WHEN OTHERS THEN
-    NULL;
-END $$;
+-- Use explicit DROP IF EXISTS by name (idempotent across re-runs).
+ALTER TABLE sessions DROP CONSTRAINT IF EXISTS sessions_status_check;
 
 ALTER TABLE sessions ADD CONSTRAINT sessions_status_check
     CHECK (status IN ('active', 'complete', 'expired', 'failed', 'closed',
                       'needs_user_selection'));
+
+-- Separate check for submission_status (kept separate to avoid E501).
+ALTER TABLE sessions
+    DROP CONSTRAINT IF EXISTS sessions_submission_status_check;
+ALTER TABLE sessions ADD CONSTRAINT sessions_submission_status_check
+    CHECK (submission_status IN ('active', 'submitting', 'submitted',
+                                 'submission_unknown'));
 
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
 CREATE INDEX IF NOT EXISTS idx_sessions_created ON sessions(created_at);
@@ -242,6 +255,14 @@ CREATE INDEX IF NOT EXISTS idx_sessions_last_activity ON sessions(last_activity_
 CREATE INDEX IF NOT EXISTS idx_sessions_participant
     ON sessions(participant_id, channel, status)
     WHERE participant_id IS NOT NULL AND status = 'active';
+-- One unresolved receiving session per participant: lookup of an open
+-- (non-terminal) submission for a participant. Covers active AND
+-- submission_unknown so an indeterminate session blocks new session creation
+-- until the user retries/reconciles it.
+CREATE INDEX IF NOT EXISTS idx_sessions_participant_submission
+    ON sessions(participant_id, submission_status)
+    WHERE participant_id IS NOT NULL
+      AND submission_status IN ('active', 'submission_unknown');
 
 -- Confirmed barcodes accumulated across all images in a session.
 -- Deduplicated by barcode_value within a session.
