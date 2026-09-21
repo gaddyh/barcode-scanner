@@ -19,6 +19,7 @@ donates runtime reliability patterns but remains independent. No fourth repo.
 - Push the feature branch, open a PR targeting `main`.
 - Enable GitHub auto-merge with squash: `gh pr merge --auto --squash <PR_NUMBER>`.
 - `main` requires CI checks; merge happens automatically after they pass.
+- Delete the feature branch after merge: `git switch main && git pull --ff-only origin main && git branch -d <branch-name>`.
 
 ## Verification before merge
 
