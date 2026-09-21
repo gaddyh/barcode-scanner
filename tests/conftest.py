@@ -30,3 +30,9 @@ def override_scanner() -> Iterator[dict[str, object]]:
 @pytest.fixture
 def client() -> TestClient:
     return TestClient(app)
+
+
+@pytest.fixture
+def client_no_raise() -> TestClient:
+    """TestClient that returns 500 responses instead of raising server exceptions."""
+    return TestClient(app, raise_server_exceptions=False)

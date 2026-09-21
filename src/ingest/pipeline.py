@@ -45,7 +45,7 @@ if _TRACING:
     from langsmith import traceable
 else:
     # no-op decorator fallback when tracing is disabled.
-    def traceable(*args, **kwargs):  # type: ignore[misc]
+    def traceable(*args, **kwargs):  # type: ignore[no-redef]
         if len(args) == 1 and callable(args[0]) and not kwargs:
             return args[0]
 
@@ -88,7 +88,7 @@ def pipeline_path(
             {
                 "scanner_version": SCANNER_VERSION,
                 "vision_prompt_version": VISION_PROMPT_VERSION,
-                "vision_model": model or os.getenv("GEMINI_MODEL", DEFAULT_MODEL),
+                "vision_model": model or os.getenv("GEMINI_MODEL") or DEFAULT_MODEL,
                 "recovery_version": RECOVERY_VERSION,
             }
         )

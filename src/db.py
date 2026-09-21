@@ -292,6 +292,31 @@ CREATE TABLE IF NOT EXISTS session_missing (
 CREATE INDEX IF NOT EXISTS idx_session_missing_session ON session_missing(session_id);
 CREATE INDEX IF NOT EXISTS idx_session_missing_unresolved
     ON session_missing(session_id) WHERE resolved = FALSE;
+
+-- Idempotency operations for the runtime executor (PR #3).
+-- Stores terminal outcomes (success, permanent failure, indeterminate)
+-- keyed by caller-supplied idempotency keys, with owner-token fencing
+-- and lease expiry for crash recovery.
+CREATE TABLE IF NOT EXISTS idempotency_operations (
+    key              TEXT PRIMARY KEY,
+    state            TEXT NOT NULL,
+    owner_token      UUID,
+    lease_expires_at TIMESTAMPTZ,
+    outcome          JSONB,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- State constraint kept separate to avoid E501 on the CHECK clause.
+ALTER TABLE idempotency_operations
+    DROP CONSTRAINT IF EXISTS idempotency_operations_state_check;
+ALTER TABLE idempotency_operations
+    ADD CONSTRAINT idempotency_operations_state_check
+    CHECK (state IN ('IN_PROGRESS','SUCCESS','FAILURE','INDETERMINATE'));
+
+CREATE INDEX IF NOT EXISTS idx_idempotency_lease_expires
+    ON idempotency_operations(lease_expires_at)
+    WHERE state = 'IN_PROGRESS';
 """
 
 

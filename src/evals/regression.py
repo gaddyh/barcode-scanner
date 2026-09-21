@@ -70,7 +70,7 @@ def _run_full_pipeline(image_path: str) -> dict[str, Any]:
     from src.ingest.analyze import analyze_image
 
     t0 = time.perf_counter()
-    result = analyze_image(image_path)
+    result: dict[str, Any] = analyze_image(image_path)
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
     found = result.get("found", [])

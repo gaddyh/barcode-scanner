@@ -75,7 +75,7 @@ if _TRACING:
     from langsmith import traceable
 else:
     # no-op decorator fallback when tracing is disabled.
-    def traceable(*args, **kwargs):  # type: ignore[misc]
+    def traceable(*args, **kwargs):  # type: ignore[no-redef]
         if len(args) == 1 and callable(args[0]) and not kwargs:
             return args[0]
 
@@ -114,7 +114,7 @@ _RECOVERY_PADDINGS: tuple[tuple[str, float], ...] = (
 
 
 def _to_jsonable(value: object) -> object:
-    if is_dataclass(value):
+    if is_dataclass(value) and not isinstance(value, type):
         return asdict(value)
     if isinstance(value, tuple):
         return [_to_jsonable(item) for item in value]
@@ -251,7 +251,7 @@ def _gemini_guided_recovery(
     reconciliation.
     """
     try:
-        source = Image.open(image_path)
+        source: Any = Image.open(image_path)
         source = ImageOps.exif_transpose(source).convert("RGB")
     except Exception as exc:
         logger.warning("Recovery: could not open image %s: %s", image_path, exc)
@@ -414,10 +414,10 @@ async def _scan_node(state: ScanState, config: RunnableConfig) -> dict[str, Any]
     scan_ok = scan_result.get("status") in ("found", "not_found")
 
     # Log scanner detections for debugging (values + formats).
-    scan_barcodes = scan_result.get("barcodes", [])
+    scan_barcodes: list[dict] = scan_result.get("barcodes", [])  # type: ignore[assignment]
     if scan_barcodes:
         scan_values = [
-            (b.get("value"), b.get("format")) for b in scan_barcodes  # type: ignore[union-attr]
+            (b.get("value"), b.get("format")) for b in scan_barcodes
         ]
         logger.info(
             "Scanner detected %d barcode(s): %s",
@@ -450,9 +450,10 @@ async def _audit_node(state: ScanState) -> dict[str, Any]:
 
     logger.info("Gemini audit status: %s", audit_result.get("status"))
 
+    spatial: Any = audit_result.get("spatial", {})
     emit_pipeline_event(
         EventType.AUDIT_COMPLETED,
-        vision_count=len(audit_result.get("spatial", {}).get("labels", [])) if audit_ok else 0,
+        vision_count=len(spatial.get("labels", [])) if audit_ok else 0,
         audit_status=audit_result.get("status"),
     )
 
@@ -480,13 +481,13 @@ async def _reconcile_node(state: ScanState) -> dict[str, Any]:
         barcodes = state["scan_result"].get("barcodes", [])  # type: ignore[assignment]
 
     audit_result = state["audit_result"]
-    spatial = audit_result.get("spatial", {})
+    spatial: Any = audit_result.get("spatial", {})
     labels = spatial.get("labels", [])
     image_width = spatial["image_width"]
     image_height = spatial["image_height"]
 
     reconciliation = match_scanner_to_labels(
-        barcodes,
+        barcodes,  # type: ignore[arg-type]
         labels,
         image_width=image_width,
         image_height=image_height,
@@ -621,17 +622,17 @@ async def _finalize_node(state: ScanState) -> dict[str, Any]:
 
     barcodes: list[dict] = []
     if scan_ok:
-        barcodes = state.get("barcodes")
-        if barcodes is None:
-            barcodes = scan_result.get("barcodes", [])  # type: ignore[assignment]
-        values = [b["value"] for b in barcodes]  # type: ignore[index]
+        barcodes = list(state.get("barcodes", []))
+        if not barcodes:
+            barcodes = list(scan_result.get("barcodes", []))  # type: ignore[call-overload]
+        values = [b["value"] for b in barcodes]
         summary["decoded_count"] = len(barcodes)
         summary["unique_values"] = sorted(set(values))
         summary["unique_value_count"] = len(set(values))
         summary["scanner_detections"] = barcodes
 
     if audit_ok:
-        spatial = audit_result.get("spatial", {})
+        spatial: Any = audit_result.get("spatial", {})
         labels = state.get("labels", spatial.get("labels", []))
         summary["visible_labels"] = len(labels)
         summary["clear_labels"] = sum(
@@ -673,8 +674,8 @@ async def _finalize_node(state: ScanState) -> dict[str, Any]:
             }
             summary["reconciliation"] = reconciliation.model_dump(mode="json")
 
-            decoded = summary.get("decoded_count", 0)
-            visible = summary.get("visible_labels", 0)
+            decoded: int = summary.get("decoded_count", 0)  # type: ignore[assignment]
+            visible: int = summary.get("visible_labels", 0)  # type: ignore[assignment]
             summary["decoded_vs_visible"] = {
                 "decoded": decoded,
                 "visible": visible,
@@ -766,7 +767,7 @@ def build_scan_graph(checkpointer=None):
     # Finalize → END.
     builder.add_edge("finalize", END)
 
-    compile_kwargs: dict[str, object] = {}
+    compile_kwargs: dict[str, Any] = {}
     if checkpointer is not None:
         compile_kwargs["checkpointer"] = checkpointer
     return builder.compile(**compile_kwargs)
@@ -841,7 +842,7 @@ async def run_scan_graph(
             after interruption (M15D HITL). When ``None`` or when no
             checkpointer is configured, the graph runs without persistence.
     """
-    initial_state: ScanState = {  # type: ignore[misc]
+    initial_state: ScanState = {
         "path": str(path),
         "model": model,
         "max_retries": max_retries,
@@ -854,9 +855,9 @@ async def run_scan_graph(
     # The scanner is a non-serializable runtime object — pass it through the
     # RunnableConfig (not state) so the Postgres checkpointer never tries to
     # msgpack-encode it. Nodes read it via config["configurable"]["scanner"].
-    config: dict[str, object] = {"configurable": {"scanner": scanner}}
+    config: dict[str, Any] = {"configurable": {"scanner": scanner}}
     if use_checkpoint and thread_id is not None:
         config["configurable"]["thread_id"] = thread_id
 
     final_state = await graph.ainvoke(initial_state, config=config)
-    return final_state["summary"]
+    return dict(final_state["summary"])

@@ -39,7 +39,7 @@ from dataclasses import dataclass
 from enum import Enum
 from io import BytesIO
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from dotenv import load_dotenv
 from google import genai
@@ -670,7 +670,7 @@ def audit_shoebox_image(
             "Missing Gemini API key. Pass api_key=... or set GEMINI_API_KEY."
         )
 
-    resolved_model = model or os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
+    resolved_model = model or os.getenv("GEMINI_MODEL") or DEFAULT_MODEL
     path, image_bytes, mime_type = _load_image(image_path)
 
     client = genai.Client(api_key=resolved_api_key)
@@ -680,7 +680,7 @@ def audit_shoebox_image(
         try:
             response = client.models.generate_content(
                 model=resolved_model,
-                contents=[
+                contents=[  # type: ignore[arg-type]
                     types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
                     AUDIT_PROMPT,
                 ],
@@ -746,7 +746,7 @@ def audit_shoebox_counts(
             "Missing Gemini API key. Pass api_key=... or set GEMINI_API_KEY."
         )
 
-    resolved_model = model or os.getenv("GEMINI_MODEL", DEFAULT_COUNTS_MODEL)
+    resolved_model = model or os.getenv("GEMINI_MODEL") or DEFAULT_COUNTS_MODEL
     path, image_bytes, mime_type = _load_image(image_path)
 
     client = genai.Client(api_key=resolved_api_key)
@@ -754,7 +754,7 @@ def audit_shoebox_counts(
 
     # flash-lite does not support thinking_budget=0; only disable thinking on
     # full thinking models (flash, pro).
-    config_kwargs: dict[str, object] = dict(
+    config_kwargs: dict[str, Any] = dict(
         response_mime_type="application/json",
         response_schema=_gemini_compatible_schema(BoxAuditCounts),
         temperature=0,
@@ -766,7 +766,7 @@ def audit_shoebox_counts(
         try:
             response = client.models.generate_content(
                 model=resolved_model,
-                contents=[
+                contents=[  # type: ignore[arg-type]
                     types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
                     COUNTS_PROMPT,
                 ],
@@ -916,7 +916,7 @@ def audit_shoebox_labels(
             "Missing Gemini API key. Pass api_key=... or set GEMINI_API_KEY."
         )
 
-    resolved_model = model or os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
+    resolved_model = model or os.getenv("GEMINI_MODEL") or DEFAULT_MODEL
     path = Path(image_path).expanduser().resolve()
     normalized = load_normalized_image(path)
     image_bytes = normalized.data
@@ -925,7 +925,7 @@ def audit_shoebox_labels(
     client = genai.Client(api_key=resolved_api_key)
     last_error: Exception | None = None
 
-    config_kwargs: dict[str, object] = dict(
+    config_kwargs: dict[str, Any] = dict(
         response_mime_type="application/json",
         response_schema=_gemini_compatible_schema(SpatialLabelAudit),
         temperature=0,
@@ -937,7 +937,7 @@ def audit_shoebox_labels(
         try:
             response = client.models.generate_content(
                 model=resolved_model,
-                contents=[
+                contents=[  # type: ignore[arg-type]
                     types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
                     SPATIAL_LABEL_PROMPT,
                 ],
@@ -1012,7 +1012,7 @@ async def audit_shoebox_labels_async(
             "Missing Gemini API key. Pass api_key=... or set GEMINI_API_KEY."
         )
 
-    resolved_model = model or os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
+    resolved_model = model or os.getenv("GEMINI_MODEL") or DEFAULT_MODEL
     path = Path(image_path).expanduser().resolve()
     normalized = load_normalized_image(path)
     image_bytes = normalized.data
@@ -1021,7 +1021,7 @@ async def audit_shoebox_labels_async(
     client = genai.Client(api_key=resolved_api_key)
     last_error: Exception | None = None
 
-    config_kwargs: dict[str, object] = dict(
+    config_kwargs: dict[str, Any] = dict(
         response_mime_type="application/json",
         response_schema=_gemini_compatible_schema(SpatialLabelAudit),
         temperature=0,
@@ -1033,7 +1033,7 @@ async def audit_shoebox_labels_async(
         try:
             response = await client.aio.models.generate_content(
                 model=resolved_model,
-                contents=[
+                contents=[  # type: ignore[arg-type]
                     types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
                     SPATIAL_LABEL_PROMPT,
                 ],

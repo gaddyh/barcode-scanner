@@ -164,7 +164,7 @@ class SessionRepository:
                    WHERE id = $1 AND status IN ('active', 'complete')""",
                 session_id,
             )
-            return result == "UPDATE 1"
+            return str(result) == "UPDATE 1"
 
     async def expire_session(self, session_id: str) -> None:
         """Mark a session as expired (lazy expiry)."""
@@ -203,7 +203,7 @@ class SessionRepository:
                 item.match_basis,
                 item.source_image,
             )
-            return result == "INSERT 0 1"
+            return str(result) == "INSERT 0 1"
 
     async def get_items(self, session_id: str) -> list[SessionItem]:
         """Load all confirmed items for a session."""
@@ -421,7 +421,7 @@ class NoOpSessionRepository:
         s.setdefault("_missing", []).append(item)
 
     async def get_missing(self, session_id: str) -> list[MissingItem]:
-        return self._sessions.get(session_id, {}).get("_missing", [])
+        return list(self._sessions.get(session_id, {}).get("_missing", []))
 
     async def resolve_missing(
         self, session_id: str, label_index: int, resolved_by_image: int

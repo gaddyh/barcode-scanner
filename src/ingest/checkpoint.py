@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -40,7 +40,8 @@ logger = logging.getLogger(__name__)
 # Singleton checkpointer — initialized once on app startup.
 _checkpointer: AsyncPostgresSaver | None = None
 # Singleton connection pool — kept open for the lifetime of the app.
-_pool = None  # type: psycopg.AsyncConnectionPool | None
+# Typed as Any because psycopg is an optional dependency imported lazily.
+_pool: Any = None
 
 
 async def init_checkpointer(database_url: str | None = None) -> AsyncPostgresSaver:

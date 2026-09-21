@@ -41,6 +41,7 @@ import logging
 import os
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from PIL import (
     Image,
@@ -79,7 +80,7 @@ def analyze_image(
     max_retries: int = DEFAULT_MAX_RETRIES,
     retry_delay_seconds: float = DEFAULT_RETRY_DELAY_SECONDS,
     thread_id: str | None = None,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Run the pipeline on one image and return a product-shaped result.
 
     Args:
@@ -106,6 +107,7 @@ def analyze_image(
     own_scanner = scanner is None
     if own_scanner:
         scanner = BarcodeScanner()
+    assert scanner is not None
 
     # Resolve input to a path. Bytes are written to a temp file because
     # audit_shoebox_labels needs to re-open the image by path.
@@ -167,7 +169,7 @@ async def analyze_image_async(
     max_retries: int = DEFAULT_MAX_RETRIES,
     retry_delay_seconds: float = DEFAULT_RETRY_DELAY_SECONDS,
     thread_id: str | None = None,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Async version of ``analyze_image``.
 
     Calls ``run_scan_graph()`` directly instead of going through the sync
@@ -188,6 +190,7 @@ async def analyze_image_async(
     own_scanner = scanner is None
     if own_scanner:
         scanner = BarcodeScanner()
+    assert scanner is not None
 
     cleanup_path: str | None = None
     try:
@@ -259,12 +262,12 @@ def _image_dimensions(path: Path) -> tuple[int, int]:
 
 
 def _reshape(
-    summary: dict[str, object],
+    summary: dict[str, Any],
     image_width: int = 0,
     image_height: int = 0,
     *,
     image_path: Path | None = None,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Reshape a pipeline_path summary into the product schema."""
     scan_status = summary.get("scan_status")
     audit_status = summary.get("audit_status")
@@ -336,7 +339,7 @@ def _reshape(
     )
 
     # --- found ---
-    found: list[dict[str, object]] = []
+    found: list[dict[str, Any]] = []
     for match in matches:
         label_index = match["label_index"]
         det_index = match["scanner_detection_index"]
@@ -368,7 +371,7 @@ def _reshape(
         )
 
     # --- missing ---
-    missing: list[dict[str, object]] = []
+    missing: list[dict[str, Any]] = []
     for ul in unmatched_labels:
         missing.append(
             {
@@ -380,14 +383,14 @@ def _reshape(
         )
 
     # --- unassigned ---
-    unassigned: list[dict[str, object]] = [
+    unassigned_list: list[dict[str, Any]] = [
         _detection_to_unassigned(d) for d in unassigned_detections
     ]
 
     # --- outcome ---
     missing_count = len(missing)
     found_count = len(found)
-    unassigned_count = len(unassigned)
+    unassigned_count = len(unassigned_list)
     all_found = (
         audit_ok
         and visible_label_count > 0
@@ -399,7 +402,7 @@ def _reshape(
     else:
         outcome = "complete"
 
-    result: dict[str, object] = {
+    result: dict[str, Any] = {
         "ok": True,
         "outcome": outcome,
         "audit_available": True,
@@ -407,7 +410,7 @@ def _reshape(
         "image_height": image_height,
         "found": found,
         "missing": missing,
-        "unassigned": unassigned,
+        "unassigned": unassigned_list,
         "summary": {
             "visible_label_count": visible_label_count,
             "found_count": found_count,
@@ -453,7 +456,7 @@ def _reshape(
     return result
 
 
-def _detection_to_unassigned(detection: dict) -> dict[str, object]:
+def _detection_to_unassigned(detection: dict) -> dict[str, Any]:
     """Convert a scanner detection dict to the unassigned product shape."""
     return {
         "barcode_value": detection.get("value"),
@@ -464,7 +467,7 @@ def _detection_to_unassigned(detection: dict) -> dict[str, object]:
 
 def _render_missing_annotation(
     image_path: Path,
-    missing: list[dict[str, object]],
+    missing: list[dict[str, Any]],
 ) -> tuple[str, int, int]:
     """Render an annotated preview PNG marking the missing regions.
 

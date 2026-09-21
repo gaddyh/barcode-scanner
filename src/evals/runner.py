@@ -142,7 +142,7 @@ def run_eval(*, scanner_only: bool = False, experiment_prefix: str = "barcode-sc
             recovery_gain,
             latency,
         ],
-        summary_evaluators=[aggregate_thresholds],
+        summary_evaluators=[aggregate_thresholds],  # type: ignore[list-item]
         experiment_prefix=experiment_prefix,
         description="Barcode-scanner offline evaluation (ingest_one)",
         max_concurrency=1,  # scanner is CPU-bound; avoid oversubscription

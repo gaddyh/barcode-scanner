@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "barcode-scanner-service"
 version = "0.1.0"
 description = "Deterministic barcode scanning API for product photos"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115,<1.0",
     "uvicorn[standard]>=0.34,<1.0",
@@ -15,7 +15,7 @@ dependencies = [
     "opencv-python-headless>=4.10,<5.0",
     "pydantic-settings>=2.7,<3.0",
     "zxing-cpp>=3.0,<4.0",
-    "numpy>=1.26,<3.0",
+    "numpy>=1.26,<2.0",
     "google-genai>=2.16,<3.0",
     "pydantic>=2.13,<3.0",
     "python-dotenv>=1.0,<2.0",
@@ -55,6 +55,24 @@ markers = [
     "asyncio: async tests using pytest-asyncio",
 ]
 
+[tool.coverage.run]
+omit = [
+    # WhatsApp/messaging is not part of the scanner product baseline.
+    "src/messaging/dialog360.py",
+    "src/messaging/transcribe.py",
+    "src/messaging/modal_client.py",
+    "src/messaging/transcription_factory.py",
+    # main.py is the WhatsApp webhook app — not part of the scanner product.
+    "src/main.py",
+]
+
+[tool.coverage.report]
+exclude_also = [
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
@@ -76,7 +94,7 @@ select = ["E", "F", "I", "UP", "B"]
 "tests/test_session_graph.py" = ["E501"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 mypy_path = "src"
 packages = ["src"]
 warn_return_any = true
@@ -98,5 +116,6 @@ module = [
     "asyncpg.*",
     "psycopg.*",
     "google.genai.*",
+    "numpy.*",
 ]
 ignore_missing_imports = true
