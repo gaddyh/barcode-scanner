@@ -135,12 +135,21 @@ export interface SessionResult {
 
 const PARTICIPANT_ID_KEY = "barcode_participant_id";
 
+// Debug mode: generate a fresh participant ID on every page load (each
+// refresh = new session). Enabled by URL hash #debug or localStorage flag.
+// Set localStorage["barcode_debug_sessions"] = "1" to persist across refreshes,
+// or append #debug to the URL for a one-off.
+const _debugSessions =
+  typeof window !== "undefined" &&
+  (window.location.hash.includes("debug") ||
+    localStorage.getItem("barcode_debug_sessions") === "1");
+
+// One fresh ID per page load when debugging. Stable across calls within
+// the same page lifetime so create + upload + submit share the same session.
+const _debugParticipantId = _debugSessions ? crypto.randomUUID() : null;
+
 export function getParticipantId(): string {
-  // Debug mode: generate a fresh participant ID on every call (each page
-  // refresh = new session). Set VITE_DEBUG_SESSIONS=1 to enable.
-  if (import.meta.env.VITE_DEBUG_SESSIONS === "1") {
-    return crypto.randomUUID();
-  }
+  if (_debugParticipantId) return _debugParticipantId;
   let id = localStorage.getItem(PARTICIPANT_ID_KEY);
   if (!id) {
     id = crypto.randomUUID();
