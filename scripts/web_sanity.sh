@@ -384,6 +384,39 @@ echo "  order_id: $ORDER_B"
 done_section
 
 # ===========================================================================
+# Flow B2: targeted retry — upload photo with missing → upload photo of
+#   the missing box (same barcode as existing) → verify missing resolved.
+#   This catches the bug where duplicate barcodes were filtered out and
+#   the missing slot was never resolved.
+# ===========================================================================
+log "Flow B2: targeted retry (missing box with known barcode → resolve)"
+
+RESP=$(curl -sf -X POST "$BASE/receiving/sessions" -F "participant_id=test-participant-retry")
+SESSION_B2=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['session_id'])")
+echo "  session: $SESSION_B2"
+
+# B2.1 — Upload topdown_12_labels_b (11/12 found, 1 missing)
+RESP=$(curl -sf -X POST "$BASE/receiving/sessions/$SESSION_B2/images" -F "file=@samples/topdown_12_labels_b.jpeg")
+BOXES_B2_1=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['boxes_added'])")
+MISSING_B2_1=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['missing_count'])")
+echo "  photo 1: boxes=$BOXES_B2_1 missing=$MISSING_B2_1"
+check "Flow B2 photo 1 boxes_added > 0" '[ "$BOXES_B2_1" -gt 0 ]'
+check "Flow B2 photo 1 missing > 0" '[ "$MISSING_B2_1" -gt 0 ]'
+
+# B2.2 — Upload a single box photo (one of the HQ samples)
+#   This should resolve one missing slot even if the barcode matches
+#   an already-found value (duplicate physical box).
+RESP=$(curl -sf -X POST "$BASE/receiving/sessions/$SESSION_B2/images" -F "file=@samples/naot_box_samples_HQ_1_to_12/boxes_01_HQ.png")
+BOXES_B2_2=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['boxes_added'])")
+MISSING_B2_2=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['missing_count'])")
+TOTAL_B2_2=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['total_boxes'])")
+echo "  photo 2: boxes_added=$BOXES_B2_2 total=$TOTAL_B2_2 missing=$MISSING_B2_2"
+check "Flow B2 photo 2 total_boxes > photo 1" '[ "$TOTAL_B2_2" -gt "$BOXES_B2_1" ]'
+check "Flow B2 photo 2 missing < photo 1" '[ "$MISSING_B2_2" -lt "$MISSING_B2_1" ]'
+
+done_section
+
+# ===========================================================================
 # Flow C: backwards-compatible (context up front)
 #   create(with ctx) → upload → submit (no separate /context call needed)
 # ===========================================================================

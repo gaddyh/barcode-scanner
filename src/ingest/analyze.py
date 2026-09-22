@@ -418,6 +418,16 @@ def _reshape(
         and missing_count == 0
     )
 
+    logger.info(
+        "analyze_image result: visible_labels=%d scanner_detections=%d "
+        "matches=%d unmatched_labels=%d unassigned=%d found=%d missing=%d "
+        "outcome=%s",
+        visible_label_count, len(scanner_detections),
+        len(matches), len(unmatched_labels), unassigned_count,
+        found_count, missing_count,
+        "needs_better_photo" if (missing_count > 0 or visible_label_count == 0) else "complete",
+    )
+
     if missing_count > 0 or visible_label_count == 0:
         outcome = "needs_better_photo"
     else:

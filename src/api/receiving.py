@@ -361,6 +361,13 @@ async def _traced_upload_image(
 
     ingest_participant_id = session.participant_id or session_id
 
+    logger.info(
+        "Receiving upload: session=%s participant=%s image_bytes=%d "
+        "existing_status=%s customer=%s branch=%s action=%s",
+        session_id, ingest_participant_id, len(image_bytes),
+        session.status, session.customer_id, session.branch_id, session.action,
+    )
+
     result = await run_session_graph(
         image_bytes,
         repo=repo,
@@ -370,6 +377,19 @@ async def _traced_upload_image(
         customer_id=session.customer_id,
         branch_id=session.branch_id,
         action=session.action,
+    )
+
+    logger.info(
+        "Receiving upload result: session=%s status=%s found=%d expected=%d "
+        "missing=%d image_count=%d items=%d outcome=%s "
+        "annotated=%s latest_status=%s latest_found=%d latest_missing=%d",
+        session_id, result.status.value, result.found_count,
+        result.expected_count, result.missing_count, result.image_count,
+        len(result.items), result.latest_image.status if result.latest_image else None,
+        bool(result.annotated_image_b64),
+        result.latest_image.status if result.latest_image else None,
+        result.latest_image.found_count if result.latest_image else 0,
+        result.latest_image.missing_count if result.latest_image else 0,
     )
 
     run = ls.get_current_run_tree()

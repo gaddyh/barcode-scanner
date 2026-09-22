@@ -50,7 +50,9 @@ logger = logging.getLogger(__name__)
 
 # Sessions that haven't received a photo in this long are lazily expired
 # on the next access. 30 minutes is generous for a user photographing
-# boxes on a shelf.
+# boxes on a shelf. Within the TTL, COMPLETE sessions are reused for
+# aggregation (the user can add more boxes to an already-complete
+# session). After the TTL, a new session is created.
 SESSION_INACTIVITY_TTL = timedelta(minutes=30)
 
 
@@ -85,11 +87,16 @@ async def run_session_graph(
     **Session resolution (unified for both channels):**
 
     - ``participant_id`` identifies the user across requests.
-      - Web: a UUID generated in the browser, stored in localStorage.
-      - Web: the participant UUID (localStorage).
-    - The server looks up the active session for this participant.
-    - If found and still active → reuse it.
-    - If not found, or complete/expired/closed → create a new session.
+      - Web: a UUID generated in the browser, per page load.
+      - Web: the participant UUID (per page load).
+    - The server looks up the active, needs_user_selection, or complete
+      session for this participant.
+    - If found → reuse it (including COMPLETE sessions, so the user can
+      aggregate more boxes).
+    - If not found → create a new session.
+    - A session only stops accepting images when it enters the
+      submission state machine (SUBMITTING/SUBMITTED) or the user starts
+      a new session (page refresh → new participant_id).
 
     The client never sends a ``session_id``. The server creates it
     internally and returns it in the response (for debugging/admin).
@@ -112,10 +119,11 @@ async def run_session_graph(
     from src.models.upload import generate_upload_id
 
     # --- Session resolution (unified for both channels) ---
-    # find_active_by_participant only returns status='active' sessions.
-    # If the session is complete/expired/closed, it won't be found, and a
-    # new session is created automatically — the user just sends another
-    # photo and gets a fresh session.
+    # find_active_by_participant returns active, needs_user_selection,
+    # or complete sessions. A COMPLETE session is included so the user
+    # can aggregate additional boxes into an already-complete session.
+    # Sessions are lazily expired after SESSION_INACTIVITY_TTL of
+    # inactivity; after that, a new session is created.
     existing = await repo.find_active_by_participant(channel, participant_id)
 
     session_id: str | None = None
@@ -133,6 +141,8 @@ async def run_session_graph(
                 await repo.expire_session(existing["id"])
             else:
                 session_id = existing["id"]
+        else:
+            session_id = existing["id"]
 
     if session_id is None:
         session_id = generate_upload_id()
@@ -181,6 +191,27 @@ async def run_session_graph(
     )
 
     image_result = _dict_to_image_result(raw, image_index)
+
+    logger.info(
+        "Session %s image %d analyzed: status=%s found=%d missing=%d "
+        "visible=%d audit=%s outcome=%s annotated=%s",
+        session_id, image_index, image_result.status,
+        image_result.found_count, image_result.missing_count,
+        image_result.visible_label_count, image_result.audit_available,
+        image_result.status, bool(image_result.annotated_image_b64),
+    )
+    if image_result.found:
+        logger.info(
+            "Session %s image %d found barcodes: %s",
+            session_id, image_index,
+            [f.barcode_value for f in image_result.found],
+        )
+    if image_result.missing:
+        logger.info(
+            "Session %s image %d missing labels: %s",
+            session_id, image_index,
+            [m.label_index for m in image_result.missing],
+        )
 
     # If this image's audit failed, don't create/update the session — return the error.
     if not image_result.audit_available and image_result.status == "retryable_error":
@@ -261,23 +292,70 @@ async def run_session_graph(
     # A subsequent photo is a TARGETED RETRY — "photograph only the missing
     # box(es)". Under this contract:
     #
-    # - Filter out already-known barcodes (neighbors from a wider photo).
-    #   The remaining are candidates that could resolve missing labels.
-    # - Do NOT dedup candidates by barcode value. Duplicate EANs represent
-    #   separate physical occurrences (e.g. two size-42 boxes in the same
-    #   retry photo are 2 candidates, not 1).
-    # - If candidate count <= missing slots: add all, resolve missing FIFO.
-    # - If candidate count > missing slots: AMBIGUOUS — return candidates
-    #   for user selection, do NOT silently add all.
-    known_barcodes = {i.barcode_value for i in existing_items}
-    new_found = [f for f in image_result.found if f.barcode_value not in known_barcodes]
+    # - If the session is COMPLETE (0 missing) and the photo has new barcodes:
+    #   treat as AGGREGATION — accept all new items, grow expected_count.
+    # - If the photo has ≤ missing slots barcodes: accept ALL as candidates,
+    #   even if some match existing barcode values. Duplicate EANs represent
+    #   separate physical occurrences — the missing box may have the same
+    #   product code as an already-found box.
+    # - If the photo has > missing slots barcodes: filter out already-known
+    #   values (they're likely neighbors from a wider frame). If the
+    #   remaining candidates still exceed missing slots → AMBIGUOUS, return
+    #   candidates for user selection. If 0 remain after filtering (all
+    #   duplicates), ask for a better photo — the user needs to photograph
+    #   only the missing boxes, not a wider frame with neighbors.
+    # - Do NOT dedup candidates by barcode value.
+    all_found = list(image_result.found)
+    all_count = len(all_found)
+    is_aggregation = False
+
+    if not is_new_session and missing_before_count == 0 and all_count > 0:
+        # Session is COMPLETE — treat as aggregation. Accept all NEW
+        # barcodes (not in known set). Grow expected_count to match.
+        known_barcodes = {i.barcode_value for i in existing_items}
+        new_found = [f for f in all_found if f.barcode_value not in known_barcodes]
+        is_aggregation = bool(new_found)
+    elif not is_new_session and all_count > missing_before_count:
+        # More barcodes than missing slots — filter known (neighbors).
+        known_barcodes = {i.barcode_value for i in existing_items}
+        new_found = [f for f in all_found if f.barcode_value not in known_barcodes]
+        # If 0 remain after filtering (all duplicates), do NOT accept —
+        # ask for a better photo with only the missing boxes.
+    else:
+        # ≤ missing slots — accept all (even duplicates of known values).
+        new_found = all_found
     new_count = len(new_found)
+
+    existing_barcodes = sorted({i.barcode_value for i in existing_items})
+    logger.info(
+        "Session %s merge: image_index=%d is_new=%s "
+        "image_found=%d image_missing=%d image_visible=%d "
+        "existing_items=%d existing_missing=%d unresolved=%d "
+        "existing_barcodes=%s new_found=%d new_count=%d "
+        "expected_count=%d expected_count_grew=%s",
+        session_id, image_index, is_new_session,
+        image_result.found_count, image_result.missing_count,
+        image_result.visible_label_count,
+        len(existing_items), len(existing_missing), missing_before_count,
+        existing_barcodes, len(new_found), new_count,
+        expected_count, expected_count_grew,
+    )
+    if new_found:
+        logger.info(
+            "Session %s new_found barcodes: %s",
+            session_id,
+            [f.barcode_value for f in new_found],
+        )
 
     candidates: list[SessionItem] = []
     needs_selection = False
 
     if is_new_session:
         # First image — add every found label.
+        logger.info(
+            "Session %s: first image, adding all %d found items",
+            session_id, len(image_result.found),
+        )
         for found in image_result.found:
             item = SessionItem(
                 barcode_value=found.barcode_value,
@@ -291,11 +369,47 @@ async def run_session_graph(
             inserted = await repo.add_item(session_id, item)
             if inserted:
                 existing_items.append(item)
+    elif is_aggregation:
+        # Session was COMPLETE — aggregation mode. Add all new items and
+        # grow expected_count to account for the additional boxes.
+        logger.info(
+            "Session %s: aggregation mode, adding %d new items",
+            session_id, new_count,
+        )
+        added = 0
+        for found in new_found:
+            item = SessionItem(
+                barcode_value=found.barcode_value,
+                barcode_format=found.barcode_format,
+                barcode_bbox=found.barcode_bbox,
+                label_bbox=found.label_bbox,
+                label_index=found.label_index,
+                match_basis=found.match_basis,
+                source_image=image_index,
+            )
+            inserted = await repo.add_item(session_id, item)
+            if inserted:
+                existing_items.append(item)
+                added += 1
+        # Grow expected_count by the number of new items added.
+        expected_count += added
+        logger.info(
+            "Session %s: expected_count grew %d → %d (aggregation)",
+            session_id, _expected_count_at_photo_start, expected_count,
+        )
     elif new_count == 0:
         # Nothing new — ask for a better photo.
+        logger.info(
+            "Session %s: no new barcodes found (all %d already known)",
+            session_id, len(image_result.found),
+        )
         pass
     elif new_count <= missing_before_count:
         # Exact or fewer — accept all new occurrences, resolve missing labels.
+        logger.info(
+            "Session %s: accepting %d new barcodes to resolve %d missing slots",
+            session_id, new_count, missing_before_count,
+        )
         for found in new_found:
             item = SessionItem(
                 barcode_value=found.barcode_value,
@@ -326,6 +440,10 @@ async def run_session_graph(
     else:
         # More candidates than missing slots — ambiguous. Don't add anything.
         # Return candidates for user selection.
+        logger.info(
+            "Session %s: AMBIGUOUS — %d new barcodes > %d missing slots, asking user to pick",
+            session_id, new_count, missing_before_count,
+        )
         needs_selection = True
         for found in new_found:
             candidates.append(SessionItem(
@@ -441,8 +559,10 @@ async def run_session_graph(
     )
 
     logger.info(
-        "Session %s: image %d processed — status=%s found=%d/%d missing=%d",
+        "Session %s: image %d processed — status=%s found=%d/%d missing=%d "
+        "items=%d unresolved_missing=%d",
         session_id, image_index, session_status.value, found_count, expected_count, missing_count,
+        len(existing_items), len(unresolved_missing),
     )
 
     return result
