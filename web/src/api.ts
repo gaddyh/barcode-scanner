@@ -136,6 +136,11 @@ export interface SessionResult {
 const PARTICIPANT_ID_KEY = "barcode_participant_id";
 
 export function getParticipantId(): string {
+  // Debug mode: generate a fresh participant ID on every call (each page
+  // refresh = new session). Set VITE_DEBUG_SESSIONS=1 to enable.
+  if (import.meta.env.VITE_DEBUG_SESSIONS === "1") {
+    return crypto.randomUUID();
+  }
   let id = localStorage.getItem(PARTICIPANT_ID_KEY);
   if (!id) {
     id = crypto.randomUUID();
