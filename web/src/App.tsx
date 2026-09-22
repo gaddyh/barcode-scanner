@@ -307,6 +307,17 @@ export default function App() {
                 <div style={styles.sessionMessage}>{imageResult.message}</div>
               )}
 
+              {/* Annotated image with red circles around missing boxes */}
+              {imageResult?.annotated_image_b64 && (
+                <div style={styles.annotatedImageWrap}>
+                  <img
+                    src={`data:image/png;base64,${imageResult.annotated_image_b64}`}
+                    alt="סימון קופסאות חסרות"
+                    style={styles.annotatedImage}
+                  />
+                </div>
+              )}
+
               {/* Needs user selection — show candidate buttons */}
               {needsSelection && imageResult?.candidates && (
                 <div style={styles.candidates}>
@@ -636,6 +647,18 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 14,
     fontWeight: 500,
     color: "#92400e",
+  },
+  annotatedImageWrap: {
+    marginTop: 12,
+    marginBottom: 12,
+    borderRadius: 8,
+    overflow: "hidden",
+    border: "1px solid #e5e7eb",
+  },
+  annotatedImage: {
+    display: "block",
+    width: "100%",
+    height: "auto",
   },
   candidates: { marginTop: 12, marginBottom: 12 },
   candidateRow: { display: "flex", flexWrap: "wrap", gap: 8 },

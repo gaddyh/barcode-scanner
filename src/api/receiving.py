@@ -411,6 +411,9 @@ async def _traced_upload_image(
         },
         "candidates": [c.model_dump(mode="json") for c in result.candidates],
         "message": result.message,
+        "annotated_image_b64": result.annotated_image_b64,
+        "annotated_image_width": result.annotated_image_width,
+        "annotated_image_height": result.annotated_image_height,
     }
 
 

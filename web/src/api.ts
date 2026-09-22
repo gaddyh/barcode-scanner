@@ -289,6 +289,9 @@ export interface ReceivingImageResponse {
   };
   candidates: SessionItem[];
   message: string | null;
+  annotated_image_b64?: string;
+  annotated_image_width?: number;
+  annotated_image_height?: number;
 }
 
 export interface ReceivingSubmitResponse {
