@@ -131,22 +131,15 @@ export interface SessionResult {
   } | null;
 }
 
-// --- Participant ID (stable client identity in localStorage) ---
+// --- Participant ID (one fresh session per page load) ---
 
-const PARTICIPANT_ID_KEY = "barcode_participant_id";
+// A fresh participant ID is generated on every page load, so each refresh
+// starts a new session. The ID is stable across calls within the same page
+// lifetime so create + upload + submit share the same session.
+const _participantId = crypto.randomUUID();
 
 export function getParticipantId(): string {
-  // Debug mode: generate a fresh participant ID on every call (each page
-  // refresh = new session). Set VITE_DEBUG_SESSIONS=1 to enable.
-  if (import.meta.env.VITE_DEBUG_SESSIONS === "1") {
-    return crypto.randomUUID();
-  }
-  let id = localStorage.getItem(PARTICIPANT_ID_KEY);
-  if (!id) {
-    id = crypto.randomUUID();
-    localStorage.setItem(PARTICIPANT_ID_KEY, id);
-  }
-  return id;
+  return _participantId;
 }
 
 // Same-origin by default (Docker/Render). Set VITE_API_BASE_URL for local dev.
