@@ -190,9 +190,9 @@ def test_feedback_missing_trace_id(client: pytest.fixture) -> None:
 
 
 def test_feedback_invalid_uuid(client: pytest.fixture) -> None:
-    """Invalid UUID for trace_id returns 422."""
+    """Empty trace_id returns 422."""
     response = client.post("/feedback", json={
-        "trace_id": "not-a-uuid",
+        "trace_id": "",
         "correct": True,
     })
     assert response.status_code == 422

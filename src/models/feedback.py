@@ -1,15 +1,13 @@
-from uuid import UUID
-
 from pydantic import BaseModel, Field
 
 
 class FeedbackRequest(BaseModel):
-    trace_id: UUID
+    trace_id: str = Field(min_length=1)
     correct: bool
     comment: str | None = Field(default=None, max_length=2000)
 
 
 class FeedbackResponse(BaseModel):
     status: str
-    trace_id: UUID
+    trace_id: str
     score: int
