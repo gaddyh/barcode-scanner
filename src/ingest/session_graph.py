@@ -431,6 +431,9 @@ async def run_session_graph(
         image_count=image_count,
         message=message,
         latest_image=image_result,
+        annotated_image_b64=image_result.annotated_image_b64,
+        annotated_image_width=image_result.annotated_image_width,
+        annotated_image_height=image_result.annotated_image_height,
         candidates=candidates if needs_selection else [],
         customer_id=customer_id,
         branch_id=branch_id,
@@ -616,4 +619,7 @@ def _dict_to_image_result(raw: dict[str, Any], image_index: int) -> ImageResult:
         elapsed_ms=raw.get("elapsed_ms", 0),
         audit_available=raw.get("audit_available", False),
         error=raw.get("error"),
+        annotated_image_b64=raw.get("annotated_image_b64"),
+        annotated_image_width=raw.get("annotated_image_width"),
+        annotated_image_height=raw.get("annotated_image_height"),
     )

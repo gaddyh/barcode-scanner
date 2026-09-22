@@ -103,6 +103,11 @@ class ImageResult(BaseModel):
     elapsed_ms: int = 0
     audit_available: bool = False
     error: dict[str, Any] | None = None
+    # Annotated preview PNG (base64) with red circles around missing regions.
+    # Only present when outcome == "needs_better_photo".
+    annotated_image_b64: str | None = None
+    annotated_image_width: int | None = None
+    annotated_image_height: int | None = None
 
 
 class SessionResult(BaseModel):
@@ -125,6 +130,12 @@ class SessionResult(BaseModel):
 
     # The result of the most recent image (for immediate display)
     latest_image: ImageResult | None = None
+
+    # Annotated preview PNG (base64) with red circles around missing regions.
+    # Passed through from the latest image when outcome == "needs_better_photo".
+    annotated_image_b64: str | None = None
+    annotated_image_width: int | None = None
+    annotated_image_height: int | None = None
 
     # When status == NEEDS_USER_SELECTION: the candidate barcodes from the
     # latest image that the user must choose from to resolve missing labels.
