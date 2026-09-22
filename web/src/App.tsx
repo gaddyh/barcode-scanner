@@ -287,75 +287,93 @@ export default function App() {
                   {receivingSession.expected_count})
                 </div>
               )}
+            </>
+          ) : receivingSession.expected_count > 0 ? (
+            // Gemini detected boxes but no barcodes decoded yet.
+            <div style={styles.promptMore}>
+              זוהו {receivingSession.box_count} מתוך{" "}
+              {receivingSession.expected_count}.{" "}
+              {receivingSession.discrepancy.missing === 1
+                ? "צלם עכשיו רק את הקופסה החסרה."
+                : `צלם עכשיו את ${receivingSession.discrepancy.missing} הקופסאות החסרות.`}
+            </div>
+          ) : (
+            // Active session, no boxes yet — first image still processing or empty.
+            <div style={styles.muted}>הסריקה התחילה — צלם את הקופסאות.</div>
+          )}
 
-              {/* Add more photos */}
-              <div style={styles.inputRow}>
-                <label style={styles.secondaryButton}>
-                  📷 הוסף צילום
-                  <input
-                    hidden
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    onChange={(e) => handleFile(e, "camera")}
-                  />
-                </label>
+          {/* Add more photos — shown whenever session is active and Gemini
+              has detected boxes (expected_count > 0), even if 0 barcodes
+              were decoded. */}
+          {receivingSession.expected_count > 0 && (
+            <div style={styles.inputRow}>
+              <label style={styles.secondaryButton}>
+                📷 הוסף צילום
+                <input
+                  hidden
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={(e) => handleFile(e, "camera")}
+                />
+              </label>
+            </div>
+          )}
+
+          {/* Image upload message */}
+          {imageResult?.message && (
+            <div style={styles.sessionMessage}>{imageResult.message}</div>
+          )}
+
+          {/* Annotated image with red circles around missing boxes */}
+          {imageResult?.annotated_image_b64 && (
+            <div style={styles.annotatedImageWrap}>
+              <img
+                src={`data:image/png;base64,${imageResult.annotated_image_b64}`}
+                alt="סימון קופסאות חסרות"
+                style={styles.annotatedImage}
+              />
+            </div>
+          )}
+
+          {/* Needs user selection — show candidate buttons */}
+          {needsSelection && imageResult?.candidates && (
+            <div style={styles.candidates}>
+              <h3 style={styles.h3}>בחר ברקוד להוספה:</h3>
+              <div style={styles.candidateRow}>
+                {imageResult.candidates.map((c, i) => (
+                  <span key={i} style={styles.candidateBtn}>
+                    {c.barcode_value}
+                  </span>
+                ))}
               </div>
+              <p style={styles.muted}>
+                בחירת מועמדים עדיין לא מחוברת בזרימת הקליטה.
+              </p>
+            </div>
+          )}
 
-              {/* Image upload message */}
-              {imageResult?.message && (
-                <div style={styles.sessionMessage}>{imageResult.message}</div>
-              )}
-
-              {/* Annotated image with red circles around missing boxes */}
-              {imageResult?.annotated_image_b64 && (
-                <div style={styles.annotatedImageWrap}>
-                  <img
-                    src={`data:image/png;base64,${imageResult.annotated_image_b64}`}
-                    alt="סימון קופסאות חסרות"
-                    style={styles.annotatedImage}
-                  />
-                </div>
-              )}
-
-              {/* Needs user selection — show candidate buttons */}
-              {needsSelection && imageResult?.candidates && (
-                <div style={styles.candidates}>
-                  <h3 style={styles.h3}>בחר ברקוד להוספה:</h3>
-                  <div style={styles.candidateRow}>
-                    {imageResult.candidates.map((c, i) => (
-                      <span key={i} style={styles.candidateBtn}>
-                        {c.barcode_value}
-                      </span>
-                    ))}
-                  </div>
-                  <p style={styles.muted}>
-                    בחירת מועמדים עדיין לא מחוברת בזרימת הקליטה.
-                  </p>
-                </div>
-              )}
-
-              {/* Choose action — only if context not yet attached */}
-              {!choosingContext && (
-                <>
-                  <h3 style={styles.h3}>מה תרצה לעשות?</h3>
-                  <div style={styles.actionRow}>
-                    <button
-                      onClick={() => setAction("create_order")}
-                      style={styles.actionBtn}
-                    >
-                      צור הזמנה
-                    </button>
-                    <button
-                      disabled
-                      title="בקרוב"
-                      style={{ ...styles.actionBtn, ...styles.actionDisabled }}
-                    >
-                      בדיקת הזמנה — בקרוב
-                    </button>
-                  </div>
-                </>
-              )}
+          {/* Choose action — only if context not yet attached */}
+          {!choosingContext && receivingSession.box_count > 0 && (
+            <>
+              <h3 style={styles.h3}>מה תרצה לעשות?</h3>
+              <div style={styles.actionRow}>
+                <button
+                  onClick={() => setAction("create_order")}
+                  style={styles.actionBtn}
+                >
+                  צור הזמנה
+                </button>
+                <button
+                  disabled
+                  title="בקרוב"
+                  style={{ ...styles.actionBtn, ...styles.actionDisabled }}
+                >
+                  בדיקת הזמנה — בקרוב
+                </button>
+              </div>
+            </>
+          )}
 
               {/* Choose context — customer + branch */}
               {choosingContext && (
@@ -438,11 +456,6 @@ export default function App() {
                   </button>
                 </div>
               )}
-            </>
-          ) : (
-            // Active session, no boxes yet — first image still processing or empty.
-            <div style={styles.muted}>הסריקה התחילה — צלם את הקופסאות.</div>
-          )}
         </div>
       )}
 
