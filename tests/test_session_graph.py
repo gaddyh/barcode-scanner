@@ -139,7 +139,12 @@ async def test_session_second_image_resolves_missing(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_session_dedup_across_images(tmp_path: Path) -> None:
-    """Same barcode in both photos → counted once, not twice."""
+    """Same barcode in both photos → counted once, not twice.
+
+    A COMPLETE session is reused (not closed) so the user can aggregate
+    more boxes. If the second photo has only duplicate barcodes, nothing
+    new is added — the session stays at the same count.
+    """
     repo = NoOpSessionRepository()
     img = tmp_path / "img.png"
     img.write_bytes(b"fake")
@@ -174,15 +179,15 @@ async def test_session_dedup_across_images(tmp_path: Path) -> None:
     assert result1.status == SessionStatus.COMPLETE
     session1 = result1.session_id
 
-    # Session is complete — second photo starts a NEW session (not rejected).
-    # The old session is immutable; the new photo begins fresh accumulation.
+    # Session is complete — second photo reuses the SAME session
+    # (aggregation mode). Duplicate barcodes are not double-counted.
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock2)):
         result2 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
 
-    assert result2.session_id != session1  # new session
+    assert result2.session_id == session1  # same session
     assert result2.status == SessionStatus.COMPLETE
-    assert result2.found_count == 2  # fresh session, 2 found in this photo
-    assert result2.image_count == 1  # first image of new session
+    assert result2.found_count == 2  # no new boxes added (all duplicates)
+    assert result2.image_count == 2  # second image of same session
 
 
 @pytest.mark.asyncio
@@ -793,8 +798,8 @@ async def test_session_resume_after_failure(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_session_reject_photo_on_complete(tmp_path: Path) -> None:
-    """Complete session + new photo → rejected, not silently reopened."""
+async def test_session_aggregate_on_complete(tmp_path: Path) -> None:
+    """Complete session + new photo with new barcodes → aggregated, not rejected."""
     repo = NoOpSessionRepository()
     img = tmp_path / "img.png"
     img.write_bytes(b"fake")
@@ -817,7 +822,8 @@ async def test_session_reject_photo_on_complete(tmp_path: Path) -> None:
     assert result1.status == SessionStatus.COMPLETE
     session1 = result1.session_id
 
-    # Session is complete — next photo starts a NEW session automatically.
+    # Session is complete — next photo with NEW barcodes aggregates into
+    # the SAME session (not rejected, not a new session).
     mock2 = {
         "outcome": "complete",
         "audit_available": True,
@@ -830,10 +836,10 @@ async def test_session_reject_photo_on_complete(tmp_path: Path) -> None:
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock2)):
         result2 = await run_session_graph(img, repo=repo, channel="web", participant_id="test-user-1")
 
-    assert result2.session_id != session1  # new session
+    assert result2.session_id == session1  # same session
     assert result2.status == SessionStatus.COMPLETE
-    assert result2.found_count == 1  # fresh session
-    assert result2.image_count == 1  # first image of new session
+    assert result2.found_count == 3  # 2 original + 1 new
+    assert result2.image_count == 2  # second image of same session
 
 
 @pytest.mark.asyncio
@@ -977,8 +983,11 @@ async def test_session_resolved_by_participant(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_complete_starts_new_session(tmp_path: Path) -> None:
-    """When session is complete, next photo starts a new session."""
+async def test_complete_then_aggregate_same_session(tmp_path: Path) -> None:
+    """When session is complete, next photo with new barcodes aggregates
+    into the SAME session (not a new one). Duplicate barcodes are not
+    double-counted.
+    """
     repo = NoOpSessionRepository()
     img = tmp_path / "img.png"
     img.write_bytes(b"fake")
@@ -995,6 +1004,18 @@ async def test_complete_starts_new_session(tmp_path: Path) -> None:
         "summary": {"visible_label_count": 2, "found_count": 2, "missing_count": 0},
     }
 
+    mock_more = {
+        "outcome": "complete",
+        "audit_available": True,
+        "found": [
+            {"barcode_value": "333", "label_index": 1},
+            {"barcode_value": "444", "label_index": 2},
+        ],
+        "missing": [],
+        "unassigned": [],
+        "summary": {"visible_label_count": 2, "found_count": 2, "missing_count": 0},
+    }
+
     # First photo — completes the session.
     with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock_complete)):
         result1 = await run_session_graph(
@@ -1004,16 +1025,17 @@ async def test_complete_starts_new_session(tmp_path: Path) -> None:
     assert result1.status == SessionStatus.COMPLETE
     session1 = result1.session_id
 
-    # Second photo — session is complete, should start a new session.
-    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock_complete)):
+    # Second photo — session is complete, new barcodes → aggregate into
+    # the SAME session (not a new one).
+    with patch("src.ingest.analyze.analyze_image_async", new=AsyncMock(return_value=mock_more)):
         result2 = await run_session_graph(
             img, repo=repo, channel="web", participant_id="user-alpha"
         )
 
-    assert result2.session_id != session1  # new session
+    assert result2.session_id == session1  # same session
     assert result2.status == SessionStatus.COMPLETE
-    assert result2.found_count == 2
-    assert result2.image_count == 1  # first image of new session
+    assert result2.found_count == 4  # 2 original + 2 new
+    assert result2.image_count == 2  # second image of same session
 
 
 @pytest.mark.asyncio
